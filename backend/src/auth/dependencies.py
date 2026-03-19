@@ -1,12 +1,12 @@
 from typing import Annotated
 
+import jwt
 from fastapi import Depends
-from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.constants import Role
 from src.auth.models import User
-from src.auth.repository import UserRepository
+from src.auth.repository import RefreshTokenRepository, UserRepository
 from src.auth.service import AuthService
 from src.core.config import settings
 from src.core.database import get_db
@@ -15,7 +15,7 @@ from src.core.security import oauth2_scheme
 
 
 def get_auth_service(db: AsyncSession = Depends(get_db)) -> AuthService:
-    return AuthService(UserRepository(db))
+    return AuthService(UserRepository(db), RefreshTokenRepository(db))
 
 
 async def get_current_user(
@@ -27,7 +27,7 @@ async def get_current_user(
         account: str | None = payload.get("sub")
         if account is None:
             raise UnauthorizedException(detail="Could not validate credentials")
-    except JWTError as e:
+    except jwt.PyJWTError as e:
         raise UnauthorizedException(detail="Could not validate credentials") from e
 
     return await service.get_user_by_account(account)

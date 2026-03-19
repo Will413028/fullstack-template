@@ -7,9 +7,9 @@ from src.core.config import settings
 engine = create_async_engine(
     settings.async_database_url,
     echo=settings.MODE == "dev",
-    pool_size=20,
-    max_overflow=10,
-    pool_recycle=300,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_recycle=settings.DB_POOL_RECYCLE,
 )
 
 async_session_factory = async_sessionmaker(

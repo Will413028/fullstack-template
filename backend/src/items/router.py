@@ -55,6 +55,7 @@ async def list_my_items(
 @router.get("/{item_id}", response_model=DataResponse[ItemResponse])
 async def get_item(
     item_id: int,
+    current_user: User = Depends(get_current_active_user),
     service: ItemService = Depends(get_item_service),
 ):
     item = await service.get_item(item_id)

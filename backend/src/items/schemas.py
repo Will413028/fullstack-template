@@ -1,3 +1,5 @@
+import datetime
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -18,3 +20,5 @@ class ItemResponse(BaseModel):
     title: str
     description: str | None
     owner_id: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 # Import all models so Alembic can detect them
-from src.auth.models import User  # noqa: F401
+from src.auth.models import RefreshToken, User  # noqa: F401
 from src.core.config import settings
 from src.core.models.base import Base
 from src.items.models import Item  # noqa: F401

@@ -1,7 +1,9 @@
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt
 from passlib.context import CryptContext
 
 from src.core.config import settings
@@ -24,3 +26,10 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def create_refresh_token() -> tuple[str, str]:
+    """Generate a refresh token. Returns (raw_token, token_hash)."""
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    return raw_token, token_hash
