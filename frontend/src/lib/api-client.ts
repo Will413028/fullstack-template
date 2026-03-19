@@ -1,3 +1,5 @@
+import { getCookie } from "./cookies";
+
 export class ApiError extends Error {
   status: number;
   errors?: Record<string, string[]>;
@@ -19,15 +21,7 @@ type RequestOptions = Omit<RequestInit, "method" | "body"> & {
 };
 
 function getBaseUrl(): string {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "";
-  }
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-}
-
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("auth_token");
 }
 
 async function request<T>(
@@ -45,14 +39,18 @@ async function request<T>(
     }
   }
 
-  const token = getAuthToken();
+  const token = getCookie("auth_token");
   const headers = new Headers(options?.headers);
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  if (body && !headers.has("Content-Type")) {
+  if (
+    body &&
+    !(body instanceof URLSearchParams) &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -60,11 +58,21 @@ async function request<T>(
     ...options,
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    credentials: "include",
+    body:
+      body instanceof URLSearchParams
+        ? body
+        : body
+          ? JSON.stringify(body)
+          : undefined,
   });
 
   if (!response.ok) {
-    let errorData: { message?: string; errors?: Record<string, string[]> } = {};
+    let errorData: {
+      detail?: string;
+      message?: string;
+      errors?: Record<string, string[]>;
+    } = {};
     try {
       errorData = await response.json();
     } catch {
@@ -72,7 +80,7 @@ async function request<T>(
     }
     throw new ApiError(
       response.status,
-      errorData.message || response.statusText,
+      errorData.detail || errorData.message || response.statusText,
       errorData.errors,
     );
   }

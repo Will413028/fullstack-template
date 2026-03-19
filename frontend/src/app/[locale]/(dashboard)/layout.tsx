@@ -67,6 +67,7 @@ export default function DashboardLayout({
           type="button"
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar overlay"
         />
       )}
 
@@ -78,8 +79,14 @@ export default function DashboardLayout({
             type="button"
             className="lg:hidden p-2 text-zinc-400 hover:text-white"
             onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+            aria-expanded={sidebarOpen}
           >
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            {sidebarOpen ? (
+              <X size={20} aria-hidden="true" />
+            ) : (
+              <Menu size={20} aria-hidden="true" />
+            )}
           </button>
           <div className="flex-1" />
           <div className="w-8 h-8 rounded-full bg-zinc-700" />

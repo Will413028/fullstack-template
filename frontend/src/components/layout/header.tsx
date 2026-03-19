@@ -59,9 +59,12 @@ export default function Navigation() {
             <button
               type="button"
               onClick={() => setLocaleMenuOpen(!localeMenuOpen)}
+              aria-label="Switch language"
+              aria-expanded={localeMenuOpen}
+              aria-haspopup="listbox"
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-all duration-200 text-sm"
             >
-              <Globe size={14} />
+              <Globe size={14} aria-hidden="true" />
               {localeLabels[locale] || locale}
             </button>
             {localeMenuOpen && (
@@ -90,8 +93,14 @@ export default function Navigation() {
           type="button"
           className="md:hidden p-2 text-zinc-400 hover:text-white transition-colors"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={mobileMenuOpen}
         >
-          {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          {mobileMenuOpen ? (
+            <X size={24} aria-hidden="true" />
+          ) : (
+            <Menu size={24} aria-hidden="true" />
+          )}
         </button>
       </div>
 

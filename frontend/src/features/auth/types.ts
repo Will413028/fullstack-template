@@ -1,18 +1,17 @@
 export interface LoginCredentials {
-  email: string;
+  account: string;
   password: string;
 }
 
-export interface AuthResponse {
-  user: {
-    id: string;
-    email: string;
-    name: string;
-  };
-  token: string;
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
 }
 
-export interface AuthState {
-  user: AuthResponse["user"] | null;
-  isAuthenticated: boolean;
+export interface UserResponse {
+  id: number;
+  account: string;
+  is_disabled: boolean;
+  role: number;
 }

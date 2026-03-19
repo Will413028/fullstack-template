@@ -9,13 +9,15 @@ const localePrefix = new RegExp(`^/(${routing.locales.join("|")})`);
 const protectedPaths = ["/overview"];
 const authPaths = ["/login", "/register", "/forgot-password"];
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.unsplash.com",
   "font-src 'self'",
-  "connect-src 'self'",
+  `connect-src 'self' ${apiUrl}`,
   "frame-ancestors 'none'",
 ].join("; ");
 

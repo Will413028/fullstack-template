@@ -1,16 +1,31 @@
 import { apiClient } from "@/lib/api-client";
-import type { AuthResponse, LoginCredentials } from "../types";
+import type { LoginCredentials, TokenPair, UserResponse } from "../types";
 
 export const authApi = {
-  login(credentials: LoginCredentials): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>("/auth/login", credentials);
+  login(credentials: LoginCredentials): Promise<TokenPair> {
+    const formData = new URLSearchParams();
+    formData.append("username", credentials.account);
+    formData.append("password", credentials.password);
+    return apiClient.post<TokenPair>("/auth/login", formData);
   },
 
-  logout(): Promise<void> {
-    return apiClient.post<void>("/auth/logout");
+  register(credentials: LoginCredentials): Promise<TokenPair> {
+    return apiClient.post<TokenPair>("/auth/register", credentials);
   },
 
-  getMe(): Promise<AuthResponse["user"]> {
-    return apiClient.get<AuthResponse["user"]>("/auth/me");
+  refresh(refreshToken: string): Promise<TokenPair> {
+    return apiClient.post<TokenPair>("/auth/refresh", {
+      refresh_token: refreshToken,
+    });
+  },
+
+  logout(refreshToken: string): Promise<void> {
+    return apiClient.post<void>("/auth/logout", {
+      refresh_token: refreshToken,
+    });
+  },
+
+  getMe(): Promise<{ data: UserResponse }> {
+    return apiClient.get<{ data: UserResponse }>("/auth/me");
   },
 };

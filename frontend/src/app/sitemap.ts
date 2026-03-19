@@ -3,7 +3,7 @@ import { routing } from "@/i18n/routing";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://example.com";
-  const pages = ["/"];
+  const pages = ["/", "/login"];
 
   return pages.flatMap((page) =>
     routing.locales.map((locale) => ({
