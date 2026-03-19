@@ -1,0 +1,26 @@
+pre-commit:
+  parallel: true
+  commands:
+    frontend-lint:
+      root: frontend/
+      glob: "*.{ts,tsx}"
+      run: npx --no -- biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+      priority: 1
+    frontend-types:
+      root: frontend/
+      glob: "*.{ts,tsx}"
+      run: pnpm tsc --noEmit
+      priority: 2
+    backend-lint:
+      root: backend/
+      glob: "*.py"
+      run: uv run ruff check --fix {staged_files}
+      stage_fixed: true
+      priority: 1
+    backend-format:
+      root: backend/
+      glob: "*.py"
+      run: uv run ruff format {staged_files}
+      stage_fixed: true
+      priority: 1
