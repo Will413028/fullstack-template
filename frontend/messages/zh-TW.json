@@ -1,0 +1,40 @@
+{
+  "common": {
+    "home": "首頁",
+    "loading": "載入中...",
+    "error": "發生錯誤",
+    "noResults": "沒有結果",
+    "cancel": "取消",
+    "confirm": "確認",
+    "send": "送出",
+    "learnMore": "了解更多",
+    "goHome": "回首頁"
+  },
+  "nav": {
+    "home": "首頁",
+    "dashboard": "儀表板"
+  },
+  "home": {
+    "title": "Fullstack Template",
+    "description": "使用 Next.js、FastAPI 和 k3s 建構的 Production-ready 全端範本。"
+  },
+  "footer": {
+    "brand": "Fullstack Template",
+    "home": "首頁",
+    "copyright": "保留所有權利。"
+  },
+  "auth": {
+    "login": "登入",
+    "register": "註冊",
+    "logout": "登出",
+    "email": "電子郵件",
+    "password": "密碼",
+    "forgotPassword": "忘記密碼？",
+    "noAccount": "還沒有帳號？",
+    "hasAccount": "已經有帳號？"
+  },
+  "dashboard": {
+    "overview": "總覽",
+    "settings": "設定"
+  }
+}

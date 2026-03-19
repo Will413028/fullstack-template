@@ -1,0 +1,40 @@
+{
+  "common": {
+    "home": "Home",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "noResults": "No results found",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "send": "Send",
+    "learnMore": "Learn More",
+    "goHome": "Go Home"
+  },
+  "nav": {
+    "home": "Home",
+    "dashboard": "Dashboard"
+  },
+  "home": {
+    "title": "Fullstack Template",
+    "description": "A production-ready fullstack template with Next.js, FastAPI, and k3s."
+  },
+  "footer": {
+    "brand": "Fullstack Template",
+    "home": "Home",
+    "copyright": "All rights reserved."
+  },
+  "auth": {
+    "login": "Sign In",
+    "register": "Sign Up",
+    "logout": "Sign Out",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot Password?",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?"
+  },
+  "dashboard": {
+    "overview": "Overview",
+    "settings": "Settings"
+  }
+}
