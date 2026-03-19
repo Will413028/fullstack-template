@@ -83,3 +83,43 @@ status:
 .PHONY: restart
 restart:
 	kubectl rollout restart deployment -n $(NAMESPACE) --all
+
+# --- Seed ---
+
+.PHONY: seed
+seed:
+	@echo "Creating admin user..."
+	kubectl exec -n $(NAMESPACE) deploy/backend -- /app/.venv/bin/python -c "\
+	import asyncio; \
+	from src.core.database import async_session_factory; \
+	from src.auth.models import User; \
+	from src.core.security import get_password_hash; \
+	from src.auth.constants import Role; \
+	async def seed(): \
+	    async with async_session_factory() as s: \
+	        from sqlalchemy import select; \
+	        exists = (await s.execute(select(User).where(User.account == 'admin'))).scalar_one_or_none(); \
+	        if exists: print('Admin already exists'); return; \
+	        s.add(User(account='admin', password=get_password_hash('Admin123'), role=Role.ADMIN.value)); \
+	        await s.commit(); print('Admin created (account: admin, password: Admin123)'); \
+	asyncio.run(seed())"
+
+# --- Rename ---
+
+.PHONY: rename
+rename:
+ifndef NAME
+	$(error NAME is required. Usage: make rename NAME=my-project)
+endif
+	@echo "Renaming project to '$(NAME)'..."
+	@sed -i '' 's/fullstack-backend/$(NAME)-backend/g' Makefile
+	@sed -i '' 's/fullstack-frontend/$(NAME)-frontend/g' Makefile
+	@sed -i '' 's/CLUSTER = fullstack/CLUSTER = $(NAME)/g' Makefile
+	@sed -i '' 's/NAMESPACE = fullstack/NAMESPACE = $(NAME)/g' Makefile
+	@find k8s -name '*.yaml' -exec sed -i '' 's/fullstack/$(NAME)/g' {} +
+	@sed -i '' 's/fullstack-template-frontend/$(NAME)-frontend/g' frontend/package.json
+	@sed -i '' 's/fastapi-template/$(NAME)-backend/g' backend/pyproject.toml
+	@sed -i '' 's/Fullstack Template/$(NAME)/g' frontend/src/app/layout.tsx frontend/messages/en.json frontend/messages/zh-TW.json CLAUDE.md README.md
+	@sed -i '' 's/fullstack/$(NAME)/g' .env-example
+	@echo "Done! Review changes with: git diff"
+	@echo "Don't forget to update .env if it exists."
