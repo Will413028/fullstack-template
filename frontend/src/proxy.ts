@@ -21,7 +21,7 @@ const csp = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export default function middleware(request: NextRequest) {
+export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const pathnameWithoutLocale = pathname.replace(localePrefix, "") || "/";
