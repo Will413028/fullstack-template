@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.core.config import settings
 from src.core.models.base import Base
 
+# Import all models so Base.metadata knows about them for create_all
+import src.auth.models  # noqa: F401
+import src.items.models  # noqa: F401
+
 _RUN_ID = uuid.uuid4().hex[:6]
 TEST_USER = {"account": f"testuser_{_RUN_ID}", "password": "TestPass1"}
 TEST_USER_2 = {"account": f"testuser2_{_RUN_ID}", "password": "TestPass2"}
