@@ -4,7 +4,7 @@ Production-ready fullstack monorepo for client projects.
 
 **Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, JWT + refresh tokens)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n)
-**Infra:** k3d/k3s (Kubernetes, same workflow on macOS and Linux)
+**Infra:** k3s (Kubernetes)
 
 ## Prerequisites
 

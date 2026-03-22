@@ -214,7 +214,7 @@ print(user.items)  # MissingGreenlet error!
 
 ## 連線池最佳實踐
 
-來自生產環境踩坑經驗，以下設定可避免連線池耗盡與服務啟動 hang 住：
+以下設定可避免連線池耗盡與服務啟動 hang 住：
 
 ### connect_timeout 必設
 
