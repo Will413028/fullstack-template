@@ -19,7 +19,6 @@ class ProcessTimeMiddleware:
 
         async def send_with_timing(message: Message) -> None:
             if message["type"] == "http.response.start":
-                headers = dict(message.get("headers", []))
                 process_time = f"{time.perf_counter() - start:.4f}"
                 message["headers"] = [
                     *message.get("headers", []),
