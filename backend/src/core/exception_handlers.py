@@ -20,9 +20,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         errors = exc.errors()
-        detail = "; ".join(
-            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors
-        )
+        detail = "; ".join(f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors)
         return JSONResponse(
             status_code=422,
             content={"detail": detail},

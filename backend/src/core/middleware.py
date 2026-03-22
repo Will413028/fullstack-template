@@ -3,7 +3,6 @@ import uuid
 
 import structlog
 from starlette.requests import Request
-from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 

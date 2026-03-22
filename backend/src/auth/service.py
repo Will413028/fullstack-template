@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
 from src.auth.models import RefreshToken, User
-from src.core.logging import logger
 from src.auth.repository import RefreshTokenRepository, UserRepository
 from src.auth.schemas import UserCreateInput
 from src.core.config import settings
@@ -10,6 +9,7 @@ from src.core.exceptions import (
     NotFoundException,
     UnauthorizedException,
 )
+from src.core.logging import logger
 from src.core.security import (
     create_access_token,
     create_refresh_token,

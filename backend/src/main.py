@@ -10,7 +10,11 @@ from src.core.config import settings
 from src.core.database import engine
 from src.core.exception_handlers import register_exception_handlers
 from src.core.logging import logger
-from src.core.middleware import ProcessTimeMiddleware, RequestIdMiddleware, SecurityHeadersMiddleware
+from src.core.middleware import (
+    ProcessTimeMiddleware,
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+)
 from src.health.router import router as health_router
 from src.items.router import router as items_router
 

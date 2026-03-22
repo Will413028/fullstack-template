@@ -101,9 +101,7 @@ async def test_delete_item(client: AsyncClient, auth_header):
 
 
 @pytest.mark.asyncio
-async def test_update_other_users_item(
-    client: AsyncClient, auth_header, auth_header_2
-):
+async def test_update_other_users_item(client: AsyncClient, auth_header, auth_header_2):
     # User 1 creates item
     create_resp = await client.post(
         "/items",
