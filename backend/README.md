@@ -77,23 +77,3 @@ uv add <library_name>
 ```bash
 uv add --dev <library_name>
 ```
-
-
-
-
-
-高流量取資料
-後端server  -> request 拿 iot 設備的資料 ->  寫入  mq ->  同一個 server 背景 process 收 mq (一分鐘一次)批量寫入db
-
-
-低流量取資料
-後端server  -> request 拿 iot 設備的資料 ->  寫入 db
-
-
-
-
-
-生報表
-
-存資料讓其他公司取用
-分析是另外一個公司
