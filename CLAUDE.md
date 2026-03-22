@@ -1,6 +1,23 @@
 # Fullstack Template
 
-Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and k3d/k3s deployment.
+Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and k3s deployment.
+
+## Development Workflow（必讀）
+
+**所有功能開發和修改必須使用 OpenSpec workflow：**
+
+1. **開始新功能前**：先執行 `/openspec-propose` 產生 change proposal（含 design、spec、tasks）
+2. **實作時**：執行 `/openspec-apply-change` 按 task 順序逐一實作
+3. **探索/釐清需求時**：執行 `/openspec-explore` 進入思考模式
+4. **完成後**：執行 `/openspec-archive-change` 歸檔
+
+**不要跳過 OpenSpec 直接寫程式碼。** 這確保每次修改都有設計文件、明確的 task breakdown、和可追溯的決策記錄。
+
+**每個功能必須包含單元測試才算完成：**
+- 每個新增的 module / function 都要有對應的測試
+- Backend 測試用 `pytest`，Frontend 測試用 `vitest`
+- 測試必須通過 CI（`make test` / `pnpm test`）才能視為 task completed
+- Coverage target: backend 80%+, frontend 合理覆蓋關鍵路徑
 
 ## Monorepo Structure
 

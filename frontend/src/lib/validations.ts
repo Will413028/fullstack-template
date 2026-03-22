@@ -18,11 +18,6 @@ export const paginationSchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20),
 });
 
-export const loginSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-});
-
 export const contactFormSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
   email: emailSchema,
@@ -33,6 +28,5 @@ export const contactFormSchema = z.object({
 });
 
 // Type helpers
-export type LoginInput = z.infer<typeof loginSchema>;
 export type ContactFormInput = z.infer<typeof contactFormSchema>;
 export type PaginationInput = z.infer<typeof paginationSchema>;

@@ -30,8 +30,14 @@
     "react-hook-form": "^7.71.2",
     "tailwind-merge": "^3.3.0",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^4.3.6",
-    "zustand": "^5.0.11"
+    "zod": "^4.3.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@swc/core",
+      "sharp"
+    ]
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",

@@ -9,10 +9,6 @@ class DataResponse(BaseModel, Generic[T]):
     data: T
 
 
-class ListDataResponse(BaseModel, Generic[T]):
-    data: list[T]
-
-
 class PaginatedResponse(BaseModel, Generic[T]):
     data: list[T]
     total: int = Field(..., examples=[100])

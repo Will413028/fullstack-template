@@ -1,10 +1,10 @@
 import re
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class UserCreateInput(BaseModel):
-    account: str
+    account: str = Field(..., min_length=3, max_length=50)
     password: str
 
     @field_validator("password")

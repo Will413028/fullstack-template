@@ -17,15 +17,9 @@ class UserRepository(BaseRepository[User]):
         return result.scalar_one_or_none()
 
 
-class RefreshTokenRepository:
+class RefreshTokenRepository(BaseRepository[RefreshToken]):
     def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def create(self, token: RefreshToken) -> RefreshToken:
-        self.session.add(token)
-        await self.session.flush()
-        await self.session.refresh(token)
-        return token
+        super().__init__(RefreshToken, session)
 
     async def get_by_token(self, raw_token: str) -> RefreshToken | None:
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()

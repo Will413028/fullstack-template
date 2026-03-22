@@ -1,22 +1,9 @@
 "use client";
 
-import {
-  LayoutDashboard,
-  Menu,
-  Package,
-  Settings,
-  Users,
-  X,
-} from "lucide-react";
+import { LayoutDashboard, Menu, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
-
-const sidebarLinks = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/products", label: "Products", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
 
 export default function DashboardLayout({
   children,
@@ -25,6 +12,11 @@ export default function DashboardLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const t = useTranslations("dashboard");
+
+  const sidebarLinks = [
+    { href: "/overview" as const, labelKey: "overview", icon: LayoutDashboard },
+  ];
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] flex">
@@ -54,7 +46,7 @@ export default function DashboardLayout({
                 }`}
               >
                 <link.icon size={18} />
-                {link.label}
+                {t(link.labelKey)}
               </Link>
             );
           })}

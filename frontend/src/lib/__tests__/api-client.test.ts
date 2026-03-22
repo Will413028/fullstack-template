@@ -5,6 +5,8 @@ vi.stubEnv("NEXT_PUBLIC_API_URL", "http://localhost:8000");
 
 vi.mock("../cookies", () => ({
   getCookie: vi.fn(() => null),
+  setCookie: vi.fn(),
+  removeCookie: vi.fn(),
 }));
 
 const mockFetch = vi.fn();
@@ -63,7 +65,7 @@ describe("apiClient", () => {
     expect(options.headers.has("Content-Type")).toBe(false);
   });
 
-  it("throws ApiError on non-OK response", async () => {
+  it("throws ApiError on non-OK response for auth endpoints (no refresh attempt)", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 401,
@@ -71,8 +73,9 @@ describe("apiClient", () => {
       json: () => Promise.resolve({ detail: "Invalid credentials" }),
     });
 
-    await expect(apiClient.get("/auth/me")).rejects.toThrow(ApiError);
-    await expect(apiClient.get("/auth/me")).rejects.toThrow(); // second call to ensure pattern
+    await expect(apiClient.post("/auth/login", {})).rejects.toThrow(ApiError);
+    // Only one fetch call — no refresh attempt for /auth/ paths
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("parses error detail from backend response", async () => {
@@ -128,5 +131,139 @@ describe("apiClient", () => {
     await apiClient.get("/test");
     const [, options] = mockFetch.mock.calls[0];
     expect(options.credentials).toBe("include");
+  });
+});
+
+describe("401 auto-refresh", () => {
+  it("refreshes token and retries on 401 for non-auth endpoints", async () => {
+    const { getCookie, setCookie } = await import("../cookies");
+    vi.mocked(getCookie)
+      .mockReturnValueOnce("expired-token") // first request: auth_token
+      .mockReturnValueOnce("valid-refresh-token") // refresh: refresh_token
+      .mockReturnValueOnce("new-access-token"); // retry: auth_token
+
+    // First call: 401
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: () => Promise.resolve({ detail: "Token expired" }),
+    });
+
+    // Refresh call: success
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          access_token: "new-access-token",
+          refresh_token: "new-refresh-token",
+        }),
+    });
+
+    // Retry call: success
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: "success" }),
+    });
+
+    const result = await apiClient.get("/items");
+    expect(result).toEqual({ data: "success" });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(setCookie).toHaveBeenCalledWith("auth_token", "new-access-token", 1);
+    expect(setCookie).toHaveBeenCalledWith(
+      "refresh_token",
+      "new-refresh-token",
+      7,
+    );
+  });
+
+  it("redirects to login when refresh fails", async () => {
+    const { getCookie, removeCookie } = await import("../cookies");
+    vi.mocked(getCookie)
+      .mockReturnValueOnce("expired-token") // first request: auth_token
+      .mockReturnValueOnce("invalid-refresh-token"); // refresh: refresh_token
+
+    // Original request: 401
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: () => Promise.resolve({ detail: "Token expired" }),
+    });
+
+    // Refresh call: fails
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: () => Promise.resolve({ detail: "Invalid refresh token" }),
+    });
+
+    // Mock window.location
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { href: "" },
+    });
+
+    await expect(apiClient.get("/items")).rejects.toThrow(ApiError);
+    expect(removeCookie).toHaveBeenCalledWith("auth_token");
+    expect(removeCookie).toHaveBeenCalledWith("refresh_token");
+    expect(window.location.href).toBe("/login");
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("does not attempt refresh for /auth/ endpoints", async () => {
+    const { getCookie } = await import("../cookies");
+    vi.mocked(getCookie).mockReturnValue("expired-token");
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: () => Promise.resolve({ detail: "Invalid credentials" }),
+    });
+
+    await expect(apiClient.get("/auth/me")).rejects.toThrow(ApiError);
+    // Only one fetch — no refresh attempt
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh when no refresh token exists", async () => {
+    const { getCookie } = await import("../cookies");
+    vi.mocked(getCookie)
+      .mockReturnValueOnce("expired-token") // first request: auth_token
+      .mockReturnValueOnce(null); // refresh: no refresh_token
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: () => Promise.resolve({ detail: "Token expired" }),
+    });
+
+    // Mock window.location
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { href: "" },
+    });
+
+    await expect(apiClient.get("/items")).rejects.toThrow(ApiError);
+    // Only 1 fetch — no refresh attempt (no refresh token)
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
+    });
   });
 });

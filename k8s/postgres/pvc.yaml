@@ -4,6 +4,7 @@ metadata:
   name: postgres-data
   namespace: fullstack
 spec:
+  storageClassName: local-path
   accessModes:
     - ReadWriteOnce
   resources:

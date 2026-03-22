@@ -1,4 +1,4 @@
-import { getCookie } from "./cookies";
+import { getCookie, removeCookie, setCookie } from "./cookies";
 
 export class ApiError extends Error {
   status: number;
@@ -24,11 +24,57 @@ function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
+// Token refresh state — shared across all concurrent requests
+let refreshPromise: Promise<boolean> | null = null;
+
+async function attemptTokenRefresh(): Promise<boolean> {
+  const refreshToken = getCookie("refresh_token");
+  if (!refreshToken) return false;
+
+  try {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(new URL("/auth/refresh", baseUrl).toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!response.ok) return false;
+
+    const data = await response.json();
+    setCookie("auth_token", data.access_token, 1);
+    setCookie("refresh_token", data.refresh_token, 7);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshTokenWithMutex(): Promise<boolean> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = attemptTokenRefresh().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
+function clearTokensAndRedirect(): void {
+  removeCookie("auth_token");
+  removeCookie("refresh_token");
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
   options?: RequestOptions,
+  isRetry = false,
 ): Promise<T> {
   const baseUrl = getBaseUrl();
   const url = new URL(path, baseUrl);
@@ -68,6 +114,15 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    // Auto-refresh on 401 (skip for auth endpoints and retries)
+    if (response.status === 401 && !isRetry && !path.startsWith("/auth/")) {
+      const refreshed = await refreshTokenWithMutex();
+      if (refreshed) {
+        return request<T>(method, path, body, options, true);
+      }
+      clearTokensAndRedirect();
+    }
+
     let errorData: {
       detail?: string;
       message?: string;

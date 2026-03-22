@@ -34,7 +34,7 @@ secrets:
 	@set -a && . ./.env && set +a && envsubst < k8s/backend/secret.yaml | kubectl apply -f -
 
 .PHONY: deploy
-deploy: secrets
+deploy: build secrets
 	kubectl apply -f k8s/postgres/pvc.yaml
 	kubectl apply -f k8s/postgres/deployment.yaml
 	kubectl apply -f k8s/postgres/service.yaml

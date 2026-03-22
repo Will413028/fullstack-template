@@ -1,6 +1,6 @@
+import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "@/i18n/routing";
-import { NextRequest, NextResponse } from "next/server";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -27,7 +27,9 @@ export default function proxy(request: NextRequest) {
   const pathnameWithoutLocale = pathname.replace(localePrefix, "") || "/";
 
   const token = request.cookies.get("auth_token")?.value;
-  const isProtected = protectedPaths.some((p) => pathnameWithoutLocale.startsWith(p));
+  const isProtected = protectedPaths.some((p) =>
+    pathnameWithoutLocale.startsWith(p),
+  );
   const isAuthPage = authPaths.some((p) => pathnameWithoutLocale.startsWith(p));
 
   if (isProtected && !token) {
