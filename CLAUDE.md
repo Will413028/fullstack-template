@@ -94,6 +94,14 @@ Plain Kubernetes manifests in `k8s/`:
 - **NodePort** — frontend on 30000, backend on 30800
 - **k3d image import** — local images imported directly, no registry needed
 
+## Design Rules
+
+開發新功能前，必須先閱讀對應的設計規則。這些規則是強制性的，所有程式碼必須遵守：
+
+- **Database 設計**：`docs/rules/database-design.md` — 命名規範、Model 結構、型別選擇、Migration
+- **API 設計**：`docs/rules/api-design.md` — URL 設計、Response 格式、Schema/Router/Service 規範
+- **Redis 設計**：`docs/rules/redis-design.md` — Key 命名、TTL 策略、Cache Pattern
+
 ## Conventions
 
 - Communicate in 繁體中文

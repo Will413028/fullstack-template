@@ -80,9 +80,9 @@ async def get_item(self, item_id: int) -> Item:
         raise NotFoundException(detail=f"Item {item_id} not found")
     return item
 
-# router.py — NO try/except needed
+# router.py — NO try/except, use return type annotation
 @router.get("/{item_id}")
-async def get_item(item_id: int, service=Depends(get_item_service)):
+async def get_item(item_id: int, service=Depends(get_item_service)) -> DataResponse[ItemResponse]:
     item = await service.get_item(item_id)
     return DataResponse(data=ItemResponse.model_validate(item))
 ```
