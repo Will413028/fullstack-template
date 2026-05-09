@@ -1,17 +1,16 @@
 # Fullstack Template
 
-Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and k3s deployment.
+Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and Docker Compose deployment.
 
 ## Development Workflow（必讀）
 
-**所有功能開發和修改必須使用 OpenSpec workflow：**
+**所有功能開發和修改使用 Superpowers 技能：**
 
-1. **開始新功能前**：先執行 `/openspec-propose` 產生 change proposal（含 design、spec、tasks）
-2. **實作時**：執行 `/openspec-apply-change` 按 task 順序逐一實作
-3. **探索/釐清需求時**：執行 `/openspec-explore` 進入思考模式
-4. **完成後**：執行 `/openspec-archive-change` 歸檔
-
-**不要跳過 OpenSpec 直接寫程式碼。** 這確保每次修改都有設計文件、明確的 task breakdown、和可追溯的決策記錄。
+1. `brainstorming` skill — 新功能前釐清需求與設計方向
+2. `writing-plans` skill — 輸出實作計畫
+3. `test-driven-development` skill — 實作前先寫測試
+4. `executing-plans` skill — 依計畫逐步實作
+5. `requesting-code-review` skill — 完成後驗證
 
 **每個功能必須包含單元測試才算完成：**
 - 每個新增的 module / function 都要有對應的測試
@@ -22,36 +21,36 @@ Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and 
 ## Monorepo Structure
 
 ```
-├── backend/          # FastAPI (Pragmatic DDD, async SQLAlchemy)
-├── frontend/         # Next.js 16 (App Router, TypeScript, Tailwind, shadcn/ui)
-├── k8s/              # Kubernetes manifests (plain YAML)
-├── Makefile          # Root-level k3d/k3s operations
-└── .env-example      # Environment variable template
+├── backend/                # FastAPI (Pragmatic DDD, async SQLAlchemy)
+├── frontend/               # Next.js 16 (App Router, TypeScript, Tailwind, shadcn/ui)
+├── docker-compose.yml      # Production stack (postgres + backend + frontend)
+├── docker-compose.dev.yml  # Dev overrides (hot reload, volume mounts)
+├── k8s/                    # Kubernetes manifests (advanced, optional)
+├── Makefile                # Docker Compose shortcuts
+└── .env-example            # Environment variable template
 ```
 
 ## Quick Reference
 
 ```bash
-# k3d cluster (from root)
-make cluster-up       # Create k3d cluster (first time)
-make cluster-down     # Delete k3d cluster
-
-# Build & deploy (from root)
-make build            # Build Docker images + import into k3d
-make deploy           # Apply all k8s manifests
-make teardown         # Delete namespace and all resources
-make status           # Show cluster, pods, and services
-make logs             # Tail all pod logs
+# Docker Compose (from root)
+make dev              # Start dev stack with hot reload
+make up               # Start production stack (detached)
+make down             # Stop stack
+make down-v           # Stop stack and remove volumes
+make build            # Build Docker images
+make status           # Show running containers
+make logs             # Tail all logs
 make logs-backend     # Tail backend logs
 make logs-frontend    # Tail frontend logs
-make restart          # Rolling restart all deployments
+make restart          # Restart all services
+make migration        # Run Alembic migrations
+make seed             # Create admin user
 
 # Backend development (from backend/)
 make run              # Start FastAPI dev server
 make test             # Run pytest
 make lint             # Ruff format + check
-make migration        # Apply Alembic migrations
-make generate_migration  # Auto-generate migration
 
 # Frontend development (from frontend/)
 pnpm dev              # Start Next.js dev server (Turbopack)
@@ -76,7 +75,7 @@ See `backend/CLAUDE.md` for full details. Key patterns:
 - **pnpm** package manager
 - **Tailwind CSS v4** + **shadcn/ui** components
 - **Biome** for linting/formatting (not ESLint)
-- **Tanstack Query** for server state, **Zustand** for client state
+- **Tanstack Query** for server state
 - **next-intl** for i18n (en, zh-TW)
 - **React Hook Form** + **Zod** for form validation
 
@@ -94,22 +93,20 @@ src/
 ├── features/             # Feature modules (auth, etc.)
 ├── hooks/                # Custom React hooks
 ├── lib/                  # Utilities (api-client, animations, validations)
-├── store/                # Zustand stores
 ├── providers/            # React Query provider
 ├── i18n/                 # Internationalization config
 └── types/                # Global type definitions
 ```
 
-### k3d/k3s Deployment
+### Docker Compose Deployment
 
-Uses k3d (k3s in Docker) for consistent dev/prod environments. Same commands on macOS and Linux.
+Two compose files for different environments:
+- **`docker-compose.yml`** — production mode (built images)
+- **`docker-compose.dev.yml`** — dev overrides (volume mounts, hot reload)
 
-Plain Kubernetes manifests in `k8s/`:
-- **Namespace isolation** — all resources in `fullstack` namespace
-- **Secrets** — templated with `envsubst` from `.env` file
-- **Init container** — backend runs Alembic migrations before starting
-- **NodePort** — frontend on 30000, backend on 30800
-- **k3d image import** — local images imported directly, no registry needed
+Services: postgres → migrate (alembic) → backend (:8000) → frontend (:3000)
+
+Kubernetes manifests in `k8s/` are available as an advanced deployment option.
 
 ## Design Rules
 
