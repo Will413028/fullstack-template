@@ -21,9 +21,9 @@
 ### Medium Priority
 - [ ] Theme switching — useUiStore has setTheme but no toggle UI
 - [ ] Error logging service integration (Sentry or similar)
-- [ ] Form success/loading state feedback (toast notifications)
+- [x] Form success/loading state feedback (toast notifications)
 - [ ] Image optimization — use Next.js Image component in shared components
-- [ ] Frontend Dockerfile HEALTHCHECK instruction
+- [x] Frontend Dockerfile HEALTHCHECK instruction
 - [ ] Bundle size analysis — add webpack-bundle-analyzer
 - [ ] RTL support if adding Arabic/Hebrew locales
 
