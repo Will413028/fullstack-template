@@ -94,12 +94,8 @@ rename:
 ifndef NAME
 	$(error NAME is required. Usage: make rename NAME=my-project)
 endif
-	@echo "Renaming project to '$(NAME)'..."
-	@sed -i '' 's/fullstack-backend/$(NAME)-backend/g' docker-compose.yml docker-compose.dev.yml
-	@sed -i '' 's/fullstack-frontend/$(NAME)-frontend/g' docker-compose.yml docker-compose.dev.yml
-	@sed -i '' 's/fullstack-template-frontend/$(NAME)-frontend/g' frontend/package.json
-	@sed -i '' 's/fastapi-template/$(NAME)-backend/g' backend/pyproject.toml
-	@sed -i '' 's/Fullstack Template/$(NAME)/g' frontend/src/app/layout.tsx frontend/messages/en.json frontend/messages/zh-TW.json CLAUDE.md README.md
-	@sed -i '' 's/fullstack/$(NAME)/g' .env-example
-	@echo "Done! Review changes with: git diff"
-	@echo "Don't forget to update .env if it exists."
+	@python3 scripts/rename.py $(NAME)
+
+.PHONY: init-env
+init-env:
+	@python3 scripts/init_env.py

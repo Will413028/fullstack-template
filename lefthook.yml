@@ -1,6 +1,12 @@
 pre-commit:
   parallel: true
   commands:
+    prevent-env-leak:
+      tags: security
+      run: >-
+        git diff --cached --name-only | grep -E '^(\.env)$' &&
+        echo "⚠️ Error: You are trying to commit a .env file containing sensitive credentials. Git commit rejected." &&
+        exit 1 || exit 0
     frontend-lint:
       root: frontend/
       glob: "*.{ts,tsx}"

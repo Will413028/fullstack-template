@@ -21,8 +21,8 @@ cd my-project
 make rename NAME=my-project
 
 # 2. Setup environment
-cp .env-example .env
-# Edit .env with your values (SECRET_KEY, POSTGRES_PASSWORD)
+make init-env
+# Edit .env to adjust CORS_ORIGINS or other configurations if needed
 
 # 3. Start dev stack (hot reload)
 make dev
@@ -39,7 +39,6 @@ make dev
 ├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
 ├── docker-compose.yml      Production stack
 ├── docker-compose.dev.yml  Dev overrides (hot reload)
-├── k8s/                    Kubernetes manifests (advanced)
 ├── Makefile                Docker Compose shortcuts
 ├── .env-example            Environment variable template
 └── docs/                   Design rules and architecture notes
@@ -109,4 +108,4 @@ See `CLAUDE.md` for detailed architecture documentation, or:
 | i18n | next-intl (English, Traditional Chinese) |
 | Linting | Ruff (backend), Biome (frontend) |
 | Testing | pytest + pytest-asyncio (backend), Vitest + RTL (frontend) |
-| Infra | Docker Compose, Kubernetes (optional) |
+| Infra | Docker Compose |

@@ -1,8 +1,9 @@
 import { Inter, Playfair_Display } from "next/font/google";
 import { notFound } from "next/navigation";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
-import { setRequestLocale } from "next-intl/server";
+import { getMessages, setRequestLocale } from "next-intl/server";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
+import { Toaster } from "@/components/ui/sonner";
 import { routing } from "@/i18n/routing";
 import { QueryProvider } from "@/providers/query-provider";
 
@@ -35,14 +36,16 @@ export default async function LocaleLayout({ children, params }: Props) {
   }
 
   setRequestLocale(locale);
+  const messages = await getMessages();
 
   return (
     <html lang={locale} className={`${inter.variable} ${playfair.variable}`}>
       <body className="font-sans antialiased">
-        <NextIntlClientProvider>
+        <NextIntlClientProvider locale={locale} messages={messages}>
           <QueryProvider>
             <NuqsAdapter>{children}</NuqsAdapter>
           </QueryProvider>
+          <Toaster />
         </NextIntlClientProvider>
       </body>
     </html>

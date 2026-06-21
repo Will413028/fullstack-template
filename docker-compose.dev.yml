@@ -22,3 +22,6 @@ services:
     build:
       context: ./backend
       target: builder
+    volumes:
+      - ./backend/alembic:/app/alembic
+      - ./backend/scripts:/app/scripts

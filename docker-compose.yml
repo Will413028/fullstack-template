@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     restart: unless-stopped
     env_file: .env
     volumes:
@@ -14,7 +14,7 @@ services:
   migrate:
     build: ./backend
     env_file: .env
-    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
+    command: ["sh", "-c", "/app/.venv/bin/python scripts/wait_for_db.py && /app/.venv/bin/alembic upgrade head"]
     depends_on:
       postgres:
         condition: service_healthy

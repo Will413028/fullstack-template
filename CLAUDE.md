@@ -25,7 +25,6 @@ Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and 
 ├── frontend/               # Next.js 16 (App Router, TypeScript, Tailwind, shadcn/ui)
 ├── docker-compose.yml      # Production stack (postgres + backend + frontend)
 ├── docker-compose.dev.yml  # Dev overrides (hot reload, volume mounts)
-├── k8s/                    # Kubernetes manifests (advanced, optional)
 ├── Makefile                # Docker Compose shortcuts
 └── .env-example            # Environment variable template
 ```
@@ -105,8 +104,6 @@ Two compose files for different environments:
 - **`docker-compose.dev.yml`** — dev overrides (volume mounts, hot reload)
 
 Services: postgres → migrate (alembic) → backend (:8000) → frontend (:3000)
-
-Kubernetes manifests in `k8s/` are available as an advanced deployment option.
 
 ## Design Rules
 

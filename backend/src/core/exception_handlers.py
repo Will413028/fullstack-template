@@ -19,11 +19,27 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        errors = exc.errors()
-        detail = "; ".join(f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors)
+        field_errors = {}
+        for err in exc.errors():
+            loc_path = err["loc"]
+            # Strip input location (like 'body', 'query') if it has sub-fields
+            if len(loc_path) > 1:
+                field_name = ".".join(str(part) for part in loc_path[1:])
+            elif len(loc_path) == 1:
+                field_name = str(loc_path[0])
+            else:
+                field_name = "global"
+
+            if field_name not in field_errors:
+                field_errors[field_name] = []
+            field_errors[field_name].append(err["msg"])
+
         return JSONResponse(
             status_code=422,
-            content={"detail": detail},
+            content={
+                "detail": "Validation failed",
+                "errors": field_errors,
+            },
         )
 
     @app.exception_handler(Exception)

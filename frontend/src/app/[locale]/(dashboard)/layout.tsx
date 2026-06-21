@@ -2,15 +2,15 @@
 
 import { LayoutDashboard, Menu, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
+import { useUiStore } from "@/store/use-ui-store";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { sidebarOpen, setSidebarOpen, toggleSidebar } = useUiStore();
   const pathname = usePathname();
   const t = useTranslations("dashboard");
 
@@ -70,7 +70,7 @@ export default function DashboardLayout({
           <button
             type="button"
             className="lg:hidden p-2 text-zinc-400 hover:text-white"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={toggleSidebar}
             aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
             aria-expanded={sidebarOpen}
           >
