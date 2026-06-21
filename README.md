@@ -4,16 +4,13 @@ Production-ready fullstack monorepo for client projects.
 
 **Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, JWT + refresh tokens)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n)
-**Infra:** k3s (Kubernetes)
+**Infra:** Docker Compose
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/)
-- [k3d](https://k3d.io/) — `brew install k3d`
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) — `brew install kubectl`
+- [Docker](https://docs.docker.com/get-docker/) (with Compose v2)
 - [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - [pnpm](https://pnpm.io/) — `npm install -g pnpm`
-- [envsubst](https://www.gnu.org/software/gettext/) — `brew install gettext`
 
 ## Quick Start
 
@@ -25,34 +22,45 @@ make rename NAME=my-project
 
 # 2. Setup environment
 cp .env-example .env
-# Edit .env with your values (SECRET_KEY must be 32+ chars)
+# Edit .env with your values (SECRET_KEY, POSTGRES_PASSWORD)
 
-# 3. Create k3d cluster
-make cluster-up
+# 3. Start dev stack (hot reload)
+make dev
 
-# 4. Build and deploy
-make build
-make deploy
-
-# 5. Verify
-make status
-# Frontend: http://localhost:30000
-# Backend:  http://localhost:30800
-# API docs: http://localhost:30800/docs (dev mode)
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+# API docs: http://localhost:8000/docs
 ```
 
 ## Project Structure
 
 ```
-├── backend/          FastAPI (Python 3.12, async SQLAlchemy, JWT)
-├── frontend/         Next.js 16 (React 19, TypeScript, Tailwind v4)
-├── k8s/              Kubernetes manifests (plain YAML)
-├── Makefile          k3d cluster + build + deploy commands
-├── .env-example      Environment variable template
-└── docs/             Architecture decisions and known issues
+├── backend/                FastAPI (Python 3.12, async SQLAlchemy, JWT)
+├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
+├── docker-compose.yml      Production stack
+├── docker-compose.dev.yml  Dev overrides (hot reload)
+├── k8s/                    Kubernetes manifests (advanced)
+├── Makefile                Docker Compose shortcuts
+├── .env-example            Environment variable template
+└── docs/                   Design rules and architecture notes
 ```
 
 ## Development
+
+### Docker Compose (from root)
+
+```bash
+make dev                  # Start dev stack (hot reload)
+make up                   # Start production stack (detached)
+make down                 # Stop stack
+make down-v               # Stop stack + remove volumes
+make build                # Build Docker images
+make status               # Show running containers
+make logs                 # Tail all logs
+make logs-backend         # Tail backend logs only
+make migration            # Run Alembic migrations
+make seed                 # Create admin user
+```
 
 ### Backend (from `backend/`)
 
@@ -73,26 +81,13 @@ pnpm lint                 # TypeScript + Biome
 pnpm build                # Production build
 ```
 
-### k3d / Kubernetes (from root)
-
-```bash
-make cluster-up           # Create k3d cluster
-make build                # Build images + import to k3d
-make deploy               # Apply all manifests
-make status               # Show pods and services
-make logs                 # Tail all logs
-make logs-backend         # Tail backend logs only
-make teardown             # Delete namespace
-make cluster-down         # Delete cluster
-```
-
 ## Starting a New Project
 
 ```bash
 make rename NAME=my-client-project
 ```
 
-This renames the k3d cluster, k8s namespace, Docker images, and package names throughout the project.
+This renames Docker images, package names, and branding throughout the project.
 
 ## Architecture
 
@@ -109,9 +104,9 @@ See `CLAUDE.md` for detailed architecture documentation, or:
 | Auth | JWT (PyJWT) + refresh tokens, bcrypt, rate limiting (slowapi) |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
 | UI | shadcn/ui, Framer Motion, Lucide icons |
-| State | Tanstack React Query (server), Zustand (client) |
+| State | Tanstack React Query |
 | Forms | React Hook Form + Zod validation |
 | i18n | next-intl (English, Traditional Chinese) |
 | Linting | Ruff (backend), Biome (frontend) |
 | Testing | pytest + pytest-asyncio (backend), Vitest + RTL (frontend) |
-| Infra | k3d/k3s, plain Kubernetes YAML manifests |
+| Infra | Docker Compose, Kubernetes (optional) |

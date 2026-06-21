@@ -1,0 +1,24 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      target: builder
+    command: ["/app/.venv/bin/fastapi", "dev", "src/main.py", "--host", "0.0.0.0"]
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/alembic:/app/alembic
+
+  frontend:
+    build:
+      context: ./frontend
+      target: base
+    command: ["pnpm", "dev"]
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/messages:/app/messages
+      - ./frontend/public:/app/public
+
+  migrate:
+    build:
+      context: ./backend
+      target: builder
