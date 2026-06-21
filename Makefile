@@ -99,3 +99,14 @@ endif
 .PHONY: init-env
 init-env:
 	@python3 scripts/init_env.py
+
+.PHONY: reset-db
+reset-db:
+	@echo "Stopping stack and clearing database volumes..."
+	$(COMPOSE) down -v
+	@echo "Starting entire stack and executing migrations..."
+	$(COMPOSE) up -d
+	@echo "Waiting for backend container to boot..."
+	@sleep 3
+	@$(MAKE) seed
+	@echo "Database has been successfully reset and seeded!"

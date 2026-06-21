@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     def validate_secret_key(cls, v: str) -> str:
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters for HS256")
+
+        import os
+
+        if os.getenv("MODE") == "prod" and "change-me" in v:
+            raise ValueError(
+                "SECRET_KEY cannot contain default placeholder 'change-me' in production mode!"
+            )
         return v
 
     model_config = SettingsConfigDict(env_file=".env")

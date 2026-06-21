@@ -59,6 +59,7 @@ make logs                 # Tail all logs
 make logs-backend         # Tail backend logs only
 make migration            # Run Alembic migrations
 make seed                 # Create admin user
+make reset-db             # Reset DB (clear volumes + run migrations + seed)
 ```
 
 ### Backend (from `backend/`)
