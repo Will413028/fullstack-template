@@ -125,6 +125,18 @@ async def test_logout_clears_session(auth_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_logout_revokes_refresh_token(client: AsyncClient):
+    account = f"logoutrevoke_{uuid.uuid4().hex[:8]}"
+    reg = await client.post("/auth/register", json={"account": account, "password": "ValidPass1"})
+    cookie = {"Cookie": f"refresh_token={reg.cookies.get('refresh_token')}"}
+    client.cookies.clear()
+
+    assert (await client.post("/auth/logout", headers=cookie)).status_code == 200
+    # logout must revoke server-side, not just clear the browser cookie
+    assert (await client.post("/auth/refresh", headers=cookie)).status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_me_authenticated(auth_client: AsyncClient):
     resp = await auth_client.get("/auth/me")
     assert resp.status_code == 200

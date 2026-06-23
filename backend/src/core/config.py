@@ -37,6 +37,14 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 32 characters for HS256")
         return v
 
+    @field_validator("COOKIE_SAMESITE")
+    @classmethod
+    def validate_samesite(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"lax", "strict", "none"}:
+            raise ValueError("COOKIE_SAMESITE must be one of: lax, strict, none")
+        return v
+
     @model_validator(mode="after")
     def reject_placeholder_secret_in_prod(self) -> "Settings":
         # Checks the parsed MODE field, so it works whether MODE comes from
@@ -45,6 +53,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY cannot contain default placeholder 'change-me' in production mode!"
             )
+        return self
+
+    @model_validator(mode="after")
+    def require_secure_for_samesite_none(self) -> "Settings":
+        # Browsers silently drop SameSite=None cookies without Secure, which would
+        # make every auth cookie vanish and login silently fail.
+        if self.COOKIE_SAMESITE == "none" and not self.COOKIE_SECURE:
+            raise ValueError("COOKIE_SAMESITE='none' requires COOKIE_SECURE=true")
         return self
 
     model_config = SettingsConfigDict(env_file=".env")

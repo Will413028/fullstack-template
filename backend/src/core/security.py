@@ -15,7 +15,13 @@ password_hash = PasswordHash.recommended()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return password_hash.verify(plain_password, hashed_password)
+    try:
+        return password_hash.verify(plain_password, hashed_password)
+    except Exception:
+        # Unknown/corrupt hash (e.g. a legacy scheme) → treat as a failed verify,
+        # not a 500. ponytail: broad except, the only failure mode here is "can't
+        # verify this hash" and the safe answer is False.
+        return False
 
 
 def get_password_hash(password: str) -> str:

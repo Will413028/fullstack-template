@@ -46,17 +46,3 @@ export function useLogout() {
     },
   });
 }
-
-export function useRefreshToken() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: () => authApi.refresh(),
-    onSuccess: (res) => {
-      queryClient.setQueryData<UserResponse>(["auth", "me"], res.data);
-    },
-    onError: () => {
-      queryClient.clear();
-    },
-  });
-}

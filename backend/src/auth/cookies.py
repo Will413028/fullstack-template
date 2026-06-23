@@ -5,34 +5,33 @@ from src.core.config import settings
 ACCESS_COOKIE = "access_token"
 REFRESH_COOKIE = "refresh_token"
 
-# Refresh cookie is scoped to /auth so it is only ever sent to the auth endpoints,
-# shrinking its exposure compared to the access cookie (sent site-wide).
-_REFRESH_PATH = "/auth"
 
-
-def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+def _set(response: Response, key: str, value: str, max_age: int) -> None:
     response.set_cookie(
-        ACCESS_COOKIE,
-        access_token,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        key,
+        value,
+        max_age=max_age,
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         domain=settings.COOKIE_DOMAIN,
         path="/",
     )
-    response.set_cookie(
-        REFRESH_COOKIE,
-        refresh_token,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN,
-        path=_REFRESH_PATH,
-    )
+
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    _set(response, ACCESS_COOKIE, access_token, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
+    _set(response, REFRESH_COOKIE, refresh_token, settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400)
 
 
 def clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie(ACCESS_COOKIE, path="/", domain=settings.COOKIE_DOMAIN)
-    response.delete_cookie(REFRESH_COOKIE, path=_REFRESH_PATH, domain=settings.COOKIE_DOMAIN)
+    # Mirror the attributes used on set so the delete Set-Cookie matches.
+    for key in (ACCESS_COOKIE, REFRESH_COOKIE):
+        response.delete_cookie(
+            key,
+            path="/",
+            domain=settings.COOKIE_DOMAIN,
+            secure=settings.COOKIE_SECURE,
+            httponly=True,
+            samesite=settings.COOKIE_SAMESITE,
+        )

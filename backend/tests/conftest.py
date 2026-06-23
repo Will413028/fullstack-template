@@ -10,6 +10,10 @@ import src.items.models  # noqa: F401
 from src.core.config import settings
 from src.core.models.base import Base
 
+# Tests run over http (httpx ASGI), where browsers/jars drop Secure cookies, so
+# force COOKIE_SECURE off regardless of the environment's default.
+settings.COOKIE_SECURE = False
+
 _RUN_ID = uuid.uuid4().hex[:6]
 TEST_USER = {"account": f"testuser_{_RUN_ID}", "password": "TestPass1"}
 TEST_USER_2 = {"account": f"testuser2_{_RUN_ID}", "password": "TestPass2"}

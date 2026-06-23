@@ -25,8 +25,12 @@ export function LoginForm() {
   const onSubmit = (data: LoginFormData) => {
     login.mutate(data, {
       onSuccess: () => {
-        const target = callbackUrl?.startsWith("/") ? callbackUrl : "/overview";
-        router.push(target);
+        // Only allow local paths; reject protocol-relative "//evil.com" redirects.
+        const isSafe =
+          !!callbackUrl &&
+          callbackUrl.startsWith("/") &&
+          !callbackUrl.startsWith("//");
+        router.push(isSafe ? callbackUrl : "/overview");
       },
     });
   };
