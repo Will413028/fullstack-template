@@ -8,10 +8,10 @@ Production-ready Next.js frontend with feature-based architecture, i18n, and coo
 - **Styling:** Tailwind CSS v4 + shadcn/ui
 - **Linting:** Biome (not ESLint/Prettier)
 - **Package Manager:** pnpm
-- **State:** Tanstack React Query (server) + Zustand (client)
+- **State:** Tanstack React Query (server) + Zustand (client UI state)
 - **Forms:** React Hook Form + Zod
 - **i18n:** next-intl (en, zh-TW)
-- **Animation:** Framer Motion
+- **Auth:** httpOnly cookies (set by the backend) + server-side session guard
 - **Testing:** Vitest + React Testing Library
 
 ## Quick Reference
@@ -37,45 +37,45 @@ src/
 │   └── auth/             # Auth: api, hooks, components, types, validations
 ├── components/
 │   ├── ui/               # shadcn/ui components
-│   ├── shared/           # Reusable (empty-state, motion-wrapper, page-title)
-│   └── layout/           # Header, footer
+│   └── layout/           # Header, footer, dashboard-shell
 ├── lib/                  # Utilities
-│   ├── api-client.ts     # Generic HTTP client (cookie-based auth)
-│   ├── cookies.ts        # Cookie get/set/remove helpers
-│   ├── animations.ts     # Framer Motion presets
-│   ├── utils.ts          # cn() Tailwind class merger
-│   └── validations.ts    # Shared Zod schemas
-├── hooks/                # Custom React hooks (useDebounce, useMediaQuery)
+│   ├── api-client.ts     # Generic HTTP client (credentials:"include")
+│   ├── server-auth.ts    # getServerUser() — server-side session check
+│   └── utils.ts          # cn() Tailwind class merger
+├── hooks/                # Custom React hooks (useDebounce)
 ├── providers/            # React Query provider
 ├── i18n/                 # Routing, request, navigation config
-├── store/                # Zustand stores (currently empty)
-└── types/                # Global type definitions
+├── store/                # Zustand stores (use-ui-store: sidebar state)
+└── proxy.ts              # Presence redirect + CSP headers (advisory, not the gate)
 ```
 
 ## Key Conventions
 
 1. **Feature modules** — domain logic lives in `features/<name>/` with api, hooks, components, types
-2. **Cookie-based auth** — tokens stored in cookies (not localStorage), middleware reads them for route protection
+2. **httpOnly cookie auth** — the backend sets httpOnly+Secure cookies; JS never reads tokens. `proxy.ts` does a cheap presence redirect; the real gate is `getServerUser()` in the `(dashboard)` server-component layout
 3. **OAuth2 login** — login sends `application/x-www-form-urlencoded` with username/password fields
 4. **Biome, not ESLint** — all linting and formatting via Biome, a11y rules enabled
 5. **i18n keys** — all user-facing text in `messages/{locale}.json`, accessed via `useTranslations()`
 6. **Server Components by default** — only add `"use client"` when needed (hooks, interactivity)
 7. **Suspense for client hooks** — wrap components using `useSearchParams()` in `<Suspense>`
 
-## Auth Flow
+## Auth Flow (httpOnly cookies)
 
 ```
-Login → POST /auth/login (form-encoded) → backend returns TokenPair
-     → setCookie("auth_token", access_token)
-     → setCookie("refresh_token", refresh_token)
-     → redirect to callbackUrl or /overview
+Login → POST /auth/login (form-encoded) → backend sets httpOnly access_token +
+        refresh_token cookies and returns the user → redirect to callbackUrl/overview
 
-Protected route → middleware reads auth_token cookie
-               → missing? redirect to /login?callbackUrl=...
+API call → api-client sends credentials:"include"; the browser attaches the
+           cookies automatically (JS never touches tokens)
 
-API call → api-client reads auth_token cookie → Bearer header
+401 → api-client POSTs /auth/refresh (the cookie carries the refresh token) → retry;
+      if refresh fails → redirect to /login
 
-Logout → POST /auth/logout (with refresh_token) → clear cookies
+Protected route → proxy.ts redirects on a missing cookie (UX only); the (dashboard)
+                 layout calls getServerUser() server-side and redirects on an
+                 invalid session (the real gate)
+
+Logout → POST /auth/logout → backend clears the cookies
 ```
 
 ## Adding a Feature Module

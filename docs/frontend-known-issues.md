@@ -11,10 +11,12 @@
 
 ## Architecture Decisions
 
-### Token Storage: httpOnly Cookies
-**Decision:** Use httpOnly cookies for auth tokens instead of localStorage.
-**Why:** httpOnly cookies are immune to XSS. localStorage tokens can be stolen via XSS.
-**Trade-off:** Requires backend to set cookies; CSRF protection needed for mutations.
+### Token Storage: httpOnly Cookies (implemented)
+**Decision:** Auth tokens are httpOnly+Secure cookies set by the backend; JS never reads them.
+**Why:** httpOnly cookies are immune to XSS. localStorage/JS-readable cookies can be stolen via XSS.
+**Trade-off:** Requires backend to set cookies and `credentials:"include"` on the client.
+`SameSite=Lax` blocks cross-site POST cookie sending, covering CSRF for state-changing
+requests; add a CSRF token only if you later need cross-site flows (`SameSite=None`).
 
 ### CSP Strategy
 **Decision:** Use nonce-based CSP where possible, allow `connect-src` for API URL.

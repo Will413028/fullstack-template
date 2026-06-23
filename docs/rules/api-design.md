@@ -48,9 +48,6 @@ POST /users/{user_id}/deactivate    # 停用帳號
 # 單一資源
 DataResponse[ItemResponse]     # {"data": {...}}
 
-# 列表（不分頁）
-ListDataResponse[ItemResponse] # {"data": [{...}, ...]}
-
 # 分頁列表
 PaginatedResponse[ItemResponse] # {"data": [...], "total": 100, "page": 1, "size": 20, "pages": 5}
 
@@ -58,7 +55,7 @@ PaginatedResponse[ItemResponse] # {"data": [...], "total": 100, "page": 1, "size
 DetailResponse                  # {"detail": "Item deleted"}
 ```
 
-- NEVER 直接回傳 model 或裸 dict
+- NEVER 直接回傳 model 或裸 dict（例外：`health/` 端點回傳簡單的 `{"status": "ok"}`）
 - NEVER 自定義 response wrapper（使用現有的 `DataResponse`, `PaginatedResponse` 等）
 
 ## Schema 設計 (Pydantic)

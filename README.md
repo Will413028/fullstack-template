@@ -2,7 +2,7 @@
 
 Production-ready fullstack monorepo for client projects.
 
-**Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, JWT + refresh tokens)
+**Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, httpOnly-cookie JWT + refresh tokens)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n)
 **Infra:** Docker Compose
 
@@ -35,7 +35,7 @@ make dev
 ## Project Structure
 
 ```
-├── backend/                FastAPI (Python 3.12, async SQLAlchemy, JWT)
+├── backend/                FastAPI (Python 3.13, async SQLAlchemy, JWT)
 ├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
 ├── docker-compose.yml      Production stack
 ├── docker-compose.dev.yml  Dev overrides (hot reload)
@@ -100,10 +100,10 @@ See `CLAUDE.md` for detailed architecture documentation, or:
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), asyncpg, Alembic |
-| Auth | JWT (PyJWT) + refresh tokens, bcrypt, rate limiting (slowapi) |
+| Backend | Python 3.13, FastAPI, SQLAlchemy 2.0 (async), asyncpg, Alembic |
+| Auth | JWT (PyJWT) in httpOnly cookies + refresh tokens, argon2 (pwdlib), rate limiting (slowapi) |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
-| UI | shadcn/ui, Framer Motion, Lucide icons |
+| UI | shadcn/ui, Lucide icons |
 | State | Tanstack React Query |
 | Forms | React Hook Form + Zod validation |
 | i18n | next-intl (English, Traditional Chinese) |

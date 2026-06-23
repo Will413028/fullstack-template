@@ -4,9 +4,9 @@ Production-ready FastAPI template with Pragmatic DDD architecture, async SQLAlch
 
 ## Tech Stack
 
-- **Runtime:** Python 3.12, FastAPI, Uvicorn
+- **Runtime:** Python 3.13, FastAPI, Uvicorn
 - **ORM:** SQLAlchemy 2.0 (async) + asyncpg
-- **Auth:** JWT (python-jose) + bcrypt (passlib)
+- **Auth:** JWT (PyJWT) + pwdlib (argon2), delivered as httpOnly cookies
 - **Migrations:** Alembic (async)
 - **Logging:** structlog
 - **Package Manager:** uv
@@ -43,15 +43,15 @@ src/
 │   ├── config.py                # Pydantic Settings
 │   ├── database.py              # AsyncSession, get_db
 │   ├── logging.py               # structlog config
-│   ├── security.py              # OAuth2, JWT, password hashing
+│   ├── security.py              # JWT, argon2 password hashing (pwdlib)
 │   ├── exceptions.py            # AppException family
 │   ├── exception_handlers.py    # Global exception → JSON response
 │   ├── middleware.py            # ProcessTime, RequestId
 │   ├── dependencies.py         # PaginationParams
-│   ├── models/base.py          # Base, TimestampMixin, SoftDeleteMixin
+│   ├── models/base.py          # Base, TimestampMixin
 │   ├── schemas/base.py         # DataResponse[T], PaginatedResponse[T]
 │   └── repository/base.py      # BaseRepository[T] async generic CRUD
-├── auth/                        # Authentication module
+├── auth/                        # Authentication module (cookies.py sets httpOnly cookies)
 ├── items/                       # CRUD example module
 └── health/                      # Health check
 ```
@@ -64,6 +64,7 @@ src/
 4. **Repository pattern** — extend `BaseRepository[T]` for CRUD, add custom queries as methods
 5. **Dependency injection** — create `get_<module>_service()` function that wires repo → service
 6. **Pydantic schemas use `from_attributes=True`** for ORM model conversion
+7. **Auth tokens are httpOnly cookies** — `auth/cookies.py` sets them on login/register/refresh; `get_current_user` reads the access cookie (Authorization-header fallback for Swagger/clients). Endpoints return the user, never raw tokens.
 
 ## Error Handling Pattern
 

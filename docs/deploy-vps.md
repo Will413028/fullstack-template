@@ -51,7 +51,15 @@ nano .env
 ```
 
 > [!TIP]
-> `make init-env` 指令會自動生成高強度的隨機 `SECRET_KEY` 以及 `POSTGRES_PASSWORD` 並填充進 `.env` 檔案。您只需視需求調整 `CORS_ORIGINS` 或伺服器域名等配置即可。
+> `make init-env` 指令會自動生成高強度的隨機 `SECRET_KEY` 以及 `POSTGRES_PASSWORD` 並填充進 `.env` 檔案。
+
+> [!IMPORTANT]
+> 生產環境（HTTPS）務必在 `.env` 設定：
+> - `MODE=prod`（啟用 placeholder secret 防呆）
+> - `COOKIE_SECURE=true`（auth cookie 才會在 HTTPS 下送出）
+> - `CORS_ORIGINS=["https://yourdomain.com"]`
+> - `NEXT_PUBLIC_API_URL=https://api.yourdomain.com` — 此值在 **build 時**編進前端 bundle，
+>   修改後必須 `make build` 重新建置才會生效（僅 `make up` 無效）。
 
 ---
 

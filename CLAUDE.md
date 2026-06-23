@@ -87,14 +87,14 @@ src/
 │   └── (marketing)/      # Public pages
 ├── components/
 │   ├── ui/               # shadcn/ui components
-│   ├── shared/           # Reusable components
-│   └── layout/           # Header, footer
+│   └── layout/           # Header, footer, dashboard-shell
 ├── features/             # Feature modules (auth, etc.)
 ├── hooks/                # Custom React hooks
-├── lib/                  # Utilities (api-client, animations, validations)
+├── lib/                  # Utilities (api-client, server-auth, utils)
 ├── providers/            # React Query provider
+├── store/                # Zustand client UI state
 ├── i18n/                 # Internationalization config
-└── types/                # Global type definitions
+└── proxy.ts              # Presence redirect + CSP (advisory)
 ```
 
 ### Docker Compose Deployment
@@ -111,7 +111,6 @@ Services: postgres → migrate (alembic) → backend (:8000) → frontend (:3000
 
 - **Database 設計**：`docs/rules/database-design.md` — 命名規範、Model 結構、型別選擇、Migration
 - **API 設計**：`docs/rules/api-design.md` — URL 設計、Response 格式、Schema/Router/Service 規範
-- **Redis 設計**：`docs/rules/redis-design.md` — Key 命名、TTL 策略、Cache Pattern
 
 ## Conventions
 

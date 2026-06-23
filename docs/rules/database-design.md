@@ -84,9 +84,10 @@ class Item(Base, TimestampMixin):
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))  # NOT NULL
 ```
 
-### SoftDeleteMixin
+### 軟刪除（Soft Delete）
 
-- 需要軟刪除時才加 `SoftDeleteMixin`，不要預設加在所有 table 上
+- template 預設不提供 soft-delete mixin（YAGNI）。需要時，在該 model 加一個
+  `deleted_at: Mapped[datetime | None]` 欄位，不要預設加在所有 table 上
 - 使用軟刪除的 table，repository 查詢必須過濾 `deleted_at IS NULL`
 
 ### 主鍵

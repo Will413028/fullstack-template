@@ -1,79 +1,20 @@
-# fastapi-template
+# Backend — FastAPI
 
-## Quick Start
-
-### 1. Install Pre-commit
-```bash
-pre-commit install
-```
-### 2. Install Dependencies
+Part of the [fullstack template](../README.md). Pragmatic DDD, async SQLAlchemy,
+httpOnly-cookie JWT auth. Uses **uv**.
 
 ```bash
-uv sync
+uv sync                   # install dependencies
+make run                  # dev server (http://localhost:8000, /docs for OpenAPI)
+make lint                 # ruff format + check
+make test                 # pytest (needs a reachable Postgres + DATABASE_URL/SECRET_KEY)
+make generate_migration MSG="..."   # alembic autogenerate
+make migration            # alembic upgrade head
 ```
 
-### 3. Run Server
+Git hooks are managed by **lefthook** (configured at the repo root) — no
+`pre-commit install` step. Linting/formatting run automatically on commit.
 
-```bash
-make run
-```
-
-## Code lint
-
-```bash
-make lint
-```
-
-## Run Tests
-
-```bash
-make test
-```
-
-## Export Requirements
-```bash
-make lock
-```
-
-## Deploy to remote server
-```bash
-make deploy
-```
-
-## Database Operations
-
-### Auto-generate Migration
-
-```bash
-alembic revision --autogenerate -m "migration message"
-```
-
-### Database Migration
-
-```bash
-alembic upgrade head
-```
-
-## Docker
-
-### Build Image
-
-```bash
-sudo docker build -t <image_name>:<tag> .
-```
-
-### Run Docker Compose
-
-```bash
-sudo docker-compose up -d --build
-```
-
-### Add Dependency
-```bash
-uv add <library_name>
-```
-
-### Add Dependency to dev
-```bash
-uv add --dev <library_name>
-```
+Configuration is loaded from `.env` via pydantic-settings (see `.env-example`).
+See [`CLAUDE.md`](./CLAUDE.md) for the DDD layering, error-handling rules, and how
+to add a module. Normally you run the stack from the repo root (`make dev`).
