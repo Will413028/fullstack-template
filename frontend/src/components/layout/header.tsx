@@ -16,7 +16,7 @@ export default function Navigation() {
 
   const navLinks = [
     { href: "/", label: t("home") },
-    { href: "/dashboard", label: t("dashboard") },
+    { href: "/overview", label: t("dashboard") },
   ];
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [localeMenuOpen, setLocaleMenuOpen] = useState(false);

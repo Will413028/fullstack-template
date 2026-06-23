@@ -15,7 +15,7 @@ const csp = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.unsplash.com",
+  "img-src 'self' data: blob:",
   "font-src 'self'",
   `connect-src 'self' ${apiUrl}`,
   "frame-ancestors 'none'",
