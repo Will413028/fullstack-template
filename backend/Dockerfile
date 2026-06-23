@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
@@ -13,7 +13,7 @@ RUN uv sync --frozen --no-cache --no-install-project
 COPY . .
 RUN uv sync --frozen --no-cache
 
-FROM python:3.12-slim AS runtime
+FROM python:3.13-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 

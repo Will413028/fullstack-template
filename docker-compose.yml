@@ -31,9 +31,16 @@ services:
         condition: service_completed_successfully
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # browser-facing URL, inlined into the client bundle at build time
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
     env_file: .env
+    environment:
+      # server-side (SSR/RSC) fetches reach the backend by service name
+      API_URL: http://backend:8000
     ports:
       - "3000:3000"
     depends_on:

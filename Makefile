@@ -106,7 +106,7 @@ reset-db:
 	$(COMPOSE) down -v
 	@echo "Starting entire stack and executing migrations..."
 	$(COMPOSE) up -d
-	@echo "Waiting for backend container to boot..."
-	@sleep 3
+	@echo "Waiting for backend to be ready..."
+	@until $(COMPOSE) exec -T backend /app/.venv/bin/python scripts/wait_for_db.py >/dev/null 2>&1; do sleep 1; done
 	@$(MAKE) seed
 	@echo "Database has been successfully reset and seeded!"

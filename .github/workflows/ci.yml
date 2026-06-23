@@ -6,13 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (lint + test)
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.13"  # match the python:3.13-slim runtime image
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: testpassword
@@ -40,6 +46,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/testdb
           SECRET_KEY: test-secret-key-that-is-at-least-32-characters-long
           MODE: test
+          COOKIE_SECURE: "false"  # tests run over http; Secure cookies would be dropped
 
   frontend:
     name: Frontend (lint + test + build)
@@ -54,7 +61,7 @@ jobs:
           package_json_file: frontend/package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
