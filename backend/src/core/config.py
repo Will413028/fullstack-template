@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Auth cookies (tokens are delivered as httpOnly cookies, never readable by JS)
+    COOKIE_SECURE: bool = True  # set false for local http dev
+    COOKIE_SAMESITE: str = "lax"  # lax | strict | none
+    COOKIE_DOMAIN: str | None = None  # e.g. ".example.com" for cross-subdomain
+
     # Database Pool
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10

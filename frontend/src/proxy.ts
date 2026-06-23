@@ -21,12 +21,17 @@ const csp = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+// Proxy (Next.js 16 Node-runtime convention, formerly "middleware"): a cheap
+// cookie-presence redirect for snappy UX + CSP headers. It is NOT the security
+// boundary — the real session check runs server-side in the (dashboard) layout
+// via getServerUser(). Presence of the httpOnly cookie here only decides
+// whether to bounce to /login before rendering.
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const pathnameWithoutLocale = pathname.replace(localePrefix, "") || "/";
 
-  const token = request.cookies.get("auth_token")?.value;
+  const token = request.cookies.get("access_token")?.value;
   const isProtected = protectedPaths.some((p) =>
     pathnameWithoutLocale.startsWith(p),
   );

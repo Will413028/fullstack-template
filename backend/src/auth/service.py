@@ -23,7 +23,7 @@ class AuthService:
         self.repo = repo
         self.refresh_repo = refresh_repo
 
-    async def register(self, data: UserCreateInput) -> dict:
+    async def register(self, data: UserCreateInput) -> tuple[User, dict]:
         existing = await self.repo.get_by_account(data.account)
         if existing:
             raise AlreadyExistsException(detail="User already exists")
@@ -35,12 +35,12 @@ class AuthService:
         await self.repo.create(user)
         logger.info("user_registered", account=data.account)
 
-        return await self._create_token_pair(user)
+        return user, await self._create_token_pair(user)
 
     # Dummy hash used to prevent timing-based account enumeration
     _DUMMY_HASH = get_password_hash("dummy-password-for-timing")
 
-    async def login(self, account: str, password: str) -> dict:
+    async def login(self, account: str, password: str) -> tuple[User, dict]:
         user = await self.repo.get_by_account(account)
 
         # Always run verify_password to prevent timing-based account enumeration
@@ -52,9 +52,9 @@ class AuthService:
             raise UnauthorizedException(detail="Invalid credentials")
 
         logger.info("login_success", account=account)
-        return await self._create_token_pair(user)
+        return user, await self._create_token_pair(user)
 
-    async def refresh(self, raw_refresh_token: str) -> dict:
+    async def refresh(self, raw_refresh_token: str) -> tuple[User, dict]:
         token = await self.refresh_repo.get_by_token(raw_refresh_token)
         if not token:
             raise UnauthorizedException(detail="Invalid refresh token")
@@ -69,7 +69,7 @@ class AuthService:
             raise UnauthorizedException(detail="Invalid credentials")
 
         logger.info("token_refreshed", user_id=user.id)
-        return await self._create_token_pair(user)
+        return user, await self._create_token_pair(user)
 
     async def logout(self, raw_refresh_token: str) -> None:
         token = await self.refresh_repo.get_by_token(raw_refresh_token)

@@ -7,4 +7,4 @@ export {
   useRefreshToken,
   useRegister,
 } from "./hooks/use-auth";
-export type { LoginCredentials, TokenPair, UserResponse } from "./types";
+export type { LoginCredentials, UserResponse } from "./types";

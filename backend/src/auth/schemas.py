@@ -23,16 +23,6 @@ class UserCreateInput(BaseModel):
         return v
 
 
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshTokenInput(BaseModel):
-    refresh_token: str
-
-
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

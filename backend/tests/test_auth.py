@@ -8,27 +8,26 @@ from src.core.config import settings
 
 
 @pytest.mark.asyncio
-async def test_register_success(client: AsyncClient):
-    unique_account = f"newuser_{uuid.uuid4().hex[:8]}"
+async def test_register_sets_cookies(client: AsyncClient):
+    account = f"newuser_{uuid.uuid4().hex[:8]}"
     resp = await client.post(
         "/auth/register",
-        json={"account": unique_account, "password": "ValidPass1"},
+        json={"account": account, "password": "ValidPass1"},
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
-    assert data["token_type"] == "bearer"
+    assert resp.json()["data"]["account"] == account
+    # tokens are delivered as httpOnly cookies, not in the response body
+    assert resp.cookies.get("access_token")
+    assert resp.cookies.get("refresh_token")
+    assert "access_token" not in resp.text
 
 
 @pytest.mark.asyncio
 async def test_register_duplicate(client: AsyncClient):
-    unique_account = f"dupuser_{uuid.uuid4().hex[:8]}"
-    data = {"account": unique_account, "password": "ValidPass1"}
-    resp1 = await client.post("/auth/register", json=data)
-    assert resp1.status_code == 200
-    resp2 = await client.post("/auth/register", json=data)
-    assert resp2.status_code == 409
+    account = f"dupuser_{uuid.uuid4().hex[:8]}"
+    data = {"account": account, "password": "ValidPass1"}
+    assert (await client.post("/auth/register", json=data)).status_code == 200
+    assert (await client.post("/auth/register", json=data)).status_code == 409
 
 
 @pytest.mark.asyncio
@@ -58,9 +57,8 @@ async def test_login_success(client: AsyncClient):
         data={"username": account, "password": "ValidPass1"},
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
+    assert resp.cookies.get("access_token")
+    assert resp.cookies.get("refresh_token")
 
 
 @pytest.mark.asyncio
@@ -86,35 +84,49 @@ async def test_login_nonexistent_user(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_refresh_token(client: AsyncClient, auth_tokens):
-    resp = await client.post(
-        "/auth/refresh",
-        json={"refresh_token": auth_tokens["refresh_token"]},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
-    # Old refresh token should be revoked
-    resp2 = await client.post(
-        "/auth/refresh",
-        json={"refresh_token": auth_tokens["refresh_token"]},
-    )
-    assert resp2.status_code == 401
+async def test_refresh_rotates_and_revokes_old_token(client: AsyncClient):
+    account = f"refresh_{uuid.uuid4().hex[:8]}"
+    reg = await client.post("/auth/register", json={"account": account, "password": "ValidPass1"})
+    old_refresh = reg.cookies.get("refresh_token")
+    client.cookies.clear()  # control exactly which refresh token is sent
+    old_cookie = {"Cookie": f"refresh_token={old_refresh}"}
+
+    r1 = await client.post("/auth/refresh", headers=old_cookie)
+    assert r1.status_code == 200
+    assert r1.cookies.get("access_token")
+    client.cookies.clear()
+
+    # Old refresh token was revoked on rotation -> replay is rejected
+    r2 = await client.post("/auth/refresh", headers=old_cookie)
+    assert r2.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_logout(client: AsyncClient, auth_tokens):
-    resp = await client.post(
-        "/auth/logout",
-        json={"refresh_token": auth_tokens["refresh_token"]},
-    )
-    assert resp.status_code == 200
+async def test_refresh_without_cookie(client: AsyncClient):
+    resp = await client.post("/auth/refresh")
+    assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_me_authenticated(client: AsyncClient, auth_header):
-    resp = await client.get("/auth/me", headers=auth_header)
+async def test_invalid_refresh_token(client: AsyncClient):
+    resp = await client.post(
+        "/auth/refresh", headers={"Cookie": "refresh_token=totally-invalid-token"}
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_session(auth_client: AsyncClient):
+    assert (await auth_client.get("/auth/me")).status_code == 200
+    resp = await auth_client.post("/auth/logout")
+    assert resp.status_code == 200
+    # cookies cleared -> protected route no longer accessible
+    assert (await auth_client.get("/auth/me")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_me_authenticated(auth_client: AsyncClient):
+    resp = await auth_client.get("/auth/me")
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert "account" in data
@@ -128,23 +140,22 @@ async def test_me_unauthenticated(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_me_via_bearer_header(client: AsyncClient):
+    """Cookie is primary, but the Authorization header still works (Swagger/clients)."""
+    account = f"bearer_{uuid.uuid4().hex[:8]}"
+    reg = await client.post("/auth/register", json={"account": account, "password": "ValidPass1"})
+    token = reg.cookies.get("access_token")
+    client.cookies.clear()  # drop the cookie so only the header can authenticate
+    resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_expired_access_token(client: AsyncClient):
     expired_token = jwt.encode(
         {"sub": "testuser", "exp": 0},
         settings.SECRET_KEY,
         algorithm=settings.ALGORITHM,
     )
-    resp = await client.get(
-        "/auth/me",
-        headers={"Authorization": f"Bearer {expired_token}"},
-    )
-    assert resp.status_code == 401
-
-
-@pytest.mark.asyncio
-async def test_invalid_refresh_token(client: AsyncClient):
-    resp = await client.post(
-        "/auth/refresh",
-        json={"refresh_token": "totally-invalid-token"},
-    )
+    resp = await client.get("/auth/me", headers={"Cookie": f"access_token={expired_token}"})
     assert resp.status_code == 401

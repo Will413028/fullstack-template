@@ -1,5 +1,3 @@
-import { getCookie, removeCookie, setCookie } from "./cookies";
-
 export class ApiError extends Error {
   status: number;
   errors?: Record<string, string[]>;
@@ -24,34 +22,27 @@ function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
-// Token refresh state — shared across all concurrent requests
+// Token refresh state — shared across all concurrent requests.
+// Auth tokens live in httpOnly cookies (set by the backend), so the browser
+// sends them automatically with credentials:"include"; JS never touches them.
 let refreshPromise: Promise<boolean> | null = null;
 
 async function attemptTokenRefresh(): Promise<boolean> {
-  const refreshToken = getCookie("refresh_token");
-  if (!refreshToken) return false;
-
   try {
-    const baseUrl = getBaseUrl();
-    const response = await fetch(new URL("/auth/refresh", baseUrl).toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-
-    if (!response.ok) return false;
-
-    const data = await response.json();
-    setCookie("auth_token", data.access_token, 1);
-    setCookie("refresh_token", data.refresh_token, 7);
-    return true;
+    const response = await fetch(
+      new URL("/auth/refresh", getBaseUrl()).toString(),
+      {
+        method: "POST",
+        credentials: "include",
+      },
+    );
+    return response.ok;
   } catch {
     return false;
   }
 }
 
-async function refreshTokenWithMutex(): Promise<boolean> {
+function refreshTokenWithMutex(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = attemptTokenRefresh().finally(() => {
@@ -61,9 +52,7 @@ async function refreshTokenWithMutex(): Promise<boolean> {
   return refreshPromise;
 }
 
-function clearTokensAndRedirect(): void {
-  removeCookie("auth_token");
-  removeCookie("refresh_token");
+function redirectToLogin(): void {
   if (typeof window !== "undefined") {
     window.location.href = "/login";
   }
@@ -76,8 +65,7 @@ async function request<T>(
   options?: RequestOptions,
   isRetry = false,
 ): Promise<T> {
-  const baseUrl = getBaseUrl();
-  const url = new URL(path, baseUrl);
+  const url = new URL(path, getBaseUrl());
 
   if (options?.params) {
     for (const [key, value] of Object.entries(options.params)) {
@@ -85,12 +73,7 @@ async function request<T>(
     }
   }
 
-  const token = getCookie("auth_token");
   const headers = new Headers(options?.headers);
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
   if (
     body &&
@@ -120,7 +103,7 @@ async function request<T>(
       if (refreshed) {
         return request<T>(method, path, body, options, true);
       }
-      clearTokensAndRedirect();
+      redirectToLogin();
     }
 
     let errorData: {

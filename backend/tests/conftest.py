@@ -81,48 +81,44 @@ async def _setup_db():
     await engine.dispose()
 
 
-@pytest_asyncio.fixture
-async def client(_setup_db):
+def _new_client() -> AsyncClient:
     from src.main import app
 
     # Disable rate limiting in tests
     if hasattr(app.state, "limiter") and app.state.limiter:
         app.state.limiter.enabled = False
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+@pytest_asyncio.fixture
+async def client(_setup_db):
+    async with _new_client() as ac:
+        yield ac
+
+
+async def _login(ac: AsyncClient, user: dict) -> None:
+    """Authenticate a client; its cookie jar then carries the httpOnly auth cookies."""
+    resp = await ac.post("/auth/register", json=user)
+    if resp.status_code == 409:
+        resp = await ac.post(
+            "/auth/login",
+            data={"username": user["account"], "password": user["password"]},
+        )
+    assert resp.status_code == 200, f"Auth setup failed: {resp.status_code} {resp.text}"
+
+
+@pytest_asyncio.fixture
+async def auth_client(_setup_db):
+    """A client logged in as TEST_USER (httpOnly cookies in its jar)."""
+    async with _new_client() as ac:
+        await _login(ac, TEST_USER)
         yield ac
 
 
 @pytest_asyncio.fixture
-async def auth_tokens(client: AsyncClient) -> dict:
-    resp = await client.post("/auth/register", json=TEST_USER)
-    if resp.status_code == 409:
-        resp = await client.post(
-            "/auth/login",
-            data={"username": TEST_USER["account"], "password": TEST_USER["password"]},
-        )
-    assert resp.status_code == 200, f"Auth setup failed: {resp.status_code} {resp.text}"
-    return resp.json()
-
-
-@pytest_asyncio.fixture
-async def auth_header(auth_tokens: dict) -> dict:
-    return {"Authorization": f"Bearer {auth_tokens['access_token']}"}
-
-
-@pytest_asyncio.fixture
-async def auth_tokens_2(client: AsyncClient) -> dict:
-    resp = await client.post("/auth/register", json=TEST_USER_2)
-    if resp.status_code == 409:
-        resp = await client.post(
-            "/auth/login",
-            data={"username": TEST_USER_2["account"], "password": TEST_USER_2["password"]},
-        )
-    assert resp.status_code == 200, f"Auth setup failed: {resp.status_code} {resp.text}"
-    return resp.json()
-
-
-@pytest_asyncio.fixture
-async def auth_header_2(auth_tokens_2: dict) -> dict:
-    return {"Authorization": f"Bearer {auth_tokens_2['access_token']}"}
+async def auth_client_2(_setup_db):
+    """A second logged-in client (TEST_USER_2) — its own cookie jar / session."""
+    async with _new_client() as ac:
+        await _login(ac, TEST_USER_2)
+        yield ac
