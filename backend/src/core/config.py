@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,14 +30,17 @@ class Settings(BaseSettings):
     def validate_secret_key(cls, v: str) -> str:
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters for HS256")
+        return v
 
-        import os
-
-        if os.getenv("MODE") == "prod" and "change-me" in v:
+    @model_validator(mode="after")
+    def reject_placeholder_secret_in_prod(self) -> "Settings":
+        # Checks the parsed MODE field, so it works whether MODE comes from
+        # .env or the OS environment (os.getenv would miss env_file-only values).
+        if self.MODE == "prod" and "change-me" in self.SECRET_KEY:
             raise ValueError(
                 "SECRET_KEY cannot contain default placeholder 'change-me' in production mode!"
             )
-        return v
+        return self
 
     model_config = SettingsConfigDict(env_file=".env")
 

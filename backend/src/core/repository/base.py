@@ -17,11 +17,6 @@ class BaseRepository(Generic[T]):
     async def get_by_id(self, id: int) -> T | None:
         return await self.session.get(self.model, id)
 
-    async def get_all(self, *, skip: int = 0, limit: int = 100) -> list[T]:
-        stmt = select(self.model).offset(skip).limit(limit)
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-
     async def get_paginated(self, *, page: int = 1, size: int = 20) -> tuple[list[T], int, int]:
         """Returns (items, total_count, total_pages)."""
         count_stmt = select(func.count()).select_from(self.model)

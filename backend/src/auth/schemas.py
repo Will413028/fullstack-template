@@ -23,11 +23,6 @@ class UserCreateInput(BaseModel):
         return v
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str
@@ -45,9 +40,3 @@ class UserResponse(BaseModel):
     account: str
     is_disabled: bool
     role: int
-
-
-class UserInfo(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    name: str

@@ -1,6 +1,6 @@
 import hashlib
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.models import RefreshToken, User
@@ -33,11 +33,3 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
     async def revoke(self, token: RefreshToken) -> None:
         token.revoked = True
         await self.session.flush()
-
-    async def revoke_all_for_user(self, user_id: int) -> None:
-        stmt = (
-            update(RefreshToken)
-            .where(RefreshToken.user_id == user_id, RefreshToken.revoked.is_(False))
-            .values(revoked=True)
-        )
-        await self.session.execute(stmt)
