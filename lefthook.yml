@@ -30,3 +30,26 @@ pre-commit:
       run: uv run ruff format {staged_files}
       stage_fixed: true
       priority: 1
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: |
+        first_line="$(head -n1 {1})"
+        if [[ "$first_line" =~ ^(fixup|squash)!\  ]]; then exit 0; fi
+        pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_./-]+\))?!?: .+'
+        if ! [[ "$first_line" =~ $pattern ]]; then
+          echo "commit message 不符合 Conventional Commits 規範" >&2
+          echo "格式: <type>(<scope>)?: <subject>（feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert）" >&2
+          echo "你的訊息: $first_line" >&2
+          exit 1
+        fi
+        subject="${first_line#*: }"
+        if [[ "${subject:0:1}" =~ [A-Z] ]]; then
+          echo "commit message 不符合 Conventional Commits 規範: subject 開頭不可大寫" >&2
+          exit 1
+        fi
+        if [[ "$subject" == *. ]]; then
+          echo "commit message 不符合 Conventional Commits 規範: subject 結尾不可加句號" >&2
+          exit 1
+        fi
