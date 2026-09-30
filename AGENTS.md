@@ -2,18 +2,17 @@
 
 Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and Docker Compose deployment.
 
-## Development Workflow（必讀）
+## Verification
 
-1. 需求或架構取捨未定時，先釐清設計；需求明確、低風險的既有行為修改，直接實作並驗證受影響範圍。
-2. 沿用既有 roadmap／Pending 作主清單，複雜或跨模組項目才附實作與驗證計畫；複雜或高風險改動完成後做 review。
-3. Skills 依具體任務需要選用；bug fix 優先先驗紅燈再修到綠燈，不依賴特定 plugin。
+- Backend tests use `pytest`, frontend tests use `vitest`; a task is complete only when `make test` (backend) and `pnpm test` (frontend) pass, as CI runs them.
+- Cover observable behavior, failure conditions, and regressions; do not add tests per module or function when existing tests already cover the behavior. Docs-only or formatting changes need only the relevant static checks.
+- Coverage target: backend 80%+ (enforced in CI); frontend covers critical paths.
 
-**依行為與風險安排驗證：**
-- 新功能與 bugfix 用測試覆蓋可觀察行為、失敗條件與相關回歸；既有測試足以覆蓋時，不為每個 module / function 機械補測試。
-- 純文件或格式修改做相關靜態檢查，不要求新增行為測試。
-- Backend 測試用 `pytest`，Frontend 測試用 `vitest`
-- 測試必須通過 CI（`make test` / `pnpm test`）才能視為 task completed
-- Coverage target: backend 80%+, frontend 合理覆蓋關鍵路徑
+## Constraints
+
+- Never edit an Alembic migration that has already been applied; add a new one with `make generate-migration`.
+- `make down-v` deletes the Postgres volume and all local data.
+- Never commit `.env`; add new variables to `.env-example`.
 
 ## Monorepo Structure
 
@@ -57,42 +56,10 @@ pnpm format           # Biome format
 
 ## Architecture
 
-### Backend — Pragmatic DDD
+### Backend and frontend
 
-See `backend/AGENTS.md` for full details. Key patterns:
-- **Service layer NEVER raises HTTPException** — only `AppException` subclasses
-- **Router has NO try/except** — global exception handler catches all
-- **BaseRepository[T]** — generic async CRUD
-- **All DB operations are async** (AsyncSession + asyncpg)
-
-### Frontend — Feature-based Next.js
-
-- **Next.js 16** with App Router, React 19, TypeScript
-- **pnpm** package manager
-- **Tailwind CSS v4** + **shadcn/ui** components
-- **Biome** for linting/formatting (not ESLint)
-- **Tanstack Query** for server state
-- **next-intl** for i18n (en, zh-TW)
-- **React Hook Form** + **Zod** for form validation
-
-Frontend structure:
-```
-src/
-├── app/[locale]/         # File-based routing with i18n
-│   ├── (auth)/           # Auth pages (login)
-│   ├── (dashboard)/      # Protected pages
-│   └── (marketing)/      # Public pages
-├── components/
-│   ├── ui/               # shadcn/ui components
-│   └── layout/           # Header, footer, dashboard-shell
-├── features/             # Feature modules (auth, etc.)
-├── hooks/                # Custom React hooks
-├── lib/                  # Utilities (api-client, server-auth, utils)
-├── providers/            # React Query provider
-├── store/                # Zustand client UI state
-├── i18n/                 # Internationalization config
-└── proxy.ts              # Presence redirect + CSP (advisory)
-```
+- Backend (FastAPI, Pragmatic DDD, async SQLAlchemy): `backend/AGENTS.md`.
+- Frontend (Next.js App Router, feature-based, next-intl): `frontend/AGENTS.md`.
 
 ### Docker Compose Deployment
 
@@ -111,8 +78,4 @@ Services: postgres → migrate (alembic) → backend (:8000) → frontend (:3000
 
 ## Conventions
 
-- Communicate in 繁體中文
-- Use async SQLAlchemy (never sync) on backend
-- Use Biome (not ESLint/Prettier) on frontend
-- Use pnpm (not npm/yarn) on frontend
-- Use uv (not pip) on backend
+- Backend uses async SQLAlchemy only, managed with `uv`; frontend uses `pnpm`.
