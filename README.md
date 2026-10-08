@@ -1,6 +1,6 @@
 # Fullstack Template
 
-Production-ready fullstack monorepo for client projects.
+Production-ready fullstack monorepo for new web projects.
 
 **Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, httpOnly-cookie JWT + refresh tokens)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n)
