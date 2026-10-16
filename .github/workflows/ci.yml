@@ -65,6 +65,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Check git hooks were installed
+        run: test -x "$(git rev-parse --git-path hooks)/commit-msg"
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
