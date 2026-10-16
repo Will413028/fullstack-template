@@ -15,7 +15,8 @@
     "check:deps": "knip --no-exit-code",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 || exit 0; lefthook install || echo 'warning: lefthook install failed, git hooks are not active' >&2"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -40,6 +41,9 @@
       "@parcel/watcher",
       "@swc/core",
       "sharp"
+    ],
+    "ignoredBuiltDependencies": [
+      "lefthook"
     ]
   },
   "devDependencies": {
@@ -54,6 +58,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "jsdom": "^29.0.0",
     "knip": "^5.86.0",
+    "lefthook": "^2.2.2",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.3",
