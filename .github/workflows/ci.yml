@@ -67,6 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Check git hooks were installed
         run: test -x "$(git rev-parse --git-path hooks)/commit-msg"
+      - run: pnpm audit --prod --audit-level high
       - run: pnpm lint
       - run: pnpm check:deps
       - run: pnpm test

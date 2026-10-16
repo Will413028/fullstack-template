@@ -1,0 +1,11 @@
+# Install scripts run only for the packages listed here.
+allowBuilds:
+  '@parcel/watcher': true
+  '@swc/core': true
+  sharp: true
+  # Installed by the prepare script instead of its own postinstall.
+  lefthook: false
+
+# Skip versions published less than a day ago. Setting it explicitly also makes
+# pnpm fail instead of silently falling back to a younger version.
+minimumReleaseAge: 1440
