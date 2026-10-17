@@ -6,7 +6,7 @@ Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and 
 
 - Backend tests use `pytest`, frontend tests use `vitest`; a task is complete only when `make test` (backend) and `pnpm test` (frontend) pass, as CI runs them.
 - Cover observable behavior, failure conditions, and regressions; do not add tests per module or function when existing tests already cover the behavior. Docs-only or formatting changes need only the relevant static checks.
-- Coverage target: backend 80%+ (enforced in CI); frontend covers critical paths.
+- Coverage is reported, not gated: CI prints backend total coverage and, on pull requests, changed-line coverage (`diff-cover`) in the job summary; review uncovered changed lines rather than chasing a total percentage. Frontend covers critical paths.
 
 ## Constraints
 

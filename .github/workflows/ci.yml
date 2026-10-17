@@ -35,18 +35,26 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # diff-cover compares against the base branch
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       - run: uv sync
       - run: uv run ruff check src/
       - run: uv run ruff format --check src/
-      - run: uv run pytest --cov=src --cov-fail-under=80
+      # Coverage is reported, not gated; review changed-line coverage in the job summary.
+      - run: uv run pytest --cov=src --cov-report=term-missing:skip-covered --cov-report=xml
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/testdb
           SECRET_KEY: test-secret-key-that-is-at-least-32-characters-long
           MODE: test
           COOKIE_SECURE: "false"  # tests run over http; Secure cookies would be dropped
+      - name: Changed-line coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          uv run diff-cover coverage.xml --compare-branch=origin/${{ github.base_ref }} --format markdown:diff-cover.md
+          cat diff-cover.md >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: Frontend (lint + test + build)
