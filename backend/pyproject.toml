@@ -13,7 +13,7 @@ dependencies = [
     "PyJWT>=2.9.0",
     "sqlalchemy[asyncio]>=2.0.41",
     "slowapi>=0.1.9",
-    "structlog>=25.3.0",
+    "structlog>=26.1.0",
 ]
 
 [dependency-groups]
