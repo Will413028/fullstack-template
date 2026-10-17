@@ -11,7 +11,7 @@ dependencies = [
     "pwdlib[argon2]>=0.2.1",
     "pydantic-settings>=2.9.1",
     "PyJWT>=2.9.0",
-    "sqlalchemy[asyncio]>=2.0.41",
+    "sqlalchemy[asyncio]>=2.1.4",
     "slowapi>=0.1.9",
     "structlog>=25.3.0",
 ]
