@@ -1,0 +1,2 @@
+# Test-only SECRET_KEY placeholder in an early CI workflow; not a real credential.
+d0acaa1460d81792ce4ef060828198c25db402a9:.github/workflows/ci.yml:generic-api-key:39

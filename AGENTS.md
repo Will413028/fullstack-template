@@ -13,6 +13,8 @@ Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and 
 - Never edit an Alembic migration that has already been applied; add a new one with `make generate-migration`.
 - `make down-v` deletes the Postgres volume and all local data.
 - Never commit `.env`; add new variables to `.env-example`.
+- Agents do not add or upgrade dependencies on their own: list each package and version, confirm the package exists and was not registered recently (deps.dev shows publish dates), and wait for approval before installing.
+- Fix known vulnerabilities (`pnpm audit`, Dependabot alerts) by severity: critical within 7 days, high within 30 days, medium within 90 days, low at the next routine upgrade.
 
 ## Monorepo Structure
 
