@@ -5,14 +5,14 @@ description = "Production-ready FastAPI template with Pragmatic DDD architecture
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "alembic>=1.15.2",
-    "asyncpg>=0.30.0",
+    "alembic>=1.20.0",
+    "asyncpg>=0.32.0",
     "fastapi[standard]>=0.115.12",
     "pwdlib[argon2]>=0.2.1",
-    "pydantic-settings>=2.9.1",
+    "pydantic-settings>=2.15.0",
     "PyJWT>=2.9.0",
     "sqlalchemy[asyncio]>=2.0.41",
-    "slowapi>=0.1.9",
+    "slowapi>=0.1.10",
     "structlog>=25.3.0",
 ]
 
@@ -21,9 +21,9 @@ dev = [
     "diff-cover>=10.6.0",
     "httpx>=0.28.0",
     "pytest>=8.3.5",
-    "pytest-asyncio>=0.26.0",
-    "pytest-cov>=7.0.0",
-    "ruff>=0.11.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.0",
 ]
 
 [tool.uv]
