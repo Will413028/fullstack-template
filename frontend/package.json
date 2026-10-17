@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "tsc --noEmit && biome check src/",
     "format": "biome format --write",
-    "check:deps": "knip --no-exit-code",
+    "check:deps": "knip",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
