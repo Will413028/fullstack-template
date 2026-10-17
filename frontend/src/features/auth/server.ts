@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cookies } from "next/headers";
-import type { UserResponse } from "@/features/auth/types";
+import type { UserResponse } from "./types";
 
 // Server-side base URL: inside Docker the frontend container reaches the backend
 // by service name (http://backend:8000), which differs from the browser-facing

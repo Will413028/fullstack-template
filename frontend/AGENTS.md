@@ -34,13 +34,13 @@ src/
 │   ├── (dashboard)/      # Protected pages (overview)
 │   └── (marketing)/      # Public pages
 ├── features/             # Feature modules
-│   └── auth/             # Auth: api, hooks, components, types, validations
+│   └── auth/             # Auth: api, hooks, components, types, validations,
+│                         #   server.ts (getServerUser() — server-side session check)
 ├── components/
 │   ├── ui/               # shadcn/ui components
 │   └── layout/           # Header, footer, dashboard-shell
 ├── lib/                  # Utilities
 │   ├── api-client.ts     # Generic HTTP client (credentials:"include")
-│   ├── server-auth.ts    # getServerUser() — server-side session check
 │   └── utils.ts          # cn() Tailwind class merger
 ├── hooks/                # Custom React hooks (useDebounce)
 ├── providers/            # React Query provider
@@ -83,5 +83,6 @@ Logout → POST /auth/logout → backend clears the cookies
 1. Create `src/features/<name>/` with: `api/`, `hooks/`, `components/`, `types.ts`, `index.ts`
 2. API functions use `apiClient` from `@/lib/api-client`
 3. Hooks use Tanstack Query (`useQuery`, `useMutation`)
-4. Export public API from `index.ts` (barrel file)
-5. Add i18n keys to `messages/en.json` and `messages/zh-TW.json`
+4. Export public API from `index.ts` (barrel file); server-only code goes in `server.ts`, imported as `@/features/<name>/server`, never re-exported from the barrel (client components import it)
+5. `lib/` holds generic utilities and never imports from `features/`
+6. Add i18n keys to `messages/en.json` and `messages/zh-TW.json`

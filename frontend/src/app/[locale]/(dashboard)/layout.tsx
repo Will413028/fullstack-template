@@ -1,6 +1,6 @@
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { getServerUser } from "@/features/auth/server";
 import { redirect } from "@/i18n/navigation";
-import { getServerUser } from "@/lib/server-auth";
 
 export default async function DashboardLayout({
   children,
