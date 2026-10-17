@@ -51,7 +51,7 @@
     "lefthook": "^2.2.2",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.2.1",
-    "typescript": "^5.8.3",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.0"
   }
 }
