@@ -85,7 +85,11 @@ func serve(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	srv := httpapi.NewServer(httpapi.NewHandler(httpapi.Deps{Ready: pool.Ping, Logger: logger}), httpapi.DefaultTimeouts)
+	h, err := httpapi.NewHandler(ctx, httpapi.Deps{Ready: pool.Ping, Logger: logger, Docs: cfg.Mode == "dev"})
+	if err != nil {
+		return err
+	}
+	srv := httpapi.NewServer(h, httpapi.DefaultTimeouts)
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err

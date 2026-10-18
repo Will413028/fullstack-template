@@ -1,0 +1,97 @@
+# Test contract for the validator and problem tests: real operations only arrive with the auth and items modules.
+# Each property exercises one validation code.
+openapi: 3.0.3
+info:
+  title: test
+  version: "1"
+servers:
+  - url: /api
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: createWidget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Widget"
+      responses:
+        "201":
+          description: created
+  /widgets/{id}:
+    get:
+      operationId: getWidget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: ok
+  /fail:
+    get:
+      operationId: fail
+      responses:
+        "200":
+          description: ok
+components:
+  schemas:
+    Widget:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 10
+        slug:
+          type: string
+          pattern: "^[a-z]+$"
+        color:
+          type: string
+          enum: [red, blue]
+        ref:
+          type: string
+          format: uuid
+        size:
+          type: integer
+          minimum: 1
+          maximum: 5
+        note:
+          type: string
+        tags:
+          type: array
+          maxItems: 2
+          items:
+            type: string
+        count:
+          type: integer
+          multipleOf: 2
+        parts:
+          type: object
+          additionalProperties: false
+          properties:
+            a/b:
+              type: string
+              maxLength: 1
