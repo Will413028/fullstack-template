@@ -4,7 +4,8 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # 18+ keeps data in a versioned subdirectory; mount the parent (docker-library/postgres#37)
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
@@ -25,6 +26,8 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    # covers the 5s readiness drain plus up to 20s of graceful shutdown
+    stop_grace_period: 30s
     env_file: .env
     # loopback only: ports published by Docker bypass ufw
     ports:
