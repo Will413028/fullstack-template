@@ -11,7 +11,10 @@ locals {
 # Generating migrations (make migration) and drift checks; needs Docker and the standard build (make tools).
 env "dev" {
   src = [for f in local.schema_files : "file://${f}"]
-  dev = "docker://postgres/18/dev"
+  # Schema scope: every table lives in public, so migrations name tables without a schema qualifier and apply to
+  # whatever schema the connection's search_path selects. Switch to the database scope when a module needs its own
+  # PostgreSQL schema.
+  dev = "docker://postgres/18/dev?search_path=public"
   migration {
     dir = "file://migrations"
   }
