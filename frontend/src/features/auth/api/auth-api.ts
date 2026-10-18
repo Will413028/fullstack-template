@@ -1,32 +1,27 @@
-import { apiClient } from "@/lib/api-client";
-import type { LoginCredentials, UserResponse } from "../types";
+import { api } from "@/lib/api/client";
+import { unwrap } from "@/lib/api/errors";
+import type { components } from "@/lib/api/schema";
 
-// Auth tokens are delivered as httpOnly cookies by the backend; these calls
-// only return the user. The browser stores/sends the cookies automatically.
+export type User = components["schemas"]["User"];
+export type Credentials = components["schemas"]["CreateSessionRequest"];
+
+// The session token lives only in the HttpOnly cookie the backend sets; these
+// calls return the user and never see the token.
 export const authApi = {
-  login(credentials: LoginCredentials): Promise<{ data: UserResponse }> {
-    const formData = new URLSearchParams();
-    formData.append("username", credentials.account);
-    formData.append("password", credentials.password);
-    return apiClient.post<{ data: UserResponse }>("/auth/login", formData);
+  async login(credentials: Credentials): Promise<User> {
+    const session = await unwrap(api.POST("/sessions", { body: credentials }));
+    return session.user;
   },
 
-  register(credentials: LoginCredentials): Promise<{ data: UserResponse }> {
-    return apiClient.post<{ data: UserResponse }>(
-      "/auth/register",
-      credentials,
-    );
+  register(credentials: Credentials): Promise<User> {
+    return unwrap(api.POST("/users", { body: credentials }));
   },
 
-  refresh(): Promise<{ data: UserResponse }> {
-    return apiClient.post<{ data: UserResponse }>("/auth/refresh");
+  async logout(): Promise<void> {
+    await unwrap(api.DELETE("/sessions/current"));
   },
 
-  logout(): Promise<void> {
-    return apiClient.post<void>("/auth/logout");
-  },
-
-  getMe(): Promise<{ data: UserResponse }> {
-    return apiClient.get<{ data: UserResponse }>("/auth/me");
+  getMe(): Promise<User> {
+    return unwrap(api.GET("/users/me"));
   },
 };

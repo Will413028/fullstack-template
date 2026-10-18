@@ -3,6 +3,14 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Development only: next dev forwards /api to the backend so the browser
+  // stays on one origin. In production Caddy routes /api (deploy/Caddyfile)
+  // and the build carries no rewrite.
+  async rewrites() {
+    if (process.env.NODE_ENV !== "development") return [];
+    const backend = process.env.API_URL || "http://localhost:8000";
+    return [{ source: "/api/:path*", destination: `${backend}/api/:path*` }];
+  },
   async headers() {
     return [
       {

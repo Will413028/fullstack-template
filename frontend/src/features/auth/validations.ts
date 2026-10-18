@@ -1,8 +1,12 @@
 import { z } from "zod";
 
-export const loginSchema = z.object({
-  account: z.string().min(1, "Account is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+// Only presence is checked here. Lengths and formats belong to the API
+// contract (plan I1): the backend enforces them and answers with field errors,
+// which the form shows. The messages are field error codes, translated at
+// render time like the backend's.
+export const credentialsSchema = z.object({
+  account: z.string().min(1, "required"),
+  password: z.string().min(1, "required"),
 });
 
-export type LoginFormData = z.infer<typeof loginSchema>;
+export type CredentialsFormData = z.infer<typeof credentialsSchema>;

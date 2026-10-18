@@ -1,16 +1,19 @@
+import { useTranslations } from "next-intl";
 import { Suspense } from "react";
-import { LoginForm } from "@/features/auth/components/login-form";
+import { AuthForm } from "@/features/auth/components/auth-form";
 
 export default function LoginPage() {
+  const t = useTranslations("auth");
+
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="text-2xl font-medium text-white">Welcome back</h1>
-        <p className="text-zinc-400 mt-2">Sign in to your account</p>
+        <h1 className="text-2xl font-medium text-white">{t("loginTitle")}</h1>
+        <p className="text-zinc-400 mt-2">{t("loginSubtitle")}</p>
       </div>
       <div className="p-6 bg-zinc-900/50 border border-zinc-800 rounded-2xl">
         <Suspense fallback={<div className="h-64" />}>
-          <LoginForm />
+          <AuthForm mode="login" />
         </Suspense>
       </div>
     </div>

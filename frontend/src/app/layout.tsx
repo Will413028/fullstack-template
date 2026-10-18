@@ -7,11 +7,11 @@ export const metadata: Metadata = {
     template: "%s | Fullstack Template",
   },
   description:
-    "A production-ready fullstack template with Next.js, FastAPI, and k3s.",
+    "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
   openGraph: {
     title: "Fullstack Template",
     description:
-      "A production-ready fullstack template with Next.js, FastAPI, and k3s.",
+      "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
     type: "website",
     locale: "en",
   },
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Fullstack Template",
     description:
-      "A production-ready fullstack template with Next.js, FastAPI, and k3s.",
+      "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
   },
   robots: {
     index: true,

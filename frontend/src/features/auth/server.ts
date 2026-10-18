@@ -1,37 +1,27 @@
 import "server-only";
 
 import { cookies } from "next/headers";
-import type { UserResponse } from "./types";
-
-// Server-side base URL: inside Docker the frontend container reaches the backend
-// by service name (http://backend:8000), which differs from the browser-facing
-// NEXT_PUBLIC_API_URL. Falls back to it (and localhost) for local dev.
-function serverApiUrl(): string {
-  return (
-    process.env.API_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:8000"
-  );
-}
+import { api } from "@/lib/api/client";
+import { unwrap } from "@/lib/api/errors";
+import type { User } from "./api/auth-api";
 
 /**
  * Verify the current session from a Server Component by forwarding the request
  * cookies to the backend. Returns the user, or null if unauthenticated.
- * This is the real auth gate — middleware only does a cheap presence redirect.
+ * This is the real auth gate — proxy.ts only does a cheap presence redirect.
+ *
+ * Only a 401 means signed out. Anything else (the backend restarting, a 5xx)
+ * throws to the error boundary: treating it as signed out would send a
+ * signed-in user to the login page.
  */
-export async function getServerUser(): Promise<UserResponse | null> {
+export async function getServerUser(): Promise<User | null> {
   const cookieHeader = (await cookies()).toString();
   if (!cookieHeader) return null;
 
-  try {
-    const res = await fetch(new URL("/auth/me", serverApiUrl()).toString(), {
-      headers: { cookie: cookieHeader },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data: UserResponse };
-    return json.data;
-  } catch {
-    return null;
-  }
+  const result = await api.GET("/users/me", {
+    headers: { cookie: cookieHeader },
+    cache: "no-store",
+  });
+  if (result.response.status === 401) return null;
+  return unwrap(Promise.resolve(result));
 }

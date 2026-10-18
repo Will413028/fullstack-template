@@ -13,5 +13,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // next-intl's middleware imports "next/server" without an extension, which
+    // Node's ESM resolver rejects; inlining lets Vite resolve it (proxy.test.ts).
+    server: { deps: { inline: ["next-intl"] } },
   },
 });

@@ -14,7 +14,8 @@
       "!**/.next",
       "!**/node_modules",
       "!**/build",
-      "!**/src/generated/**"
+      "!**/src/generated/**",
+      "!**/src/lib/api/schema.d.ts"
     ]
   },
   "formatter": {
