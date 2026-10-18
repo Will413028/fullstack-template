@@ -224,64 +224,89 @@
   - 需要人做的事：Will 依 P12 更新本機 `.env`。
   - 完成後的狀態：前端登入暫時不能用。步驟 1–5 全部完成才合併。
 - [ ] **2. 共用平台**（被擋於：步驟 1）
-  - 範圍：
-    - DB 角色與憑證（D15）：
-      - `deploy/postgres/initdb/10-roles.sh`（`docker-entrypoint-initdb.d`）：建 `<app>_owner`（擁有 database 與 `public` schema，非 superuser、無 CREATEROLE）與 `<app>_app`（只有 CONNECT）；`REVOKE ALL ON DATABASE … FROM PUBLIC`。`POSTGRES_USER` 只用於初始化與容器內維運。
-      - `cmd/app migrate`：以 owner 身分執行 `atlas migrate apply`（URL 經環境變數傳給 Atlas，不上命令列；連線帶 `lock_timeout=5s`，盤點 B7），接著冪等授權：`GRANT USAGE ON SCHEMA public`、`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES` 與 sequences 權限、`ALTER DEFAULT PRIVILEGES IN SCHEMA public`。compose 的 migrate service 改跑 `app migrate`。
-      - 憑證：compose `secrets` 掛檔，搭配 `*_FILE`：postgres 用 `POSTGRES_PASSWORD_FILE`；config 支援 `<KEY>_FILE`（同時設定 KEY 與 KEY_FILE 是錯誤）；`DATABASE_URL` 不含密碼，另讀 `DATABASE_PASSWORD_FILE`，migrate 讀 owner 的 URL 與密碼檔。每個 service 只拿自己的變數與 secret，不再共用 `env_file: .env`。
-      - `.env-example`、`make init-env`（`scripts/init_env.py` 產生 secret 檔）、`.gitignore` 跟著改。
-    - 契約與生成：
-      - `api/openapi.yaml` 骨架，含共用 schema `Problem`、`ValidationProblem`，以及 cursor 分頁參數。
-      - oapi-codegen 生成到 `internal/httpapi/gen`。
-      - validator middleware，負責把 kin-openapi 的錯誤轉成 `errors[{pointer, code, detail}]`。code 對照：`required`、`too_short`、`too_long`、`pattern`、`enum`、`format`、`out_of_range`、`invalid_type`、`null_not_allowed`、`additional_property`；其餘一律用 fallback `invalid`。Content-Type 不符時另外回 415，problem `type` 為 `/problems/unsupported-media-type`。
-    - 錯誤處理：
-      - `internal/platform/apperr`。
-      - `internal/httpapi/problem.go`：`type` URI 清單見盤點 B2；未處理的錯誤回 500 並記 log；含 panic recover。
-    - middleware：
-      - request id（E5）。
-      - 安全標頭（B4、E4）。
-      - access log，記 `duration_ms`。
-      - per-IP rate limiter（B6、E3）。
-    - 分頁：`internal/platform/httpx` 的 cursor 編碼與解碼（B9）。
-    - 資料層工具：sqlc、squawk、兩支 schema 腳本（I5）、`concurrent_index` policy。
-    - 測試 harness：testcontainers 起 PG 18，以同一支 `10-roles.sh` 初始化（`postgres.WithInitScripts`），用 `app migrate` 的同一段程式以 owner 身分、community 版 Atlas（與 image 相同的版本與 checksum）套用 `migrations/` 並授權，測試以 app 角色連線；附一支帶 `-- atlas:txmode none` 的 testdata migration，確認套用端遵守 directive（設計審查 2026-10-18）。
-    - 架構測試：用 `go list -deps` 斷言 `internal/modules/<x>` 不 import 其他模組、不 import `net/http`，取代「新增模組時手動補 depguard 規則」。mutation：在暫時的兩個模組間加 import，測試要失敗。
-    - problem 轉換也涵蓋 `*http.MaxBytesError` → 413 與 `CrossOriginProtection` 的拒絕（`SetDenyHandler`）→ 403 problem。
-    - dev 文件：`GET /api/openapi.yaml` 與 Swagger UI。
-    - `make check` 加入：
-      - sqlc diff；
-      - 漂移檢查；
-      - squawk；
-      - migrations-immutable；
-      - 「重新生成 `internal/httpapi/gen` 後 diff 必須為空」。
-    - CI 加入：
-      - oasdiff（`main` 上沒有 `openapi.yaml` 時跳過）；
-      - coverage → Cobertura → diff-cover。
-  - 消費端：無外部消費端（模組在步驟 3、4 才接上）。
-  - 不能動：I2 的欄位名。
-  - 驗收（各條測試對應 `test-map.md` 的新增列；每個 mutation 都必須讓測試失敗）：
-    - `TestAppRoleCannotDDL`：app 角色執行 `CREATE TABLE`、`DROP TABLE` 都失敗，`SELECT`／`INSERT` 成功。mutation：harness 改用 owner 連線，測試要失敗。
-    - `TestMigrateGrantsIdempotent`：`app migrate` 連跑兩次都成功；先建表再跑一次，app 角色對新表有 DML 權限。mutation：拿掉 `ALTER DEFAULT PRIVILEGES` 與 `GRANT … ON ALL TABLES`，測試要失敗。
-    - config：同時設定 `DATABASE_PASSWORD` 與 `DATABASE_PASSWORD_FILE` 時啟動失敗；`_FILE` 讀檔去掉結尾換行。
-    - compose：`docker compose config` 中 backend 與 frontend 看不到 `POSTGRES_PASSWORD`；CI 的 stack job 仍綠燈。
-    - 測試方式：validator、rate limiter 與 problem 都用 `internal/httpapi/testdata/test-openapi.yaml` 加 stub handler 驗收，因為真正的 operation 要到步驟 3、4 才有。
-    - 違反 `minLength` 的 request 回 422，且 `errors[0]` 有 `pointer` 與 `code: too_short`。
-      - mutation：把 code 對照表的 `minLength` 改成回 fallback `invalid`，測試要失敗。
-    - Content-Type 不符回 415，problem `type` 為 `/problems/unsupported-media-type`。
-    - `GET /health` 經過完整 middleware 鏈仍回 200；dev 模式的 `GET /api/openapi.yaml` 回 200（不被 validator 擋下）。
-    - 不合法的 request id 會被換掉；不受信任的來源送的 request id 不被採用。
-      - mutation：拿掉格式檢查。
-    - 回應帶 `Cache-Control: no-store`，沒有 `X-XSS-Protection`。
-      - mutation：拿掉 `no-store`，`TestSecurityHeaders` 要失敗。
-    - per-IP rate limit：
-      - 來源在 `TRUSTED_PROXIES` 內時，兩個不同的 XFF 各自計數；
-      - 來源不受信任時忽略 XFF；
-      - 超限回 429，帶 `Retry-After`。
-      - mutation：改成一律採用 XFF。
-    - handler panic 時回 500 problem。
-      - mutation：拿掉 recover，`TestPanicReturnsProblem` 要失敗。
-    - depguard：在 `internal/modules/` 暫放一個 import `net/http` 的檔案，`golangci-lint run` 要失敗；確認後刪除該檔。
-    - `make -C backend check` 綠燈、PR CI 綠燈。
+  - 步驟 2 拆成 2a–2e，各自有驗收，一個 session 不跨子步驟（2026-10-18 拆）。順序依相依：2a 的 harness 給 2b 的漂移檢查與之後的模組測試用；2d 的 429 與 request id 要用 2c 的 problem。步驟 2 完成 = 2a–2e 都完成。
+  - 消費端（整個步驟 2）：無外部消費端，模組在步驟 3、4 才接上。各子步驟另列會受影響的既有檔案。
+  - 不能動（整個步驟 2）：I2 的欄位名；步驟 1 的 timeout、body 上限、shutdown 行為與其測試。
+  - 測試方式（2c、2d）：validator、rate limiter 與 problem 都用 `internal/httpapi/testdata/test-openapi.yaml` 加 stub handler 驗收，因為真正的 operation 要到步驟 3、4 才有。
+  - [ ] **2a. DB 角色、憑證、`app migrate` 與測試 harness**（D15；被擋於：步驟 1）
+    - 範圍：
+      - `deploy/postgres/initdb/10-roles.sh`（`docker-entrypoint-initdb.d`）：建 owner 角色（擁有 database 與 `public` schema，非 superuser、無 CREATEROLE）與 app 角色（只有 CONNECT）；`REVOKE ALL ON DATABASE … FROM PUBLIC`、`REVOKE CREATE ON SCHEMA public FROM PUBLIC`。角色名由 `DB_OWNER_USER`、`DB_APP_USER` 給（`.env-example` 預設 `fullstack_owner`、`fullstack_app`，`make rename` 在步驟 6 跟著改），密碼由 `DB_OWNER_PASSWORD_FILE`、`DB_APP_PASSWORD_FILE` 讀。`POSTGRES_USER` 只用於初始化與容器內維運。
+      - `internal/platform/migrate`＋`cmd/app migrate`：以 owner 身分執行 `atlas migrate apply --env deploy`。連線 URL 只經子行程的環境變數傳給 Atlas（`atlas.hcl` 的 `deploy` env 改讀 `ATLAS_DEPLOY_URL`），不上命令列、不寫進 log；URL 帶 `lock_timeout=5s`（盤點 B7）。套用後以 owner 連線冪等授權：`GRANT USAGE ON SCHEMA public`、`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES`、`GRANT USAGE,SELECT ON ALL SEQUENCES`、兩條對應的 `ALTER DEFAULT PRIVILEGES IN SCHEMA public`，全部在同一個 transaction。atlas 執行檔路徑與 migrations 目錄是參數（image 內是 `/usr/local/bin/atlas` 與 `/app/migrations`），harness 傳自己的值。
+      - config：任何 `<KEY>` 都可改用 `<KEY>_FILE`（讀檔、去掉結尾的一個換行）；兩者同時設定是錯誤。`DATABASE_URL` 不含密碼，密碼另讀 `DATABASE_PASSWORD`／`DATABASE_PASSWORD_FILE` 後組進連線設定；URL 已帶密碼時啟動失敗。migrate 讀 `MIGRATE_DATABASE_URL` 與 `MIGRATE_DATABASE_PASSWORD_FILE`（owner）。serve 用 app 角色。
+      - compose：top-level `secrets`（檔案在 repo 根的 `.secrets/`，git 忽略）；postgres 拿 `POSTGRES_PASSWORD_FILE` 與兩個角色的密碼檔；migrate 只拿 owner；backend 只拿 app；frontend 不拿任何 DB 變數。每個 service 用 `environment` 列出自己的變數（值從 `.env` 插值），不再 `env_file: .env`。
+      - `make init-env`（`scripts/init_env.py`）：產生 `.env` 與 `.secrets/` 下三個密碼檔（`0600`）；已存在就跳過，不覆蓋。`.gitignore` 加 `.secrets/`。`.env-example`、`backend/.env-example` 跟著改。
+      - harness `internal/platform/dbtest`：testcontainers 起 PG 18，以同一支 `10-roles.sh` 初始化（`postgres.WithInitScripts`），呼叫 `internal/platform/migrate` 的同一段程式，以 owner 身分、community 版 Atlas 套用並授權，回傳 app 角色的連線。community 版由 `make tools` 下載到 `bin/atlas-community`，版本與 Dockerfile 相同、checksum 取自 release.ariga.io 的 `.sha256`；`make test` 依賴它。附一支帶 `-- atlas:txmode none` 的 testdata migration。
+    - 會受影響的既有檔案：`rg -n "env_file|DATABASE_URL|POSTGRES_|migrate" docker-compose.yml docker-compose.dev.yml Makefile .github/workflows/ci.yml .env-example backend/.env-example backend/atlas.hcl backend/Dockerfile scripts/init_env.py`
+    - 驗收：
+      - `TestAppRoleCannotDDL`：app 角色執行 `CREATE TABLE`、`DROP TABLE` 都失敗，對 migrate 建立的表 `SELECT`／`INSERT` 成功。mutation：harness 改用 owner 連線，測試要失敗。
+      - `TestMigrateGrantsIdempotent`：`migrate` 連跑兩次都成功；之後 owner 新建一張表，app 角色對它有 DML 權限。mutation：拿掉 `ALTER DEFAULT PRIVILEGES` 與 `GRANT … ON ALL TABLES`，測試要失敗。
+      - `TestMigrateTxmodeNone`：testdata migration 含 `CREATE INDEX CONCURRENTLY`，套用成功。mutation：拿掉 directive，測試要失敗。
+      - `TestMigrateLockTimeout`：另一條連線持有表的 `ACCESS EXCLUSIVE` 鎖時，套用一支改該表的 migration 在 10 秒內以錯誤結束。mutation：拿掉 `lock_timeout`，測試要失敗（以 context 逾時判定）。
+      - `TestMigrateURLNotInArgs`：傳給 Atlas 的命令列參數不含密碼與 URL。mutation：改用 `--url`，測試要失敗。
+      - config：同時設 `DATABASE_PASSWORD` 與 `DATABASE_PASSWORD_FILE` 時啟動失敗；`_FILE` 讀檔去掉結尾換行；`DATABASE_URL` 帶密碼時失敗。
+      - compose：`docker compose config` 中 backend 看不到 owner 與 superuser 的密碼、frontend 看不到任何 DB 變數；ft-verify 隔離 worktree（`make init-env` 產生 `.env` 與密碼檔）：migrate exit 0、`/health/ready` 200、`docker compose exec postgres psql -U <app 角色> -c 'CREATE TABLE x()'` 失敗；CI stack job 改用 `make init-env` 後仍綠燈。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+    - 停止條件：
+      - lib/pq 不把 URL 的 `lock_timeout` 當成 runtime parameter → 改用 `options=-c%20lock_timeout%3D5s`，兩者都不行就回報。
+      - `postgres.WithInitScripts` 跑不了 `.sh`、或拿不到密碼檔 → 回報，不改成在 harness 裡重寫一份建角色的 SQL。
+    - 需要人做的事：Will 在本機跑 `make init-env` 前先把舊 `.env` 移開（或手動補新變數與 `.secrets/`）；既有的本機 volume 已初始化過，角色不會自動建立，要 `make down-v` 重建（會刪本機資料）。
+  - [ ] **2b. 資料層工具與模組邊界**（I4、I5；被擋於：2a）
+    - 範圍：
+      - sqlc：`make sqlc` 與 `make sqlc-diff` 逐一處理 `internal/modules/*/sqlc.yaml`；沒有模組時通過。
+      - `scripts/check-schema-drift.sh`：standard 版 `atlas migrate diff --env dev` 不得產生新檔；`scripts/check-migrations-immutable.sh`：對 `git merge-base HEAD origin/main` 已有的 migration 不得修改或刪除（寫法照 FathomPod 同名腳本）。
+      - squawk 檢查 `migrations/*.sql`（`npx --yes squawk-cli@2.65.0`），設定檔放 `backend/.squawk.toml`；`concurrent_index` policy 維持在 `atlas.hcl`。
+      - 架構測試 `internal/archtest`：用 `go list -deps` 斷言 `internal/modules/<x>` 不 import 其他模組、不 import `net/http`、不 import `internal/httpapi`；取代 `.golangci.yml` 裡「新增模組時手動補 depguard 規則」的註解與做法。
+      - `make check` 加入 sqlc-diff、drift、squawk、migrations-immutable。
+    - 會受影響的既有檔案：`backend/Makefile`、`backend/.golangci.yml`、`.github/workflows/ci.yml`（backend job 要 `fetch-depth: 0` 才有 merge-base）。
+    - 驗收（mutation 在 scratchpad 的隔離 worktree 做，做完丟棄）：
+      - 暫時新增 `internal/modules/zz/schema.sql` 建一張表、不產生 migration → drift 檢查失敗。
+      - 暫時 commit 一支 migration 並當作 base，再修改它 → immutable 檢查失敗。
+      - 暫時 migration 含對既有表的 `CREATE INDEX`（無 `CONCURRENTLY`）→ squawk 失敗。
+      - 暫時兩個模組 `aa`、`bb`，`bb` import `aa` → 架構測試失敗；`aa` import `net/http` → 架構測試與 depguard 都失敗。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+  - [ ] **2c. 契約、problem 與 validator**（I1、I2；被擋於：步驟 1）
+    - 範圍：
+      - `api/openapi.yaml` 骨架：`servers: [{url: /api}]`，共用 schema `Problem`、`ValidationProblem`，cursor 分頁參數 `limit`、`cursor`，共用 problem responses。
+      - oapi-codegen 生成到 `internal/httpapi/gen`（`go tool` 或 `go run` 鎖 v2.8.0，設定檔 `internal/httpapi/oapi-codegen.yaml`）；`make gen` 與 `make gen-check`（重新生成後 diff 必須為空）加入 `make check`。
+      - `internal/platform/apperr`：kind（not-found、conflict、unauthenticated、forbidden、validation、rate-limited）與穩定 code。
+      - `internal/httpapi/problem.go`：apperr → problem，`type` URI 照盤點 B2；未處理的錯誤回 500 並記 log（不把錯誤內容放進 `detail`）；panic recover；`*http.MaxBytesError` → 413；`CrossOriginProtection.SetDenyHandler` → 403 problem。
+      - validator middleware（`internal/httpapi/validate.go`）：只掛在 `/api/` 子樹，`Options.Skipper` 跳過 dev 文件路由；kin-openapi 錯誤 → `errors[{pointer, code, detail}]`，code 對照 `required`、`too_short`、`too_long`、`pattern`、`enum`、`format`、`out_of_range`、`invalid_type`、`null_not_allowed`、`additional_property`，其餘 fallback `invalid`；Content-Type 不符回 415、`type` 為 `/problems/unsupported-media-type`；找不到路由回 404 problem。
+      - dev 文件（只在 `MODE=dev`）：`GET /api/openapi.yaml`（內嵌的 spec）與 `GET /api/docs`（Swagger UI，swagger-ui-dist 5.33.0 從 jsDelivr 載入，鎖版本並帶 SRI）。
+    - 會受影響的既有檔案：`internal/httpapi/server.go`（`NewHandler` 的組裝）、`cmd/app/main.go`。
+    - 驗收：
+      - 違反 `minLength` 的 request 回 422，`errors[0]` 有 `pointer` 與 `code: too_short`。mutation：code 對照表的 `minLength` 改成 fallback `invalid`，測試要失敗。
+      - 對照表每個 code 各一個 table-driven case；未列的 kin-openapi 錯誤回 `invalid`。
+      - Content-Type 不符回 415，`type` 為 `/problems/unsupported-media-type`。
+      - `/api` 底下未定義的路徑回 404 problem。
+      - `TestPanicReturnsProblem`：handler panic 時回 500 problem，log 有 stack。mutation：拿掉 recover，測試要失敗。
+      - 未處理錯誤回 500，回應 body 不含錯誤字串。
+      - `TestBodyTooLarge` 改斷言 413 problem；`TestCrossOriginPostRejected` 改斷言 403 problem。mutation：拿掉 deny handler，測試要失敗。
+      - `GET /health` 經過完整 middleware 鏈仍回 200；dev 模式 `GET /api/openapi.yaml` 回 200（不被 validator 擋下）；prod 模式回 404。
+      - gen-check：在 scratchpad worktree 改 `openapi.yaml` 一個欄位、不重新生成 → `make gen-check` 失敗。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+  - [ ] **2d. middleware 與分頁**（B4、B6、B9、E3、E4、E5；被擋於：2c）
+    - 範圍：
+      - request id：只採用 `TRUSTED_PROXIES` 來源送的 `X-Request-ID`，且限 ≤64 字的 `[A-Za-z0-9-]`；其餘重新產生（UUIDv7）；放進 context 與回應標頭，problem 帶 `request_id` 擴充欄位。
+      - 安全標頭（`/api` 回應）：`X-Content-Type-Options: nosniff`、`Cache-Control: no-store`、`Referrer-Policy: no-referrer`；不送 `X-XSS-Protection`、`X-Frame-Options`、`Permissions-Policy`。
+      - access log：method、path（不含 query）、status、`duration_ms`、`client_ip`、`request_id`。
+      - client IP 解析：連線來源在 `TRUSTED_PROXIES` 內時，取 XFF 由右往左第一個不受信任的位址；否則用連線來源。
+      - per-IP rate limiter（`x/time/rate`，in-memory，每 IP 一個 limiter，閒置項定期清除）：提供可套在指定 operation 的 middleware，步驟 3 掛到 `POST /api/users`、`POST /api/sessions`；超限回 429 problem 加 `Retry-After`。
+      - `internal/platform/httpx` 的 cursor 編碼與解碼（base64url 編碼最後一筆的 id）；壞掉的 cursor 回 422 validation problem（pointer `/cursor`，code `invalid`）。
+    - 驗收：
+      - 不合法的 request id 被換掉；不受信任來源送的 request id 不被採用。mutation：拿掉格式檢查，測試要失敗。
+      - `TestSecurityHeaders`：有 `Cache-Control: no-store`，沒有 `X-XSS-Protection`。mutation：拿掉 `no-store`，測試要失敗。
+      - per-IP：來源在 `TRUSTED_PROXIES` 內時兩個不同 XFF 各自計數；來源不受信任時忽略 XFF；超限回 429 帶 `Retry-After`。mutation：改成一律採用 XFF，測試要失敗。
+      - access log 有 `duration_ms` 與 `client_ip`。
+      - cursor：編碼後解碼得回同一個 id；竄改過的 cursor 回 422。mutation：解碼不檢查長度，測試要失敗。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+  - [ ] **2e. CI 報表**（被擋於：2c）
+    - 範圍：
+      - oasdiff v1.33.0：比對 `origin/main` 的 `backend/api/openapi.yaml`，有 breaking change 就失敗；`main` 上沒有這個檔時印出跳過的原因並通過。
+      - coverage：`go test -coverprofile`，gocover-cobertura v1.5.0 轉 Cobertura，PR 上用 diff-cover 10.5.1 算 changed-line coverage；兩個數字寫進 job summary，不設門檻（`AGENTS.md` Verification）。
+    - 驗收：
+      - PR #12 的 backend job summary 有 total coverage 與 diff-cover 的結果。
+      - oasdiff 步驟的 log 顯示「main 沒有 openapi.yaml，跳過」。在 scratchpad 以兩份本機 spec 跑 oasdiff：刪一個 required 欄位要回報 breaking。
+      - PR CI 綠燈。
 - [ ] **3. auth 模組**（被擋於：步驟 2）
   - 範圍：
     - `internal/modules/auth`：
@@ -493,7 +518,11 @@
 |---|---|---|---|---|
 | 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
 | 1 Walking skeleton | 完成 | `make -C backend check` 綠燈；7 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout、Shutdown→Close）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`up --wait` 後 backend healthy、`docker compose stop backend` exit 0；設計審查 11 項已分流；D14 已實作；draft PR #12 在 `29d72d9` 的 `gh pr checks` 6 項全綠 | 無 | `9f014ed`…`29d72d9` |
-| 2 共用平台 | 未開始 | | | |
+| 2a 角色、憑證、migrate、harness | 未開始 | | | |
+| 2b 資料層工具與模組邊界 | 未開始 | | | |
+| 2c 契約、problem、validator | 未開始 | | | |
+| 2d middleware 與分頁 | 未開始 | | | |
+| 2e CI 報表 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
 | 4 items | 未開始 | | | |
 | 5 前端切換 | 未開始 | | | |
