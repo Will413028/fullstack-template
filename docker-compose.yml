@@ -11,10 +11,12 @@ services:
       timeout: 3s
       retries: 5
 
+  # applies backend/migrations (the deploy env in atlas.hcl reads DATABASE_URL); backend starts after it exits
   migrate:
     build: ./backend
     env_file: .env
-    command: ["sh", "-c", "/app/.venv/bin/python scripts/wait_for_db.py && /app/.venv/bin/alembic upgrade head"]
+    entrypoint: ["/usr/local/bin/atlas"]
+    command: ["migrate", "apply", "--env", "deploy"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -24,8 +26,9 @@ services:
     build: ./backend
     restart: unless-stopped
     env_file: .env
+    # loopback only: ports published by Docker bypass ufw
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -42,7 +45,7 @@ services:
       # server-side (SSR/RSC) fetches reach the backend by service name
       API_URL: http://backend:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
 

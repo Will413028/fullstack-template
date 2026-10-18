@@ -12,7 +12,7 @@ up:
 
 .PHONY: dev
 dev:
-	$(COMPOSE_DEV) up --build
+	$(COMPOSE_DEV) up --build --watch
 	@echo "\nDev stack started (hot reload enabled):"
 	@echo "Frontend: http://localhost:3000"
 	@echo "Backend:  http://localhost:8000"
@@ -61,11 +61,12 @@ status:
 
 .PHONY: migration
 migration:
-	$(COMPOSE) exec backend /app/.venv/bin/alembic upgrade head
+	$(COMPOSE) run --rm --build migrate
 
+# Generates backend/migrations/<timestamp>_<MSG>.sql from the modules' schema.sql (needs Docker)
 .PHONY: generate-migration
 generate-migration:
-	$(COMPOSE) exec backend /app/.venv/bin/alembic revision --autogenerate -m "$(MSG)"
+	$(MAKE) -C backend migration name="$(MSG)"
 
 # --- Seed ---
 
