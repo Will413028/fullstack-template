@@ -211,3 +211,25 @@ func TestLoadMigrate(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSeed(t *testing.T) {
+	env := baseEnv()
+	env["ADMIN_ACCOUNT"] = "root"
+	env["ADMIN_PASSWORD_FILE"] = writeSecret(t, "a long enough password\n")
+	cfg, err := LoadSeed(lookup(env))
+	if err != nil {
+		t.Fatalf("LoadSeed: %v", err)
+	}
+	if cfg.AdminAccount != "root" || cfg.AdminPassword != "a long enough password" || cfg.DatabasePassword != "pw" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+	if _, err := LoadSeed(lookup(baseEnv())); err == nil {
+		t.Fatal("LoadSeed accepted a missing admin account")
+	} else {
+		for _, key := range []string{"ADMIN_ACCOUNT", "ADMIN_PASSWORD"} {
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error %q does not mention %s", err, key)
+			}
+		}
+	}
+}

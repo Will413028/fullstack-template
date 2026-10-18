@@ -1,6 +1,6 @@
 // Command app is the backend's single binary. Subcommands: serve (HTTP API), migrate (apply migrations as the owner
-// role and grant the app role) and healthcheck (the container health probe; the distroless image has no shell or
-// curl).
+// role and grant the app role), seed-admin (create the admin account from ADMIN_ACCOUNT and ADMIN_PASSWORD) and
+// healthcheck (the container health probe; the distroless image has no shell or curl).
 // This is the composition root: settings are read and validated once here, and platform and modules are wired.
 package main
 
@@ -28,7 +28,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = "usage: app serve|migrate|healthcheck"
+const usage = "usage: app serve|migrate|seed-admin|healthcheck"
 
 // Where the image puts the Atlas community build and the migrations (Dockerfile).
 const (
@@ -63,6 +63,8 @@ func run(ctx context.Context, command string) error {
 		return serve(ctx)
 	case "migrate":
 		return runMigrate(ctx)
+	case "seed-admin":
+		return runSeedAdmin(ctx)
 	case "healthcheck":
 		addr := os.Getenv("HTTP_ADDR")
 		if addr == "" {
@@ -126,6 +128,35 @@ func serve(ctx context.Context) error {
 	}
 	logger.Info("serving", "app", cfg.AppName, "version", version, "addr", ln.Addr().String(), "mode", cfg.Mode)
 	return httpapi.Serve(ctx, ln, srv, shutdownTimeout, logger)
+}
+
+// runSeedAdmin connects as the app role, like serve: creating a row needs no more.
+func runSeedAdmin(ctx context.Context) error {
+	cfg, err := config.LoadSeed(os.LookupEnv)
+	if err != nil {
+		return err
+	}
+	pool, err := db.Open(ctx, db.Config{
+		URL:              cfg.DatabaseURL,
+		Password:         cfg.DatabasePassword,
+		MaxConns:         2,
+		StatementTimeout: cfg.DBStatementTimeout,
+	})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	authCfg := auth.Config{
+		SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Logger: logx.New(os.Stderr, cfg.Mode),
+	}
+	if cfg.PasswordHIBPCheck {
+		authCfg.Breach = hibp.New()
+	}
+	svc, err := auth.New(ctx, pool, authCfg)
+	if err != nil {
+		return err
+	}
+	return seedAdmin(ctx, svc, cfg.AdminAccount, cfg.AdminPassword, os.Stdout)
 }
 
 func runMigrate(ctx context.Context) error {

@@ -72,23 +72,19 @@ generate-migration:
 
 # --- Seed ---
 
+# Creates the admin account in the running stack (app seed-admin; an existing account is left unchanged):
+#   make seed ADMIN_ACCOUNT=admin
+# The password is read from the terminal without echo, or from stdin when it is piped, and reaches the container on
+# its stdin (ADMIN_PASSWORD_FILE=/dev/stdin): never on a command line, in an environment variable or in .env.
 .PHONY: seed
 seed:
-	@echo "Creating admin user..."
-	$(COMPOSE) exec backend /app/.venv/bin/python -c "\
-	import asyncio; \
-	from src.core.database import async_session_factory; \
-	from src.auth.models import User; \
-	from src.core.security import get_password_hash; \
-	from src.auth.constants import Role; \
-	async def seed(): \
-	    async with async_session_factory() as s: \
-	        from sqlalchemy import select; \
-	        exists = (await s.execute(select(User).where(User.account == 'admin'))).scalar_one_or_none(); \
-	        if exists: print('Admin already exists'); return; \
-	        s.add(User(account='admin', password=get_password_hash('Admin123'), role=Role.ADMIN.value)); \
-	        await s.commit(); print('Admin created (account: admin, password: Admin123)'); \
-	asyncio.run(seed())"
+	@test -n "$(ADMIN_ACCOUNT)" || { echo "usage: make seed ADMIN_ACCOUNT=<name> (the password is read from the terminal or stdin)"; exit 1; }
+	@if [ -t 0 ]; then \
+		trap 'stty echo' EXIT INT TERM; printf 'Password for %s: ' "$(ADMIN_ACCOUNT)" >&2; stty -echo; \
+		IFS= read -r pw; stty echo; echo >&2; \
+	else IFS= read -r pw; fi; \
+	printf '%s' "$$pw" | $(COMPOSE) exec -T -e ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)" -e ADMIN_PASSWORD_FILE=/dev/stdin \
+		backend /usr/local/bin/app seed-admin
 
 # --- Rename ---
 
@@ -103,13 +99,13 @@ endif
 init-env:
 	@python3 scripts/init_env.py
 
+# Deletes the database volume (all local data), starts the stack once the backend is ready, and seeds the admin.
 .PHONY: reset-db
 reset-db:
+	@test -n "$(ADMIN_ACCOUNT)" || { echo "usage: make reset-db ADMIN_ACCOUNT=<name> (deletes all local data)"; exit 1; }
 	@echo "Stopping stack and clearing database volumes..."
 	$(COMPOSE) down -v
-	@echo "Starting entire stack and executing migrations..."
-	$(COMPOSE) up -d
-	@echo "Waiting for backend to be ready..."
-	@until $(COMPOSE) exec -T backend /app/.venv/bin/python scripts/wait_for_db.py >/dev/null 2>&1; do sleep 1; done
-	@$(MAKE) seed
-	@echo "Database has been successfully reset and seeded!"
+	@echo "Starting the stack; migrate runs before the backend, which must report ready..."
+	$(COMPOSE) up -d --wait backend
+	@$(MAKE) --no-print-directory seed ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)"
+	@echo "Database has been reset and seeded."
