@@ -54,6 +54,29 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listUsers
+      summary: All users, newest first (admin only).
+      description: Disabled users included. Keyset pagination; pass `next_cursor` back as `cursor` until it is null.
+      tags: [auth]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /users/me:
     get:
       operationId: getCurrentUser
@@ -71,19 +94,36 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getUser
+      summary: A user.
+      description: |
+        Users read their own account and admins read any. Anyone else's account is a 404, the same as an account that
+        does not exist.
+      tags: [auth]
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
     patch:
       operationId: patchUser
       summary: Change a user (admin only).
       description: |
         JSON Merge Patch (RFC 7396): omitted fields are left unchanged. Disabling a user signs them out everywhere.
       tags: [auth]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
       requestBody:
         required: true
         content:
@@ -131,7 +171,7 @@ paths:
               $ref: "#/components/schemas/CreateSessionRequest"
       responses:
         "201":
-          description: Signed in.
+          description: Signed in; `Location` is the new session.
           headers:
             Location:
               $ref: "#/components/headers/Location"
@@ -140,7 +180,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/User"
+                $ref: "#/components/schemas/Session"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -155,6 +195,29 @@ paths:
           $ref: "#/components/responses/ValidationFailed"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listSessions
+      summary: The signed-in user's sessions, newest first.
+      description: |
+        Only sessions that are still valid (within both the absolute and the idle limit). Keyset pagination; pass
+        `next_cursor` back as `cursor` until it is null.
+      tags: [auth]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionPage"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
@@ -175,6 +238,21 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
   /sessions/current:
+    get:
+      operationId: getCurrentSession
+      summary: The session the request carries.
+      tags: [auth]
+      responses:
+        "200":
+          description: The current session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
     delete:
       operationId: deleteCurrentSession
       summary: Sign out.
@@ -189,6 +267,52 @@ paths:
               $ref: "#/components/headers/ClearSessionCookie"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getSession
+      summary: One of the signed-in user's sessions.
+      description: Another user's session is a 404, the same as a session that does not exist or has expired.
+      tags: [auth]
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteSession
+      summary: Revoke one of the signed-in user's sessions.
+      description: |
+        Another user's session is a 404, as in getSession. Revoking the session the request carries also clears the
+        cookie.
+      tags: [auth]
+      responses:
+        "204":
+          description: The session was revoked.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearSessionCookie"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
         "500":
           $ref: "#/components/responses/InternalError"
   /items:
@@ -249,12 +373,7 @@ paths:
           $ref: "#/components/responses/InternalError"
   /items/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+      - $ref: "#/components/parameters/Id"
     get:
       operationId: getItem
       summary: One of the signed-in user's items.
@@ -338,6 +457,13 @@ components:
         Opaque session token, HttpOnly. Named `session` instead when the server runs with COOKIE_SECURE=false (local
         http development), because the `__Host-` prefix requires Secure.
   parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     Limit:
       name: limit
       in: query
@@ -363,7 +489,7 @@ components:
       schema:
         type: string
     ClearSessionCookie:
-      description: Expires the session cookie.
+      description: Expires the session cookie. On deleteSession, sent only when the revoked session is the current one.
       schema:
         type: string
     RetryAfter:
@@ -390,6 +516,55 @@ components:
         created_at:
           type: string
           format: date-time
+    UserPage:
+      type: object
+      required: [users, next_cursor]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page; null on the last page.
+    Session:
+      type: object
+      description: A signed-in session. The token is only in the cookie and never part of the resource.
+      required: [id, user, created_at, last_used_at, expires_at, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          $ref: "#/components/schemas/User"
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          description: |
+            Updated at most once a minute. A session unused for the idle limit ends before `expires_at`.
+        expires_at:
+          type: string
+          format: date-time
+          description: The absolute end of the session, however much it is used.
+        current:
+          type: boolean
+          description: Whether this is the session the request carries.
+    SessionPage:
+      type: object
+      required: [sessions, next_cursor]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page; null on the last page.
     CreateUserRequest:
       type: object
       additionalProperties: false

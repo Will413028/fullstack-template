@@ -1,4 +1,4 @@
-// Package httpx holds HTTP-shaped helpers that modules share without importing net/http: the keyset pagination
+// Package httpx holds HTTP-shaped helpers that modules share without importing net/http: keyset pagination and its
 // cursor.
 package httpx
 
@@ -28,6 +28,33 @@ func DecodeCursor(cursor string) (uuid.UUID, error) {
 		return uuid.Nil, invalidCursor()
 	}
 	return id, nil
+}
+
+// After decodes the optional cursor parameter: nil for the first page.
+func After(cursor *string) (*uuid.UUID, error) {
+	if cursor == nil {
+		return nil, nil
+	}
+	id, err := DecodeCursor(*cursor)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
+// PageRows is the row limit for a page of limit items: one more, so TrimPage knows whether another page follows
+// without a second query or a count.
+func PageRows(limit int) int32 {
+	return int32(limit) + 1 //nolint:gosec // limit is 1..100 (contract)
+}
+
+// TrimPage cuts rows read with PageRows(limit), newest first, to the page and returns the cursor for the next page:
+// empty when no extra row came back, so the last page has no cursor.
+func TrimPage[T any](rows []T, limit int, id func(T) uuid.UUID) ([]T, string) {
+	if len(rows) <= limit {
+		return rows, ""
+	}
+	return rows[:limit], EncodeCursor(id(rows[limit-1]))
 }
 
 func invalidCursor() error {

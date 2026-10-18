@@ -192,7 +192,7 @@ func TestShortIdleLimitKeepsUsedSession(t *testing.T) {
 	}
 	for range 4 {
 		clock.Advance(20 * time.Second)
-		if _, err := svc.Authenticate(t.Context(), sess.Token); err != nil {
+		if _, _, err := svc.Authenticate(t.Context(), sess.Token); err != nil {
 			t.Fatalf("session used every 20s with a 30s idle limit: %v", err)
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/google/uuid"
 
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
@@ -27,6 +28,8 @@ type sessionTokenKey struct{}
 
 type currentUserKey struct{}
 
+type currentSessionKey struct{}
+
 // sessionTokenFrom returns the session token the request carried, valid or not, for sign-out and sign-in.
 func sessionTokenFrom(ctx context.Context) string {
 	v, _ := ctx.Value(sessionTokenKey{}).(string)
@@ -37,6 +40,12 @@ func sessionTokenFrom(ctx context.Context) string {
 func currentUser(ctx context.Context) (auth.User, bool) {
 	u, ok := ctx.Value(currentUserKey{}).(auth.User)
 	return u, ok
+}
+
+// currentSessionID returns the id of the valid session the request carries, uuid.Nil when there is none.
+func currentSessionID(ctx context.Context) uuid.UUID {
+	id, _ := ctx.Value(currentSessionKey{}).(uuid.UUID)
+	return id
 }
 
 // authenticate resolves the session cookie before validation. A missing or invalid session leaves the request
@@ -55,10 +64,11 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 			return
 		}
 		ctx := context.WithValue(r.Context(), sessionTokenKey{}, c.Value)
-		u, err := sessions.Authenticate(ctx, c.Value)
+		u, sessionID, err := sessions.Authenticate(ctx, c.Value)
 		switch {
 		case err == nil:
 			ctx = context.WithValue(ctx, currentUserKey{}, u)
+			ctx = context.WithValue(ctx, currentSessionKey{}, sessionID)
 			ctx = authctx.With(ctx, authctx.User{ID: u.ID, Role: u.Role})
 		case errors.Is(err, auth.ErrSessionInvalid):
 			w.Header().Set("Set-Cookie", cookie.clear())

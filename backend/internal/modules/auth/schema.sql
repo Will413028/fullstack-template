@@ -13,16 +13,21 @@ CREATE TABLE users (
   updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
--- Opaque sessions: the cookie holds a random token, the table only its SHA-256.
+-- Opaque sessions: the cookie holds a random token, the table only its SHA-256. Every request looks a session up by
+-- token_hash; id is the public identifier the API uses for the session resource, so nothing derived from the token
+-- leaves the server.
 CREATE TABLE sessions (
   token_hash   bytea       PRIMARY KEY CHECK (octet_length(token_hash) = 32),
+  id           uuid        NOT NULL DEFAULT uuidv7(),
   user_id      uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   created_at   timestamptz NOT NULL,
   last_used_at timestamptz NOT NULL,
   expires_at   timestamptz NOT NULL
 );
 
-CREATE INDEX sessions_user_id_idx ON sessions (user_id);
+CREATE UNIQUE INDEX sessions_id_key ON sessions (id);
+-- A user's sessions newest first (keyset on id), and deleting them all.
+CREATE INDEX sessions_user_id_id_idx ON sessions (user_id, id DESC);
 
 -- Per-account login throttling, keyed by the normalized account name whether or not the account exists.
 CREATE TABLE login_throttles (

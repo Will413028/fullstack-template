@@ -14,6 +14,7 @@ import (
 
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/internal/store"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
 )
 
 // touchEvery limits how often a session's last_used_at is written: once a minute is enough for a 1-day idle limit
@@ -40,44 +41,45 @@ func hashToken(token string) []byte {
 
 func (s *Service) newSession(ctx context.Context, q *store.Queries, userID uuid.UUID) (Session, error) {
 	now := s.now()
-	sess := Session{Token: newToken(), ExpiresAt: now.Add(s.cfg.SessionAbsolute), MaxAge: s.cfg.SessionAbsolute}
-	err := q.InsertSession(ctx, store.InsertSessionParams{
-		TokenHash: hashToken(sess.Token), UserID: userID, Now: now, ExpiresAt: sess.ExpiresAt,
+	token := newToken()
+	row, err := q.InsertSession(ctx, store.InsertSessionParams{
+		TokenHash: hashToken(token), UserID: userID, Now: now, ExpiresAt: now.Add(s.cfg.SessionAbsolute),
 	})
 	if err != nil {
 		return Session{}, fmt.Errorf("auth: create session: %w", err)
 	}
-	return sess, nil
+	return Session{SessionInfo: SessionInfo(row), Token: token, MaxAge: s.cfg.SessionAbsolute}, nil
 }
 
-// Authenticate returns the user of the session token. The session must be within its absolute and idle limits
-// and its user enabled.
-func (s *Service) Authenticate(ctx context.Context, token string) (User, error) {
+// Authenticate returns the user of the session token and the session's id. The session must be within its
+// absolute and idle limits and its user enabled.
+func (s *Service) Authenticate(ctx context.Context, token string) (User, uuid.UUID, error) {
 	if token == "" {
-		return User{}, ErrSessionInvalid
+		return User{}, uuid.Nil, ErrSessionInvalid
 	}
 	hash := hashToken(token)
 	row, err := s.q().GetSession(ctx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrSessionInvalid
+		return User{}, uuid.Nil, ErrSessionInvalid
 	}
 	if err != nil {
-		return User{}, fmt.Errorf("auth: get session: %w", err)
+		return User{}, uuid.Nil, fmt.Errorf("auth: get session: %w", err)
 	}
 	now := s.now()
 	if !now.Before(row.ExpiresAt) || !now.Before(row.LastUsedAt.Add(s.cfg.SessionIdle)) {
-		return User{}, ErrSessionInvalid
+		return User{}, uuid.Nil, ErrSessionInvalid
 	}
 	if row.IsDisabled {
-		return User{}, ErrSessionInvalid
+		return User{}, uuid.Nil, ErrSessionInvalid
 	}
 	// a short idle limit (under two minutes) is touched more often, or a session in use would still lapse
 	if now.Sub(row.LastUsedAt) >= min(touchEvery, s.cfg.SessionIdle/2) {
 		if err := s.q().TouchSession(ctx, store.TouchSessionParams{Now: now, TokenHash: hash}); err != nil {
-			return User{}, fmt.Errorf("auth: touch session: %w", err)
+			return User{}, uuid.Nil, fmt.Errorf("auth: touch session: %w", err)
 		}
 	}
-	return User{ID: row.ID, Account: row.Account, Role: row.Role, IsDisabled: row.IsDisabled, CreatedAt: row.CreatedAt}, nil
+	u := User{ID: row.ID, Account: row.Account, Role: row.Role, IsDisabled: row.IsDisabled, CreatedAt: row.CreatedAt}
+	return u, row.SessionID, nil
 }
 
 // SignIn checks the account and password and issues a new session. previousToken, the session the request
@@ -160,6 +162,72 @@ func (s *Service) SignOut(ctx context.Context, token string) error {
 func (s *Service) SignOutAll(ctx context.Context, userID uuid.UUID) error {
 	if err := s.q().DeleteUserSessions(ctx, userID); err != nil {
 		return fmt.Errorf("auth: delete sessions: %w", err)
+	}
+	return nil
+}
+
+var errSessionNotFound = apperr.New(apperr.NotFound, "", "session not found")
+
+// Sessions returns up to limit of the caller's live sessions after cursor (nil for the first page).
+func (s *Service) Sessions(ctx context.Context, limit int, cursor *string) (SessionPage, error) {
+	c, err := caller(ctx)
+	if err != nil {
+		return SessionPage{}, err
+	}
+	after, err := httpx.After(cursor)
+	if err != nil {
+		return SessionPage{}, err
+	}
+	now := s.now()
+	rows, err := s.q().ListUserSessions(ctx, store.ListUserSessionsParams{
+		UserID: c.ID, Now: now, IdleBefore: now.Add(-s.cfg.SessionIdle), After: after, RowLimit: httpx.PageRows(limit),
+	})
+	if err != nil {
+		return SessionPage{}, fmt.Errorf("auth: list sessions: %w", err)
+	}
+	rows, next := httpx.TrimPage(rows, limit, func(r store.ListUserSessionsRow) uuid.UUID { return r.ID })
+	page := SessionPage{Sessions: make([]SessionInfo, 0, len(rows)), NextCursor: next}
+	for _, row := range rows {
+		page.Sessions = append(page.Sessions, SessionInfo(row))
+	}
+	return page, nil
+}
+
+// Session returns the caller's live session with id. Another user's session is not found, the same as one that
+// does not exist or has expired (plan I6).
+func (s *Service) Session(ctx context.Context, id uuid.UUID) (SessionInfo, error) {
+	c, err := caller(ctx)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	now := s.now()
+	row, err := s.q().GetUserSession(ctx, store.GetUserSessionParams{
+		ID: id, UserID: c.ID, Now: now, IdleBefore: now.Add(-s.cfg.SessionIdle),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SessionInfo{}, errSessionNotFound
+	}
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("auth: get session: %w", err)
+	}
+	return SessionInfo(row), nil
+}
+
+// RevokeSession deletes the caller's live session with id, with the same not-found rule as Session.
+func (s *Service) RevokeSession(ctx context.Context, id uuid.UUID) error {
+	c, err := caller(ctx)
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	n, err := s.q().DeleteUserSession(ctx, store.DeleteUserSessionParams{
+		ID: id, UserID: c.ID, Now: now, IdleBefore: now.Add(-s.cfg.SessionIdle),
+	})
+	if err != nil {
+		return fmt.Errorf("auth: revoke session: %w", err)
+	}
+	if n == 0 {
+		return errSessionNotFound
 	}
 	return nil
 }

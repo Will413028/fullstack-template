@@ -93,7 +93,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	adminOnly, err := operations("PatchUser")
+	adminOnly, err := operations("ListUsers", "PatchUser")
 	if err != nil {
 		return nil, err
 	}

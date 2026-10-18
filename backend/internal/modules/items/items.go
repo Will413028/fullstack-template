@@ -98,31 +98,23 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Item, error) {
 	return Item(row), nil
 }
 
-// List returns up to limit of the caller's items after cursor (nil for the first page). It reads one row more
-// than limit to know whether another page follows, so the last page has no cursor and no extra round trip.
+// List returns up to limit of the caller's items after cursor (nil for the first page).
 func (s *Service) List(ctx context.Context, limit int, cursor *string) (Page, error) {
 	ownerID, err := owner(ctx)
 	if err != nil {
 		return Page{}, err
 	}
-	params := store.ListItemsParams{OwnerID: ownerID, RowLimit: int32(limit) + 1} //nolint:gosec // limit is 1..100 (contract)
-	if cursor != nil {
-		after, err := httpx.DecodeCursor(*cursor)
-		if err != nil {
-			return Page{}, err
-		}
-		params.After = &after
+	after, err := httpx.After(cursor)
+	if err != nil {
+		return Page{}, err
 	}
-	rows, err := s.q().ListItems(ctx, params)
+	rows, err := s.q().ListItems(ctx, store.ListItemsParams{OwnerID: ownerID, After: after, RowLimit: httpx.PageRows(limit)})
 	if err != nil {
 		return Page{}, fmt.Errorf("items: list: %w", err)
 	}
-	page := Page{Items: make([]Item, 0, min(len(rows), limit))}
-	for i, row := range rows {
-		if i == limit {
-			page.NextCursor = httpx.EncodeCursor(page.Items[limit-1].ID)
-			break
-		}
+	rows, next := httpx.TrimPage(rows, limit, func(r store.Item) uuid.UUID { return r.ID })
+	page := Page{Items: make([]Item, 0, len(rows)), NextCursor: next}
+	for _, row := range rows {
 		page.Items = append(page.Items, Item(row))
 	}
 	return page, nil
