@@ -8,6 +8,13 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
+# make dev: next dev with installed dependencies; docker-compose.dev.yml mounts src/, messages/ and public/ over the
+# copy so edits reload
+FROM deps AS dev
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+CMD ["pnpm", "dev"]
+
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
