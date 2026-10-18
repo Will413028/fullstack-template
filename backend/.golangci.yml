@@ -18,8 +18,9 @@ linters:
     depguard:
       rules:
         # Layering: modules hold services, stores and sqlc code; they never touch HTTP or the composition root.
-        # Module-to-module imports and transitive dependencies are checked by internal/archtest, which covers new
-        # modules without a rule per module.
+        # Module-to-module imports and transitive dependencies of non-test code are checked by internal/archtest,
+        # which covers new modules without a rule per module. Test files may import another module to build fixtures
+        # (items tests create users through auth to satisfy items.owner_id -> users.id).
         modules-no-http:
           list-mode: lax
           files:

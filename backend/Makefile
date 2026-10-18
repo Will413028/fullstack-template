@@ -85,8 +85,7 @@ drift: $(ATLAS) ## Needs Docker: schema.sql files and migrations/ must match
 
 .PHONY: squawk
 squawk: ## Lock and safety checks for migrations (needs Node)
-	@set -- migrations/*.sql; \
-	if [ -e "$$1" ]; then $(SQUAWK) --config .squawk.toml "$$@"; else echo "no migrations, skipping squawk"; fi
+	./scripts/squawk.sh $(SQUAWK)
 
 .PHONY: migrations-immutable
 migrations-immutable: ## Migrations already on BASE must not change

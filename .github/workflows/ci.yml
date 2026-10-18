@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # main runs are never cancelled: the existing-migrations check compares each push with the previous one, so a
+  # cancelled run would let the next push treat a modified migration as the base.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:

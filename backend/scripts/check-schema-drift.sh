@@ -10,9 +10,10 @@ cd "$(dirname "$0")/.."
 
 atlas=${1:?usage: check-schema-drift.sh <atlas binary>}
 shopt -s nullglob
-files=(internal/modules/*/schema.sql)
-if [[ ${#files[@]} -eq 0 ]]; then
-  echo "no module schema.sql, skipping the drift check"
+schemas=(internal/modules/*/schema.sql)
+migrations=(migrations/*.sql)
+if ((${#schemas[@]} + ${#migrations[@]} == 0)); then
+  echo "no module schema.sql and no migrations, skipping the drift check"
   exit 0
 fi
 tmp=$(mktemp -d)
@@ -20,8 +21,9 @@ trap 'rm -rf "$tmp"' EXIT
 cp -R migrations/. "$tmp/"
 before=$(ls "$tmp")
 "$atlas" migrate diff drift_check --env dev --dir "file://$tmp"
-if [[ "$(ls "$tmp")" != "$before" ]]; then
-  cat "$tmp"/*_drift_check.sql
+added=$(comm -13 <(echo "$before") <(ls "$tmp") | grep -vx atlas.sum || true)
+if [[ -n "$added" ]]; then
+  for f in $added; do cat "$tmp/$f"; done
   echo "schema.sql and migrations/ differ: run make migration name=<name>" >&2
   exit 1
 fi
