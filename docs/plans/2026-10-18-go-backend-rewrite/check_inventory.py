@@ -37,11 +37,11 @@ ALLOWED_LINES = [
 
 
 def rg(pattern: str, globs: list[str], *, lines: bool = False) -> list[str]:
-    cmd = ["rg", "-n" if lines else "-l", "-i", "--hidden", pattern]
+    cmd = ["rg", "-n" if lines else "-l", "-i", "--hidden", pattern, "."]
     for g in globs:
         cmd += ["-g", g]
     out = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, check=False)
-    return sorted(line for line in out.stdout.splitlines() if line)
+    return sorted(line.removeprefix("./") for line in out.stdout.splitlines() if line)
 
 
 def check_rows(text: str) -> list[str]:
@@ -74,6 +74,10 @@ def check_after() -> list[str]:
         _, _, line = rest.partition(":")
         if not allowed(path, line):
             errors.append(f"python residue: {hit}")
+    # Old-contract residue: the cross-origin API URL and the verb-style auth paths.
+    old_contract = r"NEXT_PUBLIC_API_URL|/auth/(login|logout|register|refresh|me)\b|access_token|refresh_token"
+    for hit in rg(old_contract, RESIDUE_GLOBS + ["!docs/adr/**"], lines=True):
+        errors.append(f"old contract residue: {hit}")
     for leftover in ("backend/pyproject.toml", "backend/uv.lock", "backend/alembic.ini", "backend/src"):
         if (REPO / leftover).exists():
             errors.append(f"still exists: {leftover}")

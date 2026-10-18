@@ -1,0 +1,107 @@
+---
+title: API 與認證照業界基準：同源 /api、REST 形狀、RFC 9457、opaque session 與 CSRF 防護
+date: 2026-10-18
+review-date: 2027-04-18
+status: active
+tags: [fullstack-template, decision, rest, auth, security]
+---
+
+# API 與認證照業界基準：同源 /api、REST 形狀、RFC 9457、opaque session 與 CSRF 防護
+
+## Context
+
+[改寫成 Go](2026-10-18-go-backend.md) 時，第一版計畫保留了舊 FastAPI 的契約：`{data}` 外殼、`/auth/login` 這類動詞路徑、建立與刪除都回 200、offset 分頁、數字 ID，認證則是 JWT 加 refresh token。從零對照業界基準後，舊設計有兩個實際缺口，另有幾處違反標準：
+
+- **cookie 在正式環境收不到**：前端在 `yourdomain.com`、API 在 `api.yourdomain.com`，cookie 沒帶 Domain，所以只屬於 `api.` 這個 host，前端的 server-side 認證檢查收不到它。這是依 cookie 規範推論的，沒有實測。
+- **沒有 CSRF 防護**：只靠 `SameSite=Lax`。
+- **密碼規則違反 NIST 800-63B-4**：要求字元組合，最短長度也不夠。
+- **role 從來沒有被檢查過**。
+
+**約束**：
+
+- `external`：只有一台 VPS，前面是 Caddy／Nginx，跑 Docker Compose。
+- `external`：oapi-codegen v2.8.0 對 OpenAPI 3.1 的支援仍標示為「initial」，所以契約維持 3.0.3。
+- `inherited`：前端已經依舊契約寫好。現在仍成立的理由：沒有外部理由。前端是我們自己的程式，會隨這次改寫一起改，所以不限制任何選項。
+
+## Options Considered
+
+- **基準. 業界標準組合**：
+  - 拓樸：同源（Caddy 把 `/api/*` 轉給後端）。
+  - 回應：直接回資源，不包外殼；建立回 201 加 `Location`，刪除回 204（[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)）。
+  - 分頁：cursor（[Zalando #160](https://opensource.zalando.com/restful-api-guidelines/)、[AIP-158](https://google.aip.dev/158)）。
+  - 部分更新：JSON Merge Patch（RFC 7396）。
+  - 錯誤：[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)。
+  - Session：`__Host-` cookie（[OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)）。
+  - CSRF：用 Fetch Metadata 檢查，實作為 Go 1.25 起內建的 `http.CrossOriginProtection`（[OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)）。
+  - 密碼：至少 15 字、不強制組合規則、比對外洩清單（[NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html)）。
+  - 暴力破解防護：依帳號節流（[OWASP Credential Stuffing](https://cheatsheetseries.owasp.org/cheatsheets/Credential_Stuffing_Prevention_Cheat_Sheet.html)）。
+- **A. 保留舊契約，只換語言**（第一版計畫）：前端幾乎不用改。代價是上面四個缺口全部留下來，每個下游專案都會繼承。
+- **B. 照基準**（選用）。
+- 子選項：
+  - 分頁：cursor（選用）或 offset 加總數。
+  - 登入識別：username（選用）或驗證過的 email。
+  - 外洩密碼清單：內嵌清單（選用）或只查 HIBP。
+
+## Decision
+
+- **D1 拓樸**：同源。正式環境的 Caddy 跑在 compose 內，把 `/api/*` 轉給後端，而且只有 Caddy 對外發佈 port；`TRUSTED_PROXIES` 設為 compose 的固定 subnet。dev 由 `next dev` 的 `rewrites` 轉發。不需要 CORS，也不再用 `NEXT_PUBLIC_API_URL`。
+- **D2 API 形狀**：
+  - URL 是資源導向：`/api/users`、`/api/sessions`、`/api/sessions/current`、`/api/users/me`、`/api/items`。
+  - 單一資源直接回傳；集合回傳 `{<資源複數>, next_cursor}`。
+  - 建立回 201 加 `Location`，刪除回 204。
+  - 分頁用 keyset 的 `limit`/`cursor`，不提供總數。
+  - PATCH 收 `application/merge-patch+json`。
+  - URL 不帶版本。
+  - 契約是 spec-first 的 `openapi.yaml`，是唯一來源：後端用 validator 執行，前端用生成的型別（openapi-typescript 加 openapi-fetch）。
+- **D3 錯誤**：RFC 9457 problem。每種錯誤有固定的 `type` URI（`/problems/<slug>`）；驗證錯誤附 `errors: [{pointer, code, detail}]`。前端依 `type` 和 `code` 翻譯，不解析 `detail`。
+- **D4 Session**：
+  - opaque token，DB 只存 SHA-256。
+  - cookie：`__Host-session`，屬性 `HttpOnly; Secure; SameSite=Lax`，不帶 Domain。
+  - 有效期：absolute 7 日、idle 1 日。
+  - 登入一律發新 token。停用帳號時，撤銷該使用者的所有 session；另提供「登出所有裝置」。之後新增改 role 或改密碼的功能時，同樣要撤銷 session（寫進 API 規則）。
+  - 不接受 Bearer。
+- **D5 CSRF**：整個 mux 外層包 `http.CrossOriginProtection`。
+- **D6 密碼與登入**：
+  - 密碼長度 15–128，不強制組合規則；比對內嵌的常見與外洩密碼清單；HIBP 為可選。
+  - 雜湊用 argon2id（m=19 MiB、t=2、p=1），並限制同時進行的雜湊數量。
+  - 依帳號節流：不論帳號是否存在都記錄失敗；連續失敗第 5 次之後，退避時間依指數成長，上限 1 小時。另有 per-IP 限流，IP 依 `TRUSTED_PROXIES` 解析。
+  - 登入名稱是 username：契約接受大小寫，存入前轉小寫，所以唯一性不分大小寫。密碼在雜湊前做 NFKC 正規化（NIST 寫的是 SHOULD）。
+  - 長度與格式只寫在契約裡：HTTP 由 validator 執行，`seed-admin` 用同一份內嵌的 spec 驗證；前端不重複實作。
+- **D7 授權**：role 只有 `admin` 和 `user`，註冊預設 `user`，admin 只能用 seed 建立。查詢一律帶 owner 條件，非 owner 回 404。唯一需要 admin 的操作是停用使用者。
+
+## Rationale
+
+- **選 B 而非 A**：A 的唯一收益是前端少改，但前端是我們自己的程式。A 的代價是讓每個下游專案繼承兩個安全缺口與違反標準的設計。這次本來就要重寫，這時候改最便宜。
+- **D1**：同源是 `__Host-` cookie 能運作、SSR 拿得到 cookie、CSP 可以只寫 `connect-src 'self'` 的前提。Caddy 放在 compose 內，而不是裝在 host 上，因為 backend 這樣才能完全不對外發佈 port，`TRUSTED_PROXIES` 也才能固定成 compose 的 subnet。若 Caddy 裝在 host，backend 看到的來源 IP 是 docker gateway，per-IP 限流會變成全站共用一個 bucket。代價：TLS 憑證存在 compose volume 裡；改用外部 proxy 時，要自己設定 `TRUSTED_PROXIES`。
+- **D2**：選 cursor 而非 offset，因為資料在分頁途中有新增時，keyset 結果仍然穩定，而且不用每次都算 `COUNT(*)`。代價：無法直接跳到第 N 頁。需要頁碼的後台表格，可以另外用 offset 實作。
+- **D3**：選擇帶 `code` 的陣列格式，而不沿用舊的 `{field: [msg]}` map，因為 RFC 9457 明說用戶端「SHOULD NOT parse detail」，而前端需要穩定的機器碼才能做 next-intl 翻譯。
+- **D4–D5**：OWASP 說 SameSite「does not replace a proper CSRF defense」；`api.` 子網域和主網站屬於同一個 site，SameSite 擋不到。`CrossOriginProtection` 是標準庫內建，也是 OWASP 點名的做法。不接受 Bearer，因為目前沒有非瀏覽器的 client（YAGNI）。
+- **D6**：NIST 規定「SHALL NOT」強制組合規則，而且「SHALL」比對外洩清單。只用 per-IP 限流擋不住分散式的 credential stuffing，所以加上依帳號節流。內嵌清單可以離線運作，代價是 binary 會變大（約 1 MB）。選 username 而非 email，因為 email 需要寄信服務。代價：註冊時無法隱藏「這個名稱已被使用」，也沒有找回密碼的流程。
+- **D7**：範本要示範授權模型，所以保留一個有測試的 admin 操作，不把 role 整個拿掉。
+
+## Expected Outcome
+
+- 跨來源的 POST 回 403；同源的請求正常通過。
+- 走 Caddy 同源部署時，重新整理頁面後 SSR 仍是登入狀態。
+- 在 `openapi.yaml` 改了欄位卻沒有重新生成程式碼時，CI 會失敗。
+
+## Invariants
+
+- `openapi.yaml` 是 API 形狀與限制的唯一來源。
+- 認證憑證只放在 `HttpOnly` cookie；所有狀態變更都經過 `CrossOriginProtection`。
+- 使用者擁有的資源，查詢一律帶 owner 條件。
+
+## Revocation Triggers
+
+- 需要找回密碼或 email 通知 → 加 email 驗證，重新評估 D6 的登入識別。
+- 需要 MFA、SSO 或第三方登入 → 重新評估 D4（考慮代管認證）。
+- 出現原生 app 或第三方 API 消費者 → 重新評估 Bearer 與 API 版本策略。
+- backend 超過一個 replica → per-IP 限流改用 DB 或 proxy 層。
+- oapi-codegen 宣布 3.1 支援穩定 → 升級到 OpenAPI 3.1。
+
+## Review Notes
+
+## Related
+
+- 來源：2026-10-18 一個沒參與規劃的 subagent 從零查證業界基準（來源見上方各連結），repo 擁有者回覆「照建議」拍板。本 ADR 即原始紀錄。
+- 同批決定：[後端改寫成 Go](2026-10-18-go-backend.md)。
