@@ -29,7 +29,7 @@ func assertProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, typ
 	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
 		t.Fatalf("body is not a problem: %v (%q)", err, rec.Body)
 	}
-	if p.Type != typ || p.Status != status || p.Title == "" {
+	if string(p.Type) != typ || p.Status != status || p.Title == "" {
 		t.Errorf("problem = %+v, want type %s and status %d with a title", p, typ, status)
 	}
 	return p
@@ -58,7 +58,7 @@ func TestAppErrToProblem(t *testing.T) {
 	} {
 		p := assertProblem(t, serveError(t, tc.err, discard), tc.status, tc.typ)
 		want, _ := apperr.As(tc.err)
-		if p.Code == nil || *p.Code != want.Code {
+		if p.Code == nil || string(*p.Code) != want.Code {
 			t.Errorf("%v: code = %v, want %s", tc.err, p.Code, want.Code)
 		}
 	}

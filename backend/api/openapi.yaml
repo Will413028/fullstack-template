@@ -668,7 +668,20 @@ components:
         type:
           type: string
           format: uri-reference
-          description: Fixed per kind of problem, for example `/problems/not-found`.
+          description: Fixed per kind of problem. Adding a value is a change clients must translate.
+          enum:
+            - /problems/bad-request
+            - /problems/unauthenticated
+            - /problems/forbidden
+            - /problems/not-found
+            - /problems/method-not-allowed
+            - /problems/conflict
+            - /problems/payload-too-large
+            - /problems/unsupported-media-type
+            - /problems/validation
+            - /problems/rate-limited
+            - /problems/internal
+            - /problems/unavailable
           example: /problems/not-found
         title:
           type: string
@@ -681,7 +694,14 @@ components:
           description: Human-readable explanation for developers; clients must not parse it.
         code:
           type: string
-          description: Stable machine-readable code refining `type`, for example `account_taken`.
+          description: Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
+          enum:
+            - account_taken
+            - invalid_credentials
+            - login_throttled
+            - session_invalid
+            - insufficient_role
+            - cross_origin_request
         request_id:
           type: string
           description: The request's `X-Request-ID`, for matching a report with the server logs.
@@ -709,9 +729,21 @@ components:
         code:
           type: string
           description: |
-            Stable machine-readable code: `required`, `too_short`, `too_long`, `pattern`, `enum`, `format`,
-            `out_of_range`, `invalid_type`, `null_not_allowed`, `additional_property`, `invalid`, or a
-            business rule such as `password_too_common`.
+            Stable machine-readable code: a failed contract rule, or a business rule such as `password_too_common`.
+            Adding a value is a change clients must translate.
+          enum:
+            - required
+            - too_short
+            - too_long
+            - pattern
+            - enum
+            - format
+            - out_of_range
+            - invalid_type
+            - null_not_allowed
+            - additional_property
+            - invalid
+            - password_too_common
           example: too_short
         detail:
           type: string

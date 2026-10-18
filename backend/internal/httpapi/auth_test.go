@@ -240,14 +240,14 @@ func assertMe(t *testing.T, a *authAPI, token string, want int) {
 
 func assertCode(t *testing.T, p gen.ValidationProblem, code string) {
 	t.Helper()
-	if p.Code == nil || *p.Code != code {
+	if p.Code == nil || string(*p.Code) != code {
 		t.Errorf("problem code = %v, want %s", p.Code, code)
 	}
 }
 
 func assertFieldError(t *testing.T, p gen.ValidationProblem, pointer, code string) {
 	t.Helper()
-	if len(p.Errors) != 1 || p.Errors[0].Pointer != pointer || p.Errors[0].Code != code {
+	if len(p.Errors) != 1 || p.Errors[0].Pointer != pointer || string(p.Errors[0].Code) != code {
 		t.Errorf("errors = %+v, want one %s at %s", p.Errors, code, pointer)
 	}
 }

@@ -143,7 +143,7 @@ func TestValidationListsEveryError(t *testing.T) {
 		http.StatusUnprocessableEntity, "/problems/validation")
 	got := map[string]string{}
 	for _, e := range p.Errors {
-		got[e.Pointer] = e.Code
+		got[e.Pointer] = string(e.Code)
 	}
 	want := map[string]string{"/name": "too_short", "/size": "out_of_range", "/x": "additional_property", "/y": "additional_property"}
 	if len(got) != len(want) || len(p.Errors) != len(want) {
@@ -247,5 +247,5 @@ func newTestHandlerDeps(t *testing.T, deps Deps) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return h
+	return checkProblems(t, h)
 }

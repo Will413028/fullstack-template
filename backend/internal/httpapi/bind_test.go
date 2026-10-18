@@ -23,7 +23,7 @@ func TestParamBindErrorIsValidation(t *testing.T) {
 		rec := httptest.NewRecorder()
 		writeParamError(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/x", nil), discard, tc.err)
 		p := assertProblem(t, rec, http.StatusUnprocessableEntity, "/problems/validation")
-		if len(p.Errors) != 1 || p.Errors[0].Pointer != "/limit" || p.Errors[0].Code != tc.code {
+		if len(p.Errors) != 1 || p.Errors[0].Pointer != "/limit" || string(p.Errors[0].Code) != tc.code {
 			t.Errorf("%v: errors = %+v, want /limit %s", tc.err, p.Errors, tc.code)
 		}
 		if strings.Contains(rec.Body.String(), "0x10") || strings.Contains(rec.Body.String(), "strconv") {

@@ -18,11 +18,7 @@ var discard = slog.New(slog.DiscardHandler)
 
 func newTestHandler(t *testing.T, ping func(context.Context) error) http.Handler {
 	t.Helper()
-	h, err := NewHandler(t.Context(), Deps{Ready: ping, Logger: discard, RateLimitPerMin: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
+	return newTestHandlerDeps(t, Deps{Ready: ping, Logger: discard})
 }
 
 func ok(context.Context) error { return nil }
