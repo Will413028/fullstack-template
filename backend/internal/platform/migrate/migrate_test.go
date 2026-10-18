@@ -131,4 +131,7 @@ func TestMigrateLockTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("migrate succeeded while the table was locked")
 	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("migrate gave up after %s, want within 10s (lock_timeout %s)", elapsed, "5s")
+	}
 }

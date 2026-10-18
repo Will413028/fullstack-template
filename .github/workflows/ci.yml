@@ -49,7 +49,10 @@ jobs:
           test "$(jq -c '.services.backend.secrets | map(.source)' /tmp/compose.json)" = '["db_app_password"]'
           test "$(jq -c '.services.migrate.secrets | map(.source)' /tmp/compose.json)" = '["db_owner_password"]'
           test "$(jq -c '.services.frontend.secrets // []' /tmp/compose.json)" = '[]'
-          ! jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'
+          jq -e '.services.frontend.environment' /tmp/compose.json > /dev/null
+          if jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'; then
+            echo "frontend receives database settings"; exit 1
+          fi
       - run: docker compose up -d --build --wait backend
       - name: Migrate exited cleanly and backend is ready
         run: |
@@ -57,7 +60,9 @@ jobs:
           curl -fsS http://127.0.0.1:8000/health/ready
       - name: The app role cannot change the schema
         run: |
-          ! docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fullstack_app -d fullstack -c 'CREATE TABLE intruder (id int)'
+          out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fullstack_app -d fullstack -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
+          echo "$out"
+          grep -q 'permission denied for schema public' <<< "$out"
       - if: failure()
         run: docker compose logs
 
