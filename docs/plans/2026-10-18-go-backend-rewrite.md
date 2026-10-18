@@ -478,7 +478,7 @@
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
-| 1 Walking skeleton | 進行中 | `make -C backend check` 綠燈；6 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`docker compose stop` exit 0；`up --wait` 與 backend healthy；設計審查 11 項已分流 | draft PR 的 `gh pr checks`（尚未推送）；D14、D15 待 Will | `9f014ed`…`8991284` |
+| 1 Walking skeleton | 進行中 | `make -C backend check` 綠燈；6 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`docker compose stop` exit 0；`up --wait` 與 backend healthy；設計審查 11 項已分流 ；draft PR #12 的 `gh pr checks` 6 項全綠（含 stack job） | D14 待 Will（決定後才收尾步驟 1）；D15 擋步驟 3 | `9f014ed`…`437e79c` |
 | 2 共用平台 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
 | 4 items | 未開始 | | | |
