@@ -69,7 +69,7 @@
 - **P10　部署拓樸**：同源。
   - 正式環境：Caddy 跑在 compose 內（`deploy/Caddyfile`、`caddy` service），`/api/*` 轉給 backend，其餘轉給 Next。只有 Caddy 發佈 80/443，HSTS 也在 Caddy 設定。`SITE_ADDRESS` 決定站點位址，本機 `make up` 用 `:80`，搭配 `COOKIE_SECURE=false`。
   - compose network 固定 subnet `172.30.0.0/24`，動態配發限在 `172.30.0.128/25`；Caddy 固定 `172.30.0.2`，`TRUSTED_PROXIES` 只列 `172.30.0.2/32`（D18 修訂，原為整個 subnet）。backend 不發佈 port；Next 的 server 端呼叫不受信任，送什麼 `X-Forwarded-For` 都不影響 client IP。
-  - dev：`make dev` 也走 Caddy（D18），Caddy 的 port 綁 `127.0.0.1`，其餘 service 不發佈 port。`next dev` 的 `rewrites`（只在 `NODE_ENV=development` 生效）只用於在 host 上直接跑 `pnpm dev`。
+  - dev：`make dev` 也走 Caddy（D18），入口 `127.0.0.1:3000`，其餘 service 不發佈 port。`next dev` 的 `rewrites`（只在 `NODE_ENV=development` 生效）只用於在 host 上直接跑 `pnpm dev`。
   - 改用 compose 外的 proxy 時，要自行設定 `TRUSTED_PROXIES`，寫進 `docs/deploy-vps.md`。
 - **P11　repo 工具維持 Python**：`scripts/*.py`（rename、init_env）是 repo 工具，不是後端（預設，可推翻）。
 - **P12　本機 `.env` 由 Will 更新**（需要人做，見步驟 1）。agent 不讀 `.env`。新變數依 `.env-example`：
@@ -123,11 +123,11 @@
 | REST operation（新） | 12（D16 後；原 6） | 5 | 2 | 盤點 A 段 |
 | 表（新） | 3（`users`、`sessions`、`login_throttles`） | 1 | 0 | 盤點 C 段 |
 | 舊測試 | 16 | 8 | 1＋5（config） | `test-map.md` |
-| 既有缺陷 | E2、E3、E5、E8、E10、E11、E12、E13、E14 | E1、E6、E9 | E4、E7、E15 | 盤點 E 段 |
+| 既有缺陷 | E2、E3、E5、E8、E10、E11、E12、E13、E14 | E1、E6、E9 | E4、E7、E15、E16、E17 | 盤點 E 段 |
 
 ## 範圍
 
-- **做：** 盤點 A–F 段的全部列；E 段 15 項缺陷全修。專案頁 Pending 已在 2026-10-18 依 D5 處置。
+- **做：** 盤點 A–F 段的全部列；E 段 17 項缺陷全修（E16、E17 為步驟 5 發現）。專案頁 Pending 已在 2026-10-18 依 D5 處置。
 - **不做：**
   - 背景工作框架（River）：沒有非同步工作。
   - OAuth、SSO、MFA、email、找回密碼：範本的認證先用 username 加密碼，觸發點見延後項。
@@ -140,6 +140,7 @@
   - managed Postgres（RDS 之類，`docker-entrypoint-initdb.d` 不會執行）：角色改由 runbook 以 superuser 建立，寫進 `docs/deploy-vps.md`。觸發：第一個用 managed DB 的下游（D15）。
   - `pg_hba` 只允許 superuser 從容器內的 socket 連線。觸發：D15 完成後的加固，或第一個正式部署（D15）。
   - OpenAPI 3.1。觸發：oapi-codegen 宣布 3.1 支援穩定。
+  - compose 的固定 subnet（`172.30.0.0/24`）與 Caddy 的固定 IP 改成可設定，或改由 backend 在啟動時解析 `caddy` 的位址。原因：兩個由本範本衍生的 stack 跑在同一台 host 時，固定 subnet 會撞（推論：Docker 不允許兩個網路用重疊的 subnet，未實測）。觸發：同一台 host 要跑第二個衍生 stack（步驟 5，2026-10-18）。
 
 ## 步驟
 
@@ -431,7 +432,7 @@
     - code review（獨立 subagent）、PR CI 綠燈。
   - 停止條件：squawk 擋下新增欄位的 migration（volatile default 會重寫表）時，停下回報，不加 ignore。2026-10-18 已觸發，Will 決定 D17。
   - 完成後的狀態：前端仍是舊呼叫方式，接著做步驟 5。
-- [ ] **5. 前端切換與同源部署**（被擋於：步驟 4b）
+- [x] **5. 前端切換與同源部署**（被擋於：步驟 4b）
   - 範圍：
     - 盤點 F16–F22、F25–F27，以及 F6 的前端部分。
     - 同源部署：`deploy/Caddyfile`，以及 compose 的 `caddy` service、固定 subnet 與 Caddy 的固定 IP、`TRUSTED_PROXIES`（P10、D18、F5）。Caddyfile 的 `reverse_proxy backend` 設 `lb_try_duration 10s`，backend 重建期間把請求留住；不設 `health_uri`（單一 upstream，D14）。轉給 backend 時以 `header_up` 覆寫 `X-Request-ID`：backend 信任 Caddy 送的 request id，Caddy 原樣轉送就等於信任 client（E5）。部署文件（F10）在步驟 6 改寫。
@@ -445,10 +446,11 @@
     - `proxy.ts`：只在完全沒有 session cookie 時把受保護頁導向 login；有 cookie 時不把 login 頁導走（cookie 可能已失效，見 wiki `tech/login-death-loop-stale-cookie`）；CSP 改成 `connect-src 'self'`。
     - `getServerUser()`：只有 401 代表未登入；backend 連不上或 5xx 時拋出，交給 `error.tsx`，不當成登出。
     - 註冊頁 `/register` 與 dashboard 的登出按鈕：端到端驗收要走註冊與登出，HEAD 的前端兩者都沒有（開工設計審查 2026-10-18）。
+    - 執行中發現的舊有缺陷 E16（production CSP 讓頁面不 hydrate）、E17（`make dev` 的 frontend 起不來）一併修掉：兩者都擋住本步的驗收。`make dev` 的入口是 `http://localhost:3000`（Caddy），不是 80：Docker Desktop on macOS 沒有 privileged helper 時綁不了特定位址的 1024 以下 port（2026-10-18 實測）。
   - 消費端：
     - `rg -n "refresh|access_token|refresh_token|URLSearchParams|\.data\b|/auth/" frontend/src frontend/AGENTS.md frontend/README.md`
     - `rg -n NEXT_PUBLIC_API_URL . -g '!docs/adr/**' -g '!docs/plans/**' -g '!frontend/node_modules/**'`：步驟 5 完成時必須沒有結果
-    - `rg -n "8000" .github Makefile docker-compose*.yml`：只剩 backend 自己的 listen 與 healthcheck
+    - `rg -n "8000" .github Makefile docker-compose*.yml`：只剩 frontend 的 `API_URL: http://backend:8000`（F5）
   - 不能動：
     - I1–I3；
     - `getServerUser()` 仍然是真正的認證關卡（`frontend/AGENTS.md`）。
@@ -475,7 +477,7 @@
       3. 重新整理後仍是登入狀態，證明 SSR 讀得到 cookie（E11）；
       4. 登出；
       5. 被導回 login。
-    - `make dev` 起得來，經 Caddy 的 `http://localhost/api/users/me` 回 401、首頁 200。
+    - `make dev` 起得來，經 Caddy 的 `http://localhost:3000/api/users/me` 回 401、首頁 200。
     - PR CI 綠燈。
 - [ ] **6. 外圍與文件**（被擋於：步驟 4、5）
   - 範圍：
@@ -630,7 +632,7 @@
 | 3c seed-admin 與 compose | 完成 | `make -C backend check` 綠燈（本機）；mutation：(i) 不驗證輸入 → `TestSeedAdminRejectsShortPassword` 失敗；`CreateUserIfAbsent` 改成覆寫 → `TestSeedAdminExistingAccountUnchanged` 失敗；隔離 worktree 的 compose（`make init-env`）：migrate exit 0、backend healthy；`make seed ADMIN_ACCOUNT=Admin`（stdin）建立 `admin`，再跑一次 exit 0 且不改變，短密碼 exit 非 0、訊息不含密碼，沒帶帳號時印 usage；curl：`POST /api/users` 201 → `GET /api/users/me` 200 → `DELETE /api/sessions/current` 204（`Set-Cookie: session=; Max-Age=0; HttpOnly; SameSite=Lax`）→ 舊 cookie `GET /api/users/me` 401；另測跨站 POST 403、admin 停用後該使用者 401；`make reset-db` 沒帶帳號時在 `down -v` 前就擋下，帶了則重建並 seed；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `f9091d3` |
 | 4 items | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 items 8 列與 `TestCreateItemTitleTooLong`、`TestUpdatedAtChanges` 通過，另加 `TestListItemsLimitNotDecimal`、`TestCreateItemCrossSite`（E12）、`TestDefaultPageSizeMatchesContract`；mutation 4 項都讓指定測試失敗：(a) GetItem 拿掉 owner 條件 → `TestGetOtherUsersItem` 拿到 200、(b) PATCH 的 description 改成一般指標語意 → `TestUpdateItemMergePatch`、(c) cursor 改成 offset → `TestPaginationKeyset` 出現重複 id、(d) 拿掉 `updated_at = now()` → `TestUpdatedAtChanges`；`rg -n "users" backend/internal/modules/items/queries` 無結果；`GET /api/items?limit=0x10` 回 422 `{/limit, invalid_type}`（生成碼 binder 經 `writeParamError`，2c D1 的端到端驗證）；隔離 worktree 的 compose：migrate 套用 2 支 migration、curl 走過建立 201＋`Location`、列表 `next_cursor: null`、merge patch `description: null` 清空、刪除 204、刪除後 404、未登入 401；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（空字串 cursor 改回 422；handler 的預設頁大小以測試綁住契約的 `default`），各補一個 mutation 並讓測試失敗；reviewer 另做 UPDATE、DELETE 拿掉 owner 條件兩項 mutation，`TestUpdateOtherUsersItem` 都失敗。實作與計畫字面不同處：oapi-codegen 開 `nullable-type: true`，回應的 nullable 欄位一律明確設值（未設定的 `Nullable` 會 marshal 成 `""`）；items 查詢只寫 owner 條件、空 patch 回原值不更新 `updated_at`；前端 `schema.d.ts` 那一列不適用（見步驟 4 範圍）。PR #12 在 `fb58bfa` 與 `f38b7b4`（含 review 修正 `e283c7c`）的 `gh pr checks` 都是 6 項全綠 | 無 | `fb58bfa`、`e283c7c` |
 | 4b auth 資源補齊（D16） | 完成 | 停止條件觸發（squawk `adding-field-with-default`），Will 決定 D17：未發布的 migration squash 成一支 baseline，squawk 0 issues、drift 同步；`make -C backend check` 綠燈（本機）；test-map「4b 新增」11 個測試與更新後的既有 auth 測試通過；I7：`authAPI.do` 對每個 201 GET `Location`、`TestEveryWritablePathHasGet`（內含拿掉 `GET /items/{id}` 的副本自檢）；mutation（scratchpad 腳本，每項都讓指定測試在斷言失敗，不是編譯失敗）：(a) 拿掉本人或 admin 判斷 → `TestGetOtherUserNotFound`、(b) `ListUsers` 不在名單 → `TestNonAdminCannotListUsers`、(c) 刪除查詢的 `user_id` 條件失效 → `TestDeleteOtherUsersSession`、(d) 列表不排除 idle 過期 → `TestListSessionsExcludesExpired`、(d2) 只拿掉 absolute 條件 → 同一測試（review 補測後）、(e) createUser 的 `Location` 寫錯 → helper 讓 `TestCreateUserSetsSessionCookie` 失敗、(e2) createSession 的 `Location` 用 user id → helper 讓 `TestCreateSession` 失敗（該測試不再自己檢查 Location）、(f) 契約拿掉 `getItem` → `TestEveryWritablePathHasGet`、(f2) 檢查函式不回報 → 同一測試的自檢；隔離 worktree 的 compose：migrate 套用 1 支 migration；curl：註冊 201 → `GET Location` 200 → 登入 201 → `GET Location` 200（`current: true`）→ `GET /api/sessions` 兩筆（各一個 current）→ `DELETE /api/sessions/{另一個}` 204 且無 `Set-Cookie` → 被撤銷的 cookie `GET /api/users/me` 401 → admin `GET /api/users` 200、一般使用者 403 `insufficient_role`；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修：absolute 期限沒有測試（補測並跑 d2）、`getCurrentSession` 在 session 於兩次查詢之間消失時回契約沒列的 404（改回 401）；reviewer 另跑 8 項 mutation 都被抓到。實作與計畫字面不同處：`token_hash` 仍是主鍵，`sessions_user_id_idx` 換成 `(user_id, id DESC)`；keyset 的「多讀一列」抽成 `httpx.After`／`PageRows`／`TrimPage`，items 改用它們；過期但還沒清掉的 session 在讀取與撤銷時都視同不存在（404）；`getCurrentSession` 遇到 race 時 401 的那條路徑沒有測試（只有 race 會觸發，屬推論）。PR #12 在 `f977a15` 的 `gh pr checks` 6 項全綠 | 無 | `385d07c`、`dba501a`、`f977a15` |
-| 5 前端切換 | 未開始 | | | |
+| 5 前端切換 | 完成 | 前端 `pnpm gen:api:check`、`lint`、`check:deps`、`test`（28）、`build` 綠燈，production build 的 rewrites 為空；後端 `make -C backend check` 綠燈；mutation（scratchpad 隔離 worktree）都讓指定檢查失敗：改契約不重生 → `gen:api:check` exit 1、`errors.ts` 改顯示 `detail`、proxy 有 cookie 就把 login 導去 overview、`getServerUser` 對 5xx 回 null、連不上回 null、en.json 刪 `session_invalid` → tsc 失敗、登入的 401 也導向 login、CSP nonce 不傳給 rendering、cursor 回 enum 外的 `bad_cursor` → `checkProblems` 在 `TestPaginationKeyset` 報錯、`insufficient_role` 改名 → `TestProblemValuesInContract` 失敗；正式 stack（隔離 worktree，`COOKIE_SECURE=true`）：只有 caddy 發佈 port、直連 8000 無回應、`/api/users/me` 401、`/en/login` 200、client 送的 `X-Request-ID` 被換掉（拿掉 `header_up` 的 mutant 會照用）、`client_ip` 等於 Caddy 的 `remote_ip`（含偽造 XFF；`TRUSTED_PROXIES` 改成不信任 Caddy 的 mutant 變成 `172.30.0.2`）、從 Next 容器送偽造 XFF 時 `client_ip` 是 Next 的 IP、登入發 `__Host-session; Secure; HttpOnly`、stale cookie 時 `/en/login` 200 且 `/en/overview` 307 到 login、backend 停掉時 `/en/overview` 500 錯誤頁而非導向 login；端到端 GIF（Claude in Chrome，`fullstack-template-step5-same-origin-e2e.gif`）：註冊 → overview → 重新整理仍登入 → 登出 → login，再進 overview 被導回 login；dev 組態：`localhost:3000/api/users/me` 401、`/en` 200、註冊發 `session` cookie；code review（獨立 subagent）0 缺陷，計畫文字兩處已改 | PR CI 待 push 後確認 | `31671fd`…本 commit |
 | 6 外圍與文件 | 未開始 | | | |
 | 7 對照驗證 | 未開始 | | | |
 | 8 收尾 | 未開始 | | | |
