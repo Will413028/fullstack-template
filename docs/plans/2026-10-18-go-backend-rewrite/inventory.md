@@ -119,7 +119,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | F2 | `.github/dependabot.yml`（`uv`） | 改寫：加 backend 的 `gomod` 與 `docker`；刪除 `uv` |
 | F3 | `lefthook.yml` | 改寫：pre-commit 對有改動的檔案跑 `gofmt` 與 golangci-lint |
 | F4 | `Makefile`（root） | 改寫：`migration`、`generate-migration` 改用 Atlas（步驟 1）；`seed`、`reset-db`（後者呼叫 `wait_for_db.py`）改成 `app seed-admin` 加輪詢 `/health/ready`（步驟 3）；`dev` 改成 `docker compose ... watch`（P9，步驟 1）；其餘保留 |
-| F5 | `docker-compose.yml`、`docker-compose.dev.yml` | 改寫：migrate service 跑 `atlas migrate apply`；network 固定 subnet `172.30.0.0/24`；正式環境加 `caddy` service，只有它發佈 port（E15，步驟 5）；dev 的 port 綁 `127.0.0.1`；frontend 設 `API_URL`；dev 用 `docker compose watch` 的 `rebuild`（計畫 P9） |
+| F5 | `docker-compose.yml`、`docker-compose.dev.yml` | 改寫：migrate service 跑 `atlas migrate apply`；network 固定 subnet `172.30.0.0/24`，Caddy 固定 IP，`TRUSTED_PROXIES` 只列 Caddy（D18）；加 `caddy` service，只有它發佈 port（E15，步驟 5），dev 也走 Caddy，port 綁 `127.0.0.1`（D18）；frontend 設 `API_URL`；dev 用 `docker compose watch` 的 `rebuild`（計畫 P9） |
 | F6 | `.env-example`、`frontend/.env.example` | 改寫：依 D 段；刪除 `NEXT_PUBLIC_API_URL` |
 | F7 | `AGENTS.md`（root） | 改寫：Verification（`make test` → Go）、Conventions、Structure |
 | F8 | `backend/AGENTS.md`、`backend/README.md`、`backend/Makefile`、`backend/Dockerfile` | 改寫成 Go 版：`Makefile`、`Dockerfile` 在步驟 1，文件在步驟 6 |
@@ -130,8 +130,8 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | F13 | `scripts/init_env.py` | 改寫：依 D3 |
 | F14 | `.claude/skills/add-module.md`、`.claude/skills/add-crud.md` | 改寫成 Go 模組骨架：`schema.sql`、queries、sqlc、`httpapi` handler、OpenAPI 片段、前端型別重新生成 |
 | F15 | `.gitignore` | 改寫：刪除 Python 相關項目，加入 Go 產物 |
-| F16 | `frontend/src/lib/api-client.ts`、`frontend/src/lib/__tests__/api-client.test.ts` | 改寫：改用 openapi-fetch 搭配生成的 `paths` 型別，baseUrl 為 `/api`；刪除 401 自動 refresh 與 mutex；`ApiError` 改成帶 problem 的 `type`、`errors[]`（含 `pointer` 與 `code`） |
-| F17 | `frontend/src/proxy.ts` | 改寫：判斷 `__Host-session` 或 `session` cookie 是否存在；刪除 refresh 轉發；CSP 改為 `connect-src 'self'` |
+| F16 | `frontend/src/lib/api-client.ts`、`frontend/src/lib/__tests__/api-client.test.ts` | 改寫：改用 openapi-fetch 搭配生成的 `paths` 型別，baseUrl 為 `/api`；刪除 401 自動 refresh 與 mutex；`ApiError` 改成帶 problem 的 `type`、`errors[]`（含 `pointer` 與 `code`）。步驟 5 落在 `frontend/src/lib/api/client.ts`、`frontend/src/lib/api/errors.ts`、`frontend/src/lib/api/schema.d.ts`（由 `frontend/package.json` 的 `gen:api` 生成，`gen:api:check` 在 CI 檢查） |
+| F17 | `frontend/src/proxy.ts` | 改寫：判斷 `__Host-session` 或 `session` cookie 是否存在；刪除 refresh 轉發；刪除「有 cookie 就把 login 頁導去 overview」（cookie 可能已失效，會和 dashboard 的 `getServerUser()` 互相導向）；CSP 改為 `connect-src 'self'` |
 | F18 | `frontend/src/features/auth/api/auth-api.ts`、`frontend/src/features/auth/hooks/use-auth.ts` | 改寫：改呼叫新路徑，login 送 JSON；刪除 `refresh`；回應直接是 `User`（沒有 `.data`）；註解更新 |
 | F19 | `frontend/src/features/auth/server.ts`、`frontend/src/features/auth/__tests__/server.test.ts` | 改寫：改打 `GET /api/users/me`，回應沒有 `.data` |
 | F20 | `frontend/src/features/auth/types.ts` | 刪除，改用生成的型別（`components["schemas"]["User"]`） |
@@ -139,7 +139,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | F22 | `frontend/AGENTS.md:14,55,65-78` | 改寫：auth 流程改成新路徑、同源、單一 session cookie、沒有 refresh |
 | F23 | `frontend/README.md:14`、`docs/frontend-known-issues.md:15,17` | `README.md:14` 改寫：刪除 `NEXT_PUBLIC_API_URL` 的說明；`frontend-known-issues.md` 改寫 CSRF 段（E12） |
 | F24 | `docs/adr/2026-10-18-go-backend.md`、`docs/adr/2026-10-18-api-and-auth-baseline.md` | 保留：本次的決策紀錄，內文提到 FastAPI 是歷史脈絡 |
-| F25 | `frontend/next.config.ts` | 改寫：加 `rewrites` 把 `/api/:path*` 轉到 `API_URL`；安全標頭保留（這些是 HTML 頁面用的） |
+| F25 | `frontend/next.config.ts` | 改寫：加 `rewrites` 把 `/api/:path*` 轉到 `API_URL`，只在 development 生效，只給 host 上的 `pnpm dev` 用（compose 的 dev 走 Caddy，D18）；安全標頭保留（這些是 HTML 頁面用的） |
 | F26 | `frontend/src/features/auth/validations.ts`、`frontend/src/features/auth/components/login-form.tsx` | 改寫：zod 只保留「必填」檢查，刪除長度與組合規則（避免在前端重複契約，見 B12）；錯誤依 problem 的 `pointer` 顯示在對應欄位、依 `code` 翻譯，不顯示 `detail` |
 | F27 | `frontend/Dockerfile`（`ARG NEXT_PUBLIC_API_URL`） | 改寫：刪除該 build arg（B16） |
 | F28 | `AGENTS.local.md`（git 不追蹤）、專案頁 frontmatter `tech`／`tags`、Architecture、Key Files | 改寫（步驟 8）：計畫刪除後移除指向；專案頁改成 Go 版描述 |
