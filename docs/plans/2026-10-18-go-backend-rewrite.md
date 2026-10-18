@@ -29,7 +29,7 @@
 - **分支與 PR：** 在 `go-rewrite` 分支上做。步驟 1 開 draft PR 到 `main`，之後每一步的「CI 綠燈」都以該 PR 的 `gh pr checks` 為準（CI 只在 PR 與 push `main` 時觸發，見 `.github/workflows/ci.yml:3-7`）。不留新舊並行的路徑，也不留相容 shim。
 - **舊系統：** 保存在 tag `archive/pre-go-rewrite`。要對照時用 `git worktree add <scratchpad>/ft-py archive/pre-go-rewrite`，執行方式見步驟 7。
 - **基準優先：** 每個設計點以 `inventory.md` 寫的基準為準。舊系統的形狀不構成理由；要偏離基準，先回報 Will。
-- **依賴：** 只用步驟 0 核准的清單。清單外的套件要另外列出、查 deps.dev 發布日期，等 Will 核准（`AGENTS.md` Constraints）。
+- **依賴：** 只用步驟 0 核准的清單（P14）。清單外的套件要另外列出、查 deps.dev 發布日期，等 Will 核准（`AGENTS.md` Constraints）。30 天冷卻期的例外（D13）：Go toolchain、官方 base image 與已採用工具的安全修補版，修的是已公告的漏洞時可以用冷卻期內的版本，列出修掉的公告編號。
 - **契約是唯一來源：** 長度、格式、enum 只寫在 `openapi.yaml`。後端由 validator 執行，前端由生成的型別取用，不在 handler 或前端重寫一次。DB CHECK 是第二道防線，數值和契約一致。
 - **錯誤：** 一律在 `internal/httpapi` 一處轉成 RFC 9457 problem（I4）。
 - **改寫期間的指令檔：** 步驟 1–5 期間，root `AGENTS.md` 的 Design Rules 與 Constraints 中的 Alembic 規則、`backend/AGENTS.md`、`docs/rules/*` 描述的是舊系統，**由本計畫取代**。步驟 1 在這些檔案開頭各加一行「Go 改寫中，以 `docs/plans/2026-10-18-go-backend-rewrite.md` 為準」，步驟 6 完整改寫並移除該行。
@@ -78,9 +78,19 @@
 - **P13　步驟 0 查證的事實**（2026-10-18）：
   - **`http.Server` timeout 與 gosec G112：已確認。** 欄位有 `ReadTimeout`、`ReadHeaderTimeout`、`WriteTimeout`、`IdleTimeout`、`MaxHeaderBytes`。`ReadHeaderTimeout` 為 0 時沿用 `ReadTimeout`，兩者都是 0 就沒有 timeout；`IdleTimeout` 同理（[go1.27.2 `src/net/http/server.go:3089-3118`](https://raw.githubusercontent.com/golang/go/go1.27.2/src/net/http/server.go)）。G112 只檢查 `http.Server{...}` literal 裡有沒有寫 `ReadHeaderTimeout` 或 `ReadTimeout` 這個 key，不看值，事後賦值（`srv.ReadHeaderTimeout = …`）也不算（[gosec `rules/slowloris.go`](https://github.com/securego/gosec/blob/master/rules/slowloris.go)）。所以 G112 擋不住設成 0；B19 的 timeout 要靠 `TestSlowHeaderClosed` 守住，不能靠 lint。
   - **Docker 發佈的 port 繞過 ufw：已確認。** Docker 文件：發佈 port 後，封包「are routed before the firewall rules can be applied, effectively ignoring your firewall configuration」（[Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)）。P10 的設計因此不變：只有 Caddy 發佈 port，dev compose 綁 `127.0.0.1`。
-  - **Atlas community 版：不成立，待 Will 決定。** 下載 URL `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-<ver>` 確認是 community 版。但 FathomPod 在 v1.1.3 實測過：community 版不接受多個 schema 檔的 `src`，`concurrent_index` 產的檔也不加 `-- atlas:txmode none`（wiki `tech/atlas-migrate-ci-gate` Gotcha 6、Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`）。所以 FathomPod 改成產生 migration 與漂移檢查用 standard 版、image 內套用用 community 版（`backend/Dockerfile:15-27`、`.github/workflows/ci.yml:93-97`）。這和 I5 的「各模組一份 `schema.sql`」直接衝突，觸發步驟 0 的停止條件。
+  - **Atlas community 版：不成立，已由 D12 處理。** 下載 URL `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-<ver>` 確認是 community 版。但 FathomPod 在 v1.1.3 實測過：community 版不接受多個 schema 檔的 `src`，`concurrent_index` 產的檔也不加 `-- atlas:txmode none`（wiki `tech/atlas-migrate-ci-gate` Gotcha 6、Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`）。所以 FathomPod 改成產生 migration 與漂移檢查用 standard 版、image 內套用用 community 版（`backend/Dockerfile:15-27`、`.github/workflows/ci.yml:93-97`）。這和 I5 的「各模組一份 `schema.sql`」直接衝突，觸發步驟 0 的停止條件；Will 選擇照 FathomPod 分兩個版本別（D12）。
   - **Atlas 與 pgx 的 `sslmode` 預設：不同。** Atlas v1.3.0 用 `lib/pq` v1.12.0（`cmd/atlas/go.mod:20`），它的預設是 `require`（`connector.go:61`）；pgx v5.11.0 照 libpq 預設 `prefer`（`pgconn/config.go:296-302`）。compose 內的 PostgreSQL 沒開 TLS，所以 Atlas 不帶參數會連不上。改法：`.env-example` 的 `DATABASE_URL` 直接寫 `?sslmode=disable`，backend 與 migrate 共用同一個 URL，不另外傳一份（FathomPod `backend/deploy/compose.yaml:102` 也是這樣）。
   - **`http://localhost` 上的 `Secure` cookie：已確認，不影響設計。** Chrome 與 Firefox 接受；Safari 拒收 `Secure`、`__Host-`、`__Secure-`（[WebKit bug 231035](https://bugs.webkit.org/show_bug.cgi?id=231035)、[httpwg issue 2605](https://github.com/httpwg/http-extensions/issues/2605)，屬推論：bug 報告是 2021–2024 年的，沒有在當前 Safari 實測）。`COOKIE_SECURE=false` 時 cookie 改名為 `session`、不帶 `Secure`，三家都能用。
+
+- **P14　核准的依賴**（Will 2026-10-18 核准；查證日 2026-10-18，冷卻期截止 2026-09-18；OSV 查過，只有 x/crypto 的 GO-2026-5932，影響 `openpgp`，本專案不用）。清單外的套件或換版本仍照全域約束「依賴」：
+  - Go module：`github.com/jackc/pgx/v5` v5.11.0；`github.com/google/uuid` v1.6.0；`github.com/oapi-codegen/runtime` v1.7.0；`github.com/oapi-codegen/nullable` v1.2.0；`github.com/oapi-codegen/nethttp-middleware` v1.2.0；`github.com/getkin/kin-openapi` v0.149.0；`golang.org/x/crypto` v0.57.0；`golang.org/x/time` v0.16.0；`golang.org/x/text` v0.42.0；`github.com/testcontainers/testcontainers-go` 與 `modules/postgres` v0.44.0。間接依賴由 MVS 決定，`go mod tidy` 後若被拉高到冷卻期內的版本，回報。
+  - Go 工具：`github.com/oapi-codegen/oapi-codegen/v2` v2.8.0、`github.com/sqlc-dev/sqlc` v1.31.1、`github.com/golangci/golangci-lint/v2` v2.13.2（v2.13.0 起支援 go1.27）、`golang.org/x/vuln` v1.8.0、`github.com/oasdiff/oasdiff` v1.33.0、`github.com/boumenot/gocover-cobertura` v1.5.0。
+  - Atlas v1.1.3（D12）：`https://release.ariga.io/atlas/atlas{,-community}-<os>-<arch>-v1.1.3`，sha256 取自同名 `.sha256`：community linux-amd64 `db596f9e39c33aae3bcbed674dab2255dd20b5e7bee29f7ed83413f6dd7b5047`、linux-arm64 `511996bddf663d14a243d3e95ebb0d3d1d0a2aa89abb2fc85810a12cad7c390f`；standard linux-amd64 `d2c3675dcf5f88989506e34b3de4d8b76f7fb23d02422c4b5e5dd59fe257f1ab`、linux-arm64 `6c898b2aaa0e84e84ecbf4d8f9b74007f16815759069651a718e9bee25319656`、darwin-arm64 `b587a8d1c4da7f5891300e06576b0286fd0270b7c531026f019db1558d0706d0`。
+  - 其他工具：squawk-cli 2.65.0（npm）、diff-cover 10.5.1（PyPI）。
+  - 前端：openapi-typescript 7.13.0（devDependency）、openapi-fetch 0.17.0；swagger-ui-dist 5.33.0（jsDelivr，只在 dev）。
+  - GitHub Actions：`actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0`。
+  - toolchain 與 image（D13 的安全修補例外）：Go 1.27.2；`golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e`；`gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3`；`caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af`。Debian 用 13（trixie），和 FathomPod 一致（預設，可推翻）。
+  - 密碼清單：SecLists `Passwords/Common-Credentials/Pwdb_top-1000000.txt`，commit `12274c98fdebe98c7a7284914436a472ed469aed`，sha256 `e9a88f67aafe65496682dc374559ee714e978bee50314767494c3e37a18c9fc8`，MIT（SecLists 與上游 ignis-sec/Pwdb-Public）。只內嵌長度 ≥15 code point 的 5,406 筆（實測）。NCSC 100k 不收：原檔授權未載明，且 ≥15 的只有 331 筆。
 
 **驗收基線（舊系統，`7a4d0fa`，2026-10-18，本機）：**
 - 後端：`uv run pytest -q` → `30 passed in 3.47s`（PostgreSQL 18 容器）。
@@ -96,7 +106,7 @@
 | **I2　錯誤一律是 RFC 9457 problem。** 每個 problem 有固定的 `type` URI；驗證錯誤帶 `errors[{pointer, code, detail}]`；前端只依 `type`、`code` 顯示訊息，不解析 `detail` | <ul><li>`internal/httpapi/problem.go`</li><li>`internal/platform/apperr`（kind 與 code）</li><li>`frontend/src/lib/api/errors.ts`</li><li>`frontend/messages/*.json` 的 `problems.*` 鍵</li></ul> |
 | **I3　認證憑證只在 `HttpOnly` cookie，JS 讀不到。** 所有狀態變更請求都經過 `CrossOriginProtection` | <ul><li>`internal/httpapi/auth.go`（cookie 的寫入與清除）</li><li>`internal/httpapi/server.go`（`CrossOriginProtection` 包住整個 mux）</li><li>`frontend/src/proxy.ts`（只檢查 cookie 是否存在）</li><li>`features/auth/server.ts`（轉發 cookie）</li></ul> |
 | **I4　分層與依賴方向**（見表後說明） | <ul><li>`.golangci.yml` 的 depguard 規則</li><li>`internal/httpapi` 負責組裝</li><li>`cmd/app`</li></ul> |
-| **I5　schema 只由 Atlas 產生。** Atlas 從各模組的 `schema.sql` 產生 migration，auth 的 `schema.sql` 先載入；baseline 之後的 migration 只增不改 | <ul><li>`backend/atlas.hcl`（`src` 順序：auth、items）</li><li>`backend/migrations/`</li><li>`backend/scripts/check-schema-drift.sh`、`backend/scripts/check-migrations-immutable.sh`（寫法照 FathomPod 同名腳本）</li><li>root `AGENTS.md` 的 Constraints</li></ul> |
+| **I5　schema 只由 Atlas 產生。** Atlas standard 版從各模組的 `schema.sql` 產生 migration，auth 的 `schema.sql` 先載入；baseline 之後的 migration 只增不改；image 內用 community 版套用（D12） | <ul><li>`backend/atlas.hcl`（`src` 順序：auth、items）</li><li>`backend/Dockerfile` 的 community 版與 CI、`backend/Makefile` 的 standard 版，版本與 checksum 照 P14</li><li>`backend/migrations/`</li><li>`backend/scripts/check-schema-drift.sh`、`backend/scripts/check-migrations-immutable.sh`（寫法照 FathomPod 同名腳本）</li><li>root `AGENTS.md` 的 Constraints</li></ul> |
 | **I6　授權在查詢層。** 使用者擁有的資源，查詢一律帶 `owner_id = $current`，非 owner 回 404；admin 操作在 handler 前由 `requireRole("admin")` 把關 | <ul><li>`internal/modules/items/queries/*.sql`</li><li>`internal/httpapi/authz.go`</li><li>測試 `TestGetOtherUsersItem`、`TestNonAdminCannotPatchUser`</li></ul> |
 
 **I4 的具體規則：**
@@ -130,7 +140,7 @@
 
 ## 步驟
 
-- [ ] **0. 查證與依賴核准**（被擋於：無）
+- [x] **0. 查證與依賴核准**（被擋於：無）
   - 範圍：
     - 查證 P13 的事實，把結論寫回前提段。
     - 列出依賴清單交 Will 核准。每項附確切版本、發布日期，以及 deps.dev（或 GHCR、Docker Hub、npm）連結；30 天內才發布的版本不採用。
@@ -146,7 +156,7 @@
       - 其他工具：squawk-cli（npm，`npx --yes squawk-cli@<ver>`）、diff-cover（PyPI，CI 用 `pipx run diff-cover==<ver>`）。
       - 前端：`openapi-typescript`（devDependency）、`openapi-fetch`。
       - GitHub Actions：`actions/setup-go`，鎖 SHA（zizmor 會檢查）。
-      - Docker image：`golang:1.27-bookworm`（builder）、`gcr.io/distroless/static-debian12`（runtime）、`caddy:2`（正式 compose），都鎖 digest；Atlas 二進位的下載 URL 與 checksum。
+      - Docker image：`golang:1.27-trixie`（builder）、`gcr.io/distroless/static-debian13`（runtime）、`caddy:2`（正式 compose），都鎖 digest；Atlas 二進位的下載 URL 與 checksum。（結果見 P14。）
       - 資料：常見與外洩密碼清單，附來源、授權、筆數（候選：NCSC 的 PwnedPasswordsTop100k、SecLists）。
       - dev 文件頁：`swagger-ui-dist`，從 jsDelivr 載入並鎖版本，只在 `MODE=dev` 提供。
   - 消費端：無（這一步只產出清單）。
@@ -170,14 +180,14 @@
       - `GET /health`、`GET /health/ready`（E7）。
     - 建立 Atlas 設定：`atlas.hcl`、空的 `migrations/`。
     - 建置與部署：
-      - `backend/Dockerfile`：multi-stage，內附 Atlas CLI。
+      - `backend/Dockerfile`：multi-stage，內附 Atlas community CLI（P14 的 URL 與 checksum，`sha256sum -c` 驗證）。
       - `docker-compose*.yml`（F5）。
       - `backend/Makefile`：`check` 先包含 gofmt、golangci-lint、`go test -race`、govulncheck。
       - root `Makefile` 的 `migration`、`generate-migration`、`dev`（F4 前半）。
     - 在 root `AGENTS.md`、`backend/AGENTS.md`、`docs/rules/*` 開頭加上改寫期間的提示行（見全域約束）。
       - `.env-example`（F6 的 backend 部分）。
     - CI 與 lint：
-      - CI 的 Go job（F1 的 lint、test、govulncheck 部分）。
+      - CI 的 Go job（F1 的 lint、test、govulncheck 部分）；安裝 Atlas standard 版並驗 checksum，供步驟 2 的漂移檢查使用。
       - `.golangci.yml`：含 I4 的 depguard 規則與 gosec。
   - 消費端：`rg -n "backend|8000" docker-compose.yml docker-compose.dev.yml Makefile .github/workflows/ci.yml .env-example`
   - 不能動：
@@ -439,6 +449,12 @@
 - **D11 role**（已決 2026-10-18，Will 照建議）
   - 保留 `admin`／`user`，並提供一個 admin 操作：停用使用者。
 
+- **D12 Atlas 版本別**（已決 2026-10-18，Will 照建議；擋住：1–4）
+  - 產生 migration 與漂移檢查用 standard v1.1.3（EULA、免費、不需登入），image 內套用用 community v1.1.3；不選「全用 community 加自寫合併腳本」。依據 P13。
+  - ADR：`docs/adr/2026-10-18-go-backend.md`（D2 修訂）。
+- **D13 冷卻期的安全修補例外**（已決 2026-10-18，Will 照建議）
+  - 寫在全域約束「依賴」。依據：Dependabot 的 cooldown 不擋安全更新；Go 1.27.2 修 `net/http`、`crypto/tls`，Caddy 2.11.4 有 GHSA-8qx7-j2v2-x6q5（≥2.11.5 修掉）。
+
 拍板順序：全部已決。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
@@ -447,7 +463,7 @@
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
-| 0 查證與依賴核准 | 進行中 | P13 五項已查（Atlas community 不成立） | Will 核准依賴清單、Atlas 版本別決定 | |
+| 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
 | 1 Walking skeleton | 未開始 | | | |
 | 2 共用平台 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
