@@ -6,10 +6,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
+
+	"github.com/Will413028/fullstack-template/backend/api"
+	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 )
 
 // maxBodyBytes caps every request body.
@@ -47,13 +53,45 @@ type Deps struct {
 	// Ready reports whether dependencies (the database) are available.
 	Ready  func(context.Context) error
 	Logger *slog.Logger
+	// Docs serves the contract at /api/openapi.yaml and Swagger UI at /api/docs (MODE=dev only).
+	Docs bool
 }
 
-// NewHandler builds the public handler.
+// apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
+type apiServer struct{}
+
+// NewHandler builds the public handler: the API under /api from the embedded contract, and the health checks.
+func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
+	spec, err := loadSpec(ctx, api.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
+	}
+	routes := http.NewServeMux()
+	strict := gen.NewStrictHandlerWithOptions(&apiServer{}, nil, gen.StrictHTTPServerOptions{
+		// The validator has already checked the body, so a decode error here means a malformed request.
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			writeProblem(w, problemBadRequest, err.Error(), "")
+		},
+		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeError(w, r, deps.Logger, err)
+		},
+	})
+	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
+		BaseURL:    "/api",
+		BaseRouter: routes,
+		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
+			writeProblem(w, problemBadRequest, err.Error(), "")
+		},
+	})
+	return assemble(deps, spec, routes), nil
+}
+
+// assemble mounts the API routes behind request validation against spec, adds the health checks, and wraps
+// everything in the protections every request gets.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
-// 503 while a dependency is unavailable.
-func NewHandler(deps Deps) http.Handler {
+// 503 while a dependency is unavailable. Both sit outside the contract and outside validation.
+func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -61,25 +99,38 @@ func NewHandler(deps Deps) http.Handler {
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Ready(r.Context()); err != nil {
 			deps.Logger.WarnContext(r.Context(), "not ready", "error", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
+			writeProblem(w, problemUnavailable, "", "")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	return protect(mux)
+	apiHandler := validateRequests(spec, deps.Logger, apiRoutes)
+	if deps.Docs {
+		apiHandler = withDocs(apiHandler)
+	}
+	mux.Handle("/api/", apiHandler)
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		writeProblem(w, problemNotFound, "", "")
+	})
+	return protect(deps.Logger, mux)
 }
 
-// protect applies the protections every request gets:
-//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF), using Sec-Fetch-Site and
-//     falling back to comparing Origin with Host. Non-browser clients that send neither header pass.
-//     GET, HEAD and OPTIONS are not checked.
-//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError.
-func protect(h http.Handler) http.Handler {
+// protect applies the protections every request gets, outermost first:
+//   - A panic becomes a logged 500 problem.
+//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with a 403 problem, using
+//     Sec-Fetch-Site and falling back to comparing Origin with Host. Non-browser clients that send neither header
+//     pass. GET, HEAD and OPTIONS are not checked.
+//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413.
+func protect(logger *slog.Logger, h http.Handler) http.Handler {
 	limited := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		h.ServeHTTP(w, r)
 	})
-	return http.NewCrossOriginProtection().Handler(limited)
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeProblem(w, problemForbidden, "cross-origin request rejected", codeCrossOrigin)
+	}))
+	return recoverPanics(logger, cop.Handler(limited))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -1,0 +1,154 @@
+# The API contract and its single source (plan I1): shapes, length and format limits and enums are written only here.
+# The backend generates internal/httpapi/gen from it (make gen) and validates every /api request against it; the
+# frontend generates its types from it. OpenAPI 3.0.3: oapi-codegen v2.8.0 marks its 3.1 support as initial.
+openapi: 3.0.3
+info:
+  title: Fullstack Template API
+  version: 0.1.0
+  description: |
+    Errors are RFC 9457 problem details (`application/problem+json`). Clients choose messages by `type` and `code`
+    and never parse `detail`.
+servers:
+  - url: /api
+paths: {}
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous page's `next_cursor`; omit for the first page.
+      schema:
+        type: string
+  headers:
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 0
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Fixed per kind of problem, for example `/problems/not-found`.
+          example: /problems/not-found
+        title:
+          type: string
+          description: Fixed per `type`.
+        status:
+          type: integer
+          description: The HTTP status code.
+        detail:
+          type: string
+          description: Human-readable explanation for developers; clients must not parse it.
+        code:
+          type: string
+          description: Stable machine-readable code refining `type`, for example `account_taken`.
+    ValidationProblem:
+      description: A problem with type `/problems/validation`, listing each invalid input.
+      allOf:
+        - $ref: "#/components/schemas/Problem"
+        - type: object
+          required: [errors]
+          properties:
+            errors:
+              type: array
+              items:
+                $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      required: [pointer, code, detail]
+      properties:
+        pointer:
+          type: string
+          description: |
+            JSON Pointer (RFC 6901) to the invalid value in the request body, or `/<name>` for a query or path
+            parameter. Empty when the whole body is missing.
+          example: /title
+        code:
+          type: string
+          description: |
+            Stable machine-readable code: `required`, `too_short`, `too_long`, `pattern`, `enum`, `format`,
+            `out_of_range`, `invalid_type`, `null_not_allowed`, `additional_property`, `invalid`, or a
+            business rule such as `password_too_common`.
+          example: too_short
+        detail:
+          type: string
+          description: Human-readable explanation for developers; clients must not parse it.
+  responses:
+    BadRequest:
+      description: The request is malformed, for example a body that is not valid JSON.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthenticated:
+      description: No valid session.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: Authenticated but not allowed, or a cross-origin state-changing request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: The resource does not exist or is not visible to the caller.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: The request conflicts with the current state, for example a taken account.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: The request body is over the size limit.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: The request body's Content-Type is not one the operation accepts.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ValidationFailed:
+      description: The request does not match the contract or a business rule.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ValidationProblem"
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalError:
+      description: An unexpected error; details are only in the server log.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

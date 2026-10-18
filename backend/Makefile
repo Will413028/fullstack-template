@@ -11,6 +11,9 @@ GOVULNCHECK   := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 # sqlc builds with cgo (libpg_query); the first run compiles it, later runs use the Go build cache.
 SQLC          := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 SQUAWK        := npx --yes squawk-cli@2.65.0
+OAPI_CODEGEN  := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
+GEN_OUT       := internal/httpapi/gen/api.gen.go
 # Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
 BASE ?= origin/main
 
@@ -63,7 +66,18 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check lint test vuln sqlc-diff drift squawk migrations-immutable
+check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable
+
+.PHONY: gen
+gen: ## Regenerate internal/httpapi/gen from api/openapi.yaml
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" && cp "$$tmp" $(GEN_OUT)
+
+.PHONY: gen-check
+gen-check: ## Fail when internal/httpapi/gen differs from api/openapi.yaml
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" || exit 1; \
+	cmp -s "$$tmp" $(GEN_OUT) || { echo "$(GEN_OUT) is stale: run make gen"; exit 1; }
 
 .PHONY: sqlc
 sqlc: ## Regenerate each module's sqlc code from its sqlc.yaml

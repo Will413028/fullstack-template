@@ -16,8 +16,13 @@ import (
 
 var discard = slog.New(slog.DiscardHandler)
 
-func newTestHandler(ping func(context.Context) error) http.Handler {
-	return NewHandler(Deps{Ready: ping, Logger: discard})
+func newTestHandler(t *testing.T, ping func(context.Context) error) http.Handler {
+	t.Helper()
+	h, err := NewHandler(t.Context(), Deps{Ready: ping, Logger: discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func ok(context.Context) error { return nil }
@@ -44,21 +49,19 @@ func assertStatusBody(t *testing.T, rec *httptest.ResponseRecorder, code int, st
 }
 
 func TestHealth(t *testing.T) {
-	h := newTestHandler(func(context.Context) error { return errors.New("db down") })
+	h := newTestHandler(t, func(context.Context) error { return errors.New("db down") })
 	// Liveness ignores dependencies: still 200 with the database down.
 	assertStatusBody(t, get(t, h, "/health"), http.StatusOK, "ok")
 }
 
 func TestReady(t *testing.T) {
-	h := newTestHandler(ok)
+	h := newTestHandler(t, ok)
 	assertStatusBody(t, get(t, h, "/health/ready"), http.StatusOK, "ready")
 }
 
 func TestReadyDBDown(t *testing.T) {
-	h := newTestHandler(func(context.Context) error { return errors.New("db down") })
-	if rec := get(t, h, "/health/ready"); rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("code = %d, want 503", rec.Code)
-	}
+	h := newTestHandler(t, func(context.Context) error { return errors.New("db down") })
+	assertProblem(t, get(t, h, "/health/ready"), http.StatusServiceUnavailable, "/problems/unavailable")
 }
 
 func TestShutdownFinishesInFlightRequest(t *testing.T) {
@@ -125,21 +128,16 @@ func fetchStatus(ctx context.Context, url string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// readsBody stands in for a handler that reads the body; it answers 413 when the body exceeds the limit.
+// readsBody stands in for a handler that reads the body and reports a read error the way handlers do.
 var readsBody = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.ReadAll(r.Body); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			return
-		}
-		w.WriteHeader(http.StatusBadRequest)
+		writeError(w, r, discard, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 })
 
-func post(t *testing.T, h http.Handler, body []byte, headers map[string]string) int {
+func postRec(t *testing.T, h http.Handler, body []byte, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://app.test/api/x", bytes.NewReader(body))
 	for k, v := range headers {
@@ -147,22 +145,27 @@ func post(t *testing.T, h http.Handler, body []byte, headers map[string]string) 
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	return rec.Code
+	return rec
 }
 
+func post(t *testing.T, h http.Handler, body []byte, headers map[string]string) int {
+	t.Helper()
+	return postRec(t, h, body, headers).Code
+}
+
+var sameOrigin = map[string]string{"Sec-Fetch-Site": "same-origin"}
+
 func TestBodyTooLarge(t *testing.T) {
-	h := protect(readsBody)
-	sameOrigin := map[string]string{"Sec-Fetch-Site": "same-origin"}
+	h := protect(discard, readsBody)
 	if code := post(t, h, make([]byte, maxBodyBytes), sameOrigin); code != http.StatusOK {
 		t.Fatalf("body at the limit: code = %d, want 200", code)
 	}
-	if code := post(t, h, make([]byte, maxBodyBytes+1), sameOrigin); code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("body over the limit: code = %d, want 413", code)
-	}
+	assertProblem(t, postRec(t, h, make([]byte, maxBodyBytes+1), sameOrigin), http.StatusRequestEntityTooLarge,
+		"/problems/payload-too-large")
 }
 
 func TestCrossOriginPostRejected(t *testing.T) {
-	h := protect(readsBody)
+	h := protect(discard, readsBody)
 	for _, tc := range []struct {
 		name    string
 		headers map[string]string
@@ -174,14 +177,21 @@ func TestCrossOriginPostRejected(t *testing.T) {
 		{"same-origin", map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusOK},
 		{"non-browser client", nil, http.StatusOK},
 	} {
-		if code := post(t, h, []byte("{}"), tc.headers); code != tc.want {
-			t.Errorf("%s: code = %d, want %d", tc.name, code, tc.want)
+		rec := postRec(t, h, []byte("{}"), tc.headers)
+		if tc.want == http.StatusForbidden {
+			if p := assertProblem(t, rec, http.StatusForbidden, "/problems/forbidden"); p.Code == nil || *p.Code != codeCrossOrigin {
+				t.Errorf("%s: code = %v, want %s", tc.name, p.Code, codeCrossOrigin)
+			}
+			continue
+		}
+		if rec.Code != tc.want {
+			t.Errorf("%s: code = %d, want %d", tc.name, rec.Code, tc.want)
 		}
 	}
 }
 
 func TestSlowHeaderClosed(t *testing.T) {
-	h := newTestHandler(ok)
+	h := newTestHandler(t, ok)
 	timeouts := DefaultTimeouts
 	timeouts.ReadHeader = 100 * time.Millisecond
 	srv := NewServer(h, timeouts)
@@ -213,11 +223,8 @@ func TestSlowHeaderClosed(t *testing.T) {
 }
 
 func TestUnknownPathNotFound(t *testing.T) {
-	h := newTestHandler(ok)
-	if rec := get(t, h, "/nope"); rec.Code != http.StatusNotFound {
-		t.Fatalf("code = %d, want 404", rec.Code)
-	}
-	if rec := get(t, h, "/health/"); rec.Code != http.StatusNotFound {
-		t.Fatalf("/health/: code = %d, want 404", rec.Code)
+	h := newTestHandler(t, ok)
+	for _, path := range []string{"/nope", "/health/", "/api/nope", "/api/"} {
+		assertProblem(t, get(t, h, path), http.StatusNotFound, "/problems/not-found")
 	}
 }
