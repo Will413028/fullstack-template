@@ -46,7 +46,7 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 ## Decision
 
 - **D1**：直接取代，舊系統保存在 tag `archive/pre-go-rewrite`。
-- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；baseline 之後的 migration 只能新增，不能修改。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖同一個版本與 checksum（2026-10-18 起 v1.3.3）。
+- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；合併進 `main` 的 migration 只能新增，不能修改，還沒合併的可以重新產生（2026-10-18 修訂）。DDL 只由 `atlas migrate diff` 產生；純資料的 backfill（對既有表走 expand 步驟時）例外，用 `atlas migrate new` 手寫，一樣經 squawk 與 immutable 檢查。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖同一個版本與 checksum（2026-10-18 起 v1.3.3）。
 - **D3**：主鍵用 `uuid DEFAULT uuidv7()`，JSON 裡是字串。文字欄用 `text`，有長度限制時加 CHECK；狀態與 role 欄用 `text` 加 `CHECK (x IN (...))`；時間一律用 `timestamptz`。`updated_at` 由每一個 UPDATE 查詢明寫 `= now()`，並有測試覆蓋。
 - **D4**：`make rename` 先執行 `go mod edit -module`，再改寫所有 import 前綴，預設路徑是 `github.com/Will413028/<NAME>/backend`，也可以用 `MODULE=` 覆寫。作法同 [`gonew`](https://pkg.go.dev/golang.org/x/tools/cmd/gonew)。
 
@@ -70,7 +70,7 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 ## Invariants
 
 - service 與 store 不 import `net/http`（depguard）。
-- schema 只由 Atlas 從 `schema.sql` 產生；已發布的 migration 只能新增，不能修改。
+- schema 只由 Atlas 從 `schema.sql` 產生（純資料 backfill 例外）；合併進 `main` 的 migration 只能新增，不能修改。
 - 跨模組只允許 FK 指向 `users`。
 
 ## Revocation Triggers
@@ -84,6 +84,8 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 - 2026-10-18（Will 選 A）：Atlas 會把發布超過 6 個月的二進位從 CDN 移除，v1.1.3 已在下架邊緣，改鎖 v1.3.3，並以 `make atlas-age` 在發布滿 150 天時擋下 CI。v1.3.3 兩個版本別的多檔 `src`、txmode directive 與套用行為已在隔離容器重測。代價：每 5 個月內要升一次版，Dependabot 追不到。
 
 - 2026-10-18（Will，照建議）：原 revocation trigger「community 版拿掉必要功能」在計畫步驟 0 查證時已成立：community 版 v1.1.3 不接受多個 schema 檔（實測）。依 FathomPod 的實測與做法，D2 改為 standard 版產生、community 版套用，不改用 goose。來源：wiki `tech/atlas-migrate-ci-gate` Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`。
+
+- 2026-10-18（Will 照建議，計畫 D17）：給既有的 sessions 表加 `id … DEFAULT uuidv7()` 被 squawk 擋下（volatile default 會重寫表）。D2 的不可變規則原本寫「baseline 之後」，但它要保護的是已經套用過這些 migration 的資料庫，而合併前不存在這樣的資料庫：`origin/main` 沒有 migration、範本沒有部署。所以把 PR #12 上未發布的 migration 重新產生成一支 baseline，規則改以「合併進 `main`」為界，由 `migrations-immutable` 以 `main` 為基準守住。合併後對既有表加 volatile default 或 NOT NULL 時要走 expand 步驟，其中的資料 backfill 是 diff 產生不了的，所以「不手寫」改為只限 DDL。
 
 ## Related
 
