@@ -31,6 +31,7 @@ jobs:
       # Atlas standard build (checksum-verified) for migration generation and drift checks
       - run: make tools
       - run: make check
+      - run: make atlas-age
 
   frontend:
     name: Frontend (lint + test + build)

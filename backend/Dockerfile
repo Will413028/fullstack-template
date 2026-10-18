@@ -17,10 +17,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # used only on developer machines and in CI (backend/Makefile). Checksums come from release.ariga.io.
 FROM --platform=$BUILDPLATFORM golang:1.27.2-trixie@sha256:47667934874913a449b96faa7ef4777fa285d9ec29126ee80ed61c45b7cccf0e AS atlas
 ARG TARGETARCH
-ARG ATLAS_VERSION=v1.1.3
+ARG ATLAS_VERSION=v1.3.3
 RUN case "$TARGETARCH" in \
-      amd64) sum=db596f9e39c33aae3bcbed674dab2255dd20b5e7bee29f7ed83413f6dd7b5047 ;; \
-      arm64) sum=511996bddf663d14a243d3e95ebb0d3d1d0a2aa89abb2fc85810a12cad7c390f ;; \
+      amd64) sum=7bddc9a0cebbb1f3e21cdd5f5811d346850e481e3b7c85e31206613d1f63f068 ;; \
+      arm64) sum=546de518d9875e4fed991b917295395dc5400aa26922fa4cd3fbce33afdb75be ;; \
       *) echo "unsupported architecture $TARGETARCH"; exit 1 ;; \
     esac \
  && curl -sSfL -o /atlas "https://release.ariga.io/atlas/atlas-community-linux-${TARGETARCH}-${ATLAS_VERSION}" \

@@ -65,7 +65,7 @@ func TestReadyDBDown(t *testing.T) {
 func TestReadyDuringShutdown(t *testing.T) {
 	h, ready := newTestHandler(ok)
 	srv := NewServer(h, DefaultTimeouts)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func status(t *testing.T, url string) int {
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode
 }
 
@@ -173,7 +173,7 @@ func TestSlowHeaderClosed(t *testing.T) {
 	timeouts := DefaultTimeouts
 	timeouts.ReadHeader = 100 * time.Millisecond
 	srv := NewServer(h, timeouts)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestSlowHeaderClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	// Send half a header and stall (slowloris).
 	if _, err := io.WriteString(conn, "GET /health HTTP/1.1\r\nHost: app.test\r\n"); err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ func lookup(m map[string]string) func(string) (string, bool) {
 }
 
 func baseEnv() map[string]string {
-	return map[string]string{"DATABASE_URL": "postgres://app:pw@db:5432/app?sslmode=disable"}
+	return map[string]string{"DATABASE_URL": "postgres://app@db:5432/app?sslmode=disable"}
 }
 
 func TestConfigDefaults(t *testing.T) {

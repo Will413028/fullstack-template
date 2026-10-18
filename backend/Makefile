@@ -1,17 +1,26 @@
 # Backend commands. Needs Go (version in go.mod) and Docker (Atlas dev database, integration tests).
 # Tool versions are pinned only here; CI runs `make check` too, so local and CI use the same versions.
 
-GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+# golangci-lint is installed from its release binary: the project does not support building it with go run/install.
+GOLANGCI_LINT_VERSION := 2.14.0
+GOLANGCI_LINT := bin/golangci-lint
+GOLANGCI_LINT_SHA256_darwin-arm64 := 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
+GOLANGCI_LINT_SHA256_linux-amd64  := ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+GOLANGCI_LINT_SHA256_linux-arm64  := ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
 GOVULNCHECK   := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
 # Generating migrations and drift checks use the Atlas standard build: the community build rejects several
 # schema.sql files (docs/adr/2026-10-18-go-backend.md D2). The image applies migrations with the community build
 # (see Dockerfile). Checksums are the .sha256 files published next to each binary on release.ariga.io.
-ATLAS_VERSION := v1.1.3
+ATLAS_VERSION := v1.3.3
+# Atlas removes binaries published more than 6 months ago from its CDN (atlasgo.io/cli-reference, Distributed
+# Binaries); `make atlas-age` fails 30 days before that so the pin is bumped while downloads still work.
+ATLAS_RELEASED := 2026-09-04
+ATLAS_MAX_AGE_DAYS := 150
 ATLAS         := bin/atlas
-ATLAS_SHA256_darwin-arm64 := b587a8d1c4da7f5891300e06576b0286fd0270b7c531026f019db1558d0706d0
-ATLAS_SHA256_linux-amd64  := d2c3675dcf5f88989506e34b3de4d8b76f7fb23d02422c4b5e5dd59fe257f1ab
-ATLAS_SHA256_linux-arm64  := 6c898b2aaa0e84e84ecbf4d8f9b74007f16815759069651a718e9bee25319656
+ATLAS_SHA256_darwin-arm64 := 59856bce61637e5a40f7f32f3a4e4909419752b917cac48d6d500a608ff7803e
+ATLAS_SHA256_linux-amd64  := a41ea66b5aaad1e363fd829613a6725c3934378792d0be5591269c041c112b96
+ATLAS_SHA256_linux-arm64  := 8044e6dd2971c741563748b35b0d32ca69908c40548b9797d46a626c00d2e07f
 PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
 .PHONY: run
@@ -31,7 +40,7 @@ fmt-check:
 	@out="$$(gofmt -l .)"; if [ -n "$$out" ]; then echo "needs gofmt: $$out"; exit 1; fi
 
 .PHONY: lint
-lint:
+lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 
 .PHONY: test
@@ -46,7 +55,17 @@ vuln:
 check: fmt-check lint test vuln
 
 .PHONY: tools
-tools: $(ATLAS)
+tools: $(ATLAS) $(GOLANGCI_LINT)
+
+$(GOLANGCI_LINT):
+	@sum="$(GOLANGCI_LINT_SHA256_$(PLATFORM))"; \
+	if [ -z "$$sum" ]; then echo "no golangci-lint checksum for $(PLATFORM)"; exit 1; fi; \
+	name=golangci-lint-$(GOLANGCI_LINT_VERSION)-$(PLATFORM); \
+	mkdir -p bin && \
+	curl -sSfL -o bin/$$name.tar.gz "https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/$$name.tar.gz" && \
+	echo "$$sum  bin/$$name.tar.gz" | shasum -a 256 -c - && \
+	tar -xzf bin/$$name.tar.gz -C bin --strip-components=1 $$name/golangci-lint && \
+	rm bin/$$name.tar.gz
 
 $(ATLAS):
 	@sum="$(ATLAS_SHA256_$(PLATFORM))"; \
@@ -55,6 +74,11 @@ $(ATLAS):
 	curl -sSfL -o $@.tmp "https://release.ariga.io/atlas/atlas-$(PLATFORM)-$(ATLAS_VERSION)" && \
 	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
 	chmod 0755 $@.tmp && mv $@.tmp $@
+
+.PHONY: atlas-age
+atlas-age:
+	@python3 -I -c 'import datetime as d,sys; age=(d.date.today()-d.date.fromisoformat("$(ATLAS_RELEASED)")).days; \
+	sys.exit(0) if age <= $(ATLAS_MAX_AGE_DAYS) else sys.exit(f"Atlas $(ATLAS_VERSION) was released {age} days ago; its binaries leave the CDN at 180 days. Bump ATLAS_VERSION, the checksums here and in Dockerfile, and ATLAS_RELEASED.")'
 
 .PHONY: migration
 migration: $(ATLAS) ## Generate a migration from the modules' schema.sql: make migration name=add_users
