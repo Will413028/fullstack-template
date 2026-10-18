@@ -5,7 +5,7 @@
 // 12274c98fdebe98c7a7284914436a472ed469aed (sha256 e9a88f67aafe65496682dc374559ee714e978bee50314767494c3e37a18c9fc8,
 // MIT, see LICENSE-SecLists), keeping only the distinct lines of at least 15 code points: shorter ones can never be
 // a valid password here. To refresh it, download the file at a new commit, check its hash, and keep the lines
-// with len(line) >= 15 in Python (code points), in their original order.
+// of at least 15 Unicode code points (not bytes), in their original order.
 package blocklist
 
 import (

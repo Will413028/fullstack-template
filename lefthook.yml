@@ -18,18 +18,18 @@ pre-commit:
       glob: "*.{ts,tsx}"
       run: pnpm tsc --noEmit
       priority: 2
-    backend-lint:
-      root: backend/
-      glob: "*.py"
-      run: uv run ruff check --fix {staged_files}
-      stage_fixed: true
-      priority: 1
     backend-format:
       root: backend/
-      glob: "*.py"
-      run: uv run ruff format {staged_files}
+      glob: "*.go"
+      run: gofmt -w {staged_files}
       stage_fixed: true
       priority: 1
+    # golangci-lint checks packages, not single files: only issues on lines changed since HEAD are reported
+    backend-lint:
+      root: backend/
+      glob: "*.go"
+      run: make --no-print-directory bin/golangci-lint && bin/golangci-lint run --new-from-rev=HEAD ./...
+      priority: 2
 
 commit-msg:
   commands:
