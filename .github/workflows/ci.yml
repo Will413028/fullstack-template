@@ -15,52 +15,22 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (lint + test)
+    name: Backend (lint + test + vuln)
     runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: "3.13"  # match the python:3.13-slim runtime image
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: testdb
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0  # diff-cover compares against the base branch
           persist-credentials: false
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          enable-cache: true
-      - run: uv sync
-      - run: uv run ruff check src/
-      - run: uv run ruff format --check src/
-      # Coverage is reported, not gated; review changed-line coverage in the job summary.
-      - run: uv run pytest --cov=src --cov-report=term-missing:skip-covered --cov-report=xml
-        env:
-          DATABASE_URL: postgresql+asyncpg://postgres:testpassword@localhost:5432/testdb
-          SECRET_KEY: test-secret-key-that-is-at-least-32-characters-long
-          MODE: test
-          COOKIE_SECURE: "false"  # tests run over http; Secure cookies would be dropped
-      - name: Changed-line coverage
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          uv run diff-cover coverage.xml --compare-branch="origin/$BASE_REF" --format markdown:diff-cover.md
-          cat diff-cover.md >> "$GITHUB_STEP_SUMMARY"
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # Atlas standard build (checksum-verified) for migration generation and drift checks
+      - run: make tools
+      - run: make check
 
   frontend:
     name: Frontend (lint + test + build)
