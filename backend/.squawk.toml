@@ -1,0 +1,12 @@
+# Lock and safety checks for migrations/*.sql (make squawk). Atlas runs each file in its own transaction, so
+# assume_in_transaction; files with CONCURRENTLY get `-- atlas:txmode none` from Atlas (concurrent_index in atlas.hcl).
+assume_in_transaction = true
+pg_version = "18.0"
+excluded_rules = [
+  # app migrate sets lock_timeout on the connection (internal/platform/migrate), not with SET in each file.
+  "require-lock-timeout",
+  # No statement timeout for migrations: long index builds use CONCURRENTLY.
+  "require-statement-timeout",
+  # Each file runs in a transaction and is recorded in atlas_schema_revisions, so it is never partly applied and rerun.
+  "prefer-robust-stmts",
+]

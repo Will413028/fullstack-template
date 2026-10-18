@@ -18,8 +18,8 @@ linters:
     depguard:
       rules:
         # Layering: modules hold services, stores and sqlc code; they never touch HTTP or the composition root.
-        # Add one rule per module when it is created so modules do not import each other (items must not import
-        # .../modules/auth).
+        # Module-to-module imports and transitive dependencies are checked by internal/archtest, which covers new
+        # modules without a rule per module.
         modules-no-http:
           list-mode: lax
           files:
