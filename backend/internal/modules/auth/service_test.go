@@ -171,3 +171,29 @@ func TestCleanup(t *testing.T) {
 		t.Errorf("sessions left = %d (%v), want 1", left, err)
 	}
 }
+
+// last_used_at is written at most once a minute, but a session in use must not lapse under a shorter idle limit.
+func TestShortIdleLimitKeepsUsedSession(t *testing.T) {
+	db := pg.NewMigratedDB(t)
+	pool, err := pgxpool.New(t.Context(), db.AppURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	clock := &testClock{t: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}
+	svc, err := New(t.Context(), pool, Config{SessionAbsolute: time.Hour, SessionIdle: 30 * time.Second,
+		Hasher: NewArgon2Hasher(cheapArgon2, 0), Now: clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sess, err := svc.CreateUser(t.Context(), "alice", "a long enough password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 4 {
+		clock.Advance(20 * time.Second)
+		if _, err := svc.Authenticate(t.Context(), sess.Token); err != nil {
+			t.Fatalf("session used every 20s with a 30s idle limit: %v", err)
+		}
+	}
+}

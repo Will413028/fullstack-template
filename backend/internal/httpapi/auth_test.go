@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -673,8 +674,9 @@ func TestRateLimitAuthOperations(t *testing.T) {
 			}
 			rec := send(2)
 			assertProblem(t, rec, http.StatusTooManyRequests, "/problems/rate-limited")
-			if ra := rec.Header().Get("Retry-After"); ra != "30" {
-				t.Errorf("Retry-After = %q, want 30", ra)
+			// one token every 30s, less the time the first requests took (the limiter uses the real clock)
+			if ra, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || ra < 1 || ra > 30 {
+				t.Errorf("Retry-After = %q, want 1 to 30 seconds", rec.Header().Get("Retry-After"))
 			}
 		})
 	}
