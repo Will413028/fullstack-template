@@ -17,8 +17,10 @@ import (
 	"time"
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/config"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/db"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/hibp"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
 )
@@ -33,6 +35,9 @@ const (
 	atlasBin      = "/usr/local/bin/atlas"
 	migrationsDir = "/app/migrations"
 )
+
+// cleanupEvery is how often serve deletes expired sessions and stale login throttles.
+const cleanupEvery = time.Hour
 
 // shutdownTimeout lets the longest legitimate request (httpapi.DefaultTimeouts.Write) finish; compose's
 // stop_grace_period is a few seconds longer.
@@ -85,12 +90,31 @@ func serve(ctx context.Context) error {
 	}
 	defer pool.Close()
 
+	authCfg := auth.Config{SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Logger: logger}
+	if cfg.PasswordHIBPCheck {
+		authCfg.Breach = hibp.New()
+	}
+	authSvc, err := auth.New(ctx, pool, authCfg)
+	if err != nil {
+		return err
+	}
+	go runEvery(ctx, cleanupEvery, func(ctx context.Context) {
+		sessions, throttles, err := authSvc.Cleanup(ctx)
+		if err != nil {
+			logger.ErrorContext(ctx, "auth cleanup", "error", err)
+			return
+		}
+		logger.InfoContext(ctx, "auth cleanup", "sessions_deleted", sessions, "throttles_deleted", throttles)
+	})
+
 	h, err := httpapi.NewHandler(ctx, httpapi.Deps{
 		Ready:           pool.Ping,
 		Logger:          logger,
 		Docs:            cfg.Mode == "dev",
 		TrustedProxies:  cfg.TrustedProxies,
 		RateLimitPerMin: cfg.AuthRateLimitPerMin,
+		Auth:            authSvc,
+		Cookie:          httpapi.Cookie{Name: cfg.CookieName(), Secure: cfg.CookieSecure},
 	})
 	if err != nil {
 		return err
@@ -122,6 +146,21 @@ func runMigrate(ctx context.Context) error {
 	}
 	logger.Info("migrated", "version", version, "app_role", cfg.AppRole)
 	return nil
+}
+
+// runEvery calls f every interval until ctx ends. One process runs it; a second replica would only repeat
+// idempotent deletes.
+func runEvery(ctx context.Context, interval time.Duration, f func(context.Context)) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			f(ctx)
+		}
+	}
 }
 
 // healthcheck asks the local server whether it is ready (GET /health/ready) and fails unless it answers 200.

@@ -10,8 +10,196 @@ info:
     and never parse `detail`.
 servers:
   - url: /api
-paths: {}
+security:
+  - sessionCookie: []
+paths:
+  /users:
+    post:
+      operationId: createUser
+      summary: Create an account and sign in to it.
+      description: Creates a `user` account and a session; the session cookie is set on the response.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: The account was created and signed in.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Set-Cookie:
+              $ref: "#/components/headers/SetSessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: The signed-in user.
+      tags: [auth]
+      responses:
+        "200":
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /users/{id}:
+    patch:
+      operationId: patchUser
+      summary: Change a user (admin only).
+      description: |
+        JSON Merge Patch (RFC 7396): omitted fields are left unchanged. Disabling a user signs them out everywhere.
+      tags: [auth]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UserPatch"
+      responses:
+        "200":
+          description: The user after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Sign in.
+      description: |
+        Always issues a new session and ends the one the request carried, if any. A wrong password, an unknown
+        account and a disabled account get the same 401. After repeated failures the account name waits before the
+        next attempt (429), whether or not the account exists.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Signed in.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Set-Cookie:
+              $ref: "#/components/headers/SetSessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteAllSessions
+      summary: Sign out everywhere.
+      description: Ends every session of the signed-in user, this one included, and clears the cookie.
+      tags: [auth]
+      responses:
+        "204":
+          description: Signed out everywhere.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearSessionCookie"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /sessions/current:
+    delete:
+      operationId: deleteCurrentSession
+      summary: Sign out.
+      description: Ends the session the request carries and clears the cookie. Succeeds without a valid session too.
+      tags: [auth]
+      security: []
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearSessionCookie"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-session
+      description: |
+        Opaque session token, HttpOnly. Named `session` instead when the server runs with COOKIE_SECURE=false (local
+        http development), because the `__Host-` prefix requires Secure.
   parameters:
     Limit:
       name: limit
@@ -29,12 +217,80 @@ components:
       schema:
         type: string
   headers:
+    Location:
+      description: The URL of the created resource.
+      schema:
+        type: string
+    SetSessionCookie:
+      description: The new session cookie.
+      schema:
+        type: string
+    ClearSessionCookie:
+      description: Expires the session cookie.
+      schema:
+        type: string
     RetryAfter:
       description: Seconds to wait before retrying.
       schema:
         type: integer
         minimum: 0
   schemas:
+    User:
+      type: object
+      required: [id, account, role, is_disabled, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        account:
+          type: string
+          description: Lowercase; accounts are unique regardless of case.
+        role:
+          type: string
+          enum: [admin, user]
+        is_disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [account, password]
+      properties:
+        account:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[A-Za-z0-9_.-]+$"
+          description: Stored lowercase.
+        password:
+          type: string
+          minLength: 15
+          maxLength: 128
+          description: |
+            15 to 128 characters (code points), no composition rules (NIST SP 800-63B-4). A password on the common or
+            breached password list is rejected with code `password_too_common`.
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [account, password]
+      properties:
+        account:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Case-insensitive.
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+    UserPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        is_disabled:
+          type: boolean
     Problem:
       type: object
       description: RFC 9457 problem details.
