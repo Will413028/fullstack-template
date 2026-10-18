@@ -108,6 +108,8 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | E13 | 註冊預設 role 是 GUEST，但全專案沒有任何地方檢查 role | `auth/constants.py`；`rg -n role backend/src frontend/src` 只命中 model、schema 與 types | 修：B17 |
 | E14 | 密碼規則違反 NIST 800-63B-4：最少只要 8 字、強制字元組合、沒有清單比對 | `auth/schemas.py` | 修：B12、B20 |
 | E15 | compose 的 port 綁在 `0.0.0.0`（`"8000:8000"`、`"3000:3000"`）；Docker 發佈的 port 會繞過 ufw（未查證） | `docker-compose.yml` | 修：正式環境的 compose 只有 `caddy` 發佈 80/443，backend 與 frontend 不發佈 port；dev compose 的 port 綁 `127.0.0.1` |
+| E16 | production 的 CSP 是 `script-src 'self'`，擋掉 Next.js 開機用的 inline script，頁面從不 hydrate；表單因此退回原生 GET 送出，帳號密碼進了 URL 與 proxy log。dev 不設 CSP，所以沒被發現（步驟 5 端到端驗收 2026-10-18 實測） | `frontend/src/proxy.ts`（`git show archive/pre-go-rewrite:frontend/src/proxy.ts` 同樣寫法） | 修：`proxy.ts` 每個請求產生 nonce，CSP 同時放在 request 與 response（Next.js「Content Security Policy」guide）；登入表單 `method="post"`。回歸測試：`proxy.test.ts` 檢查 nonce 每次不同且傳給 rendering；正式 stack 實測 17 個 script 都帶 nonce |
+| E17 | `make dev` 的 frontend 用 `target: base`，image 裡沒有 `package.json` 與 `node_modules`，`pnpm dev` 回 `Command "dev" not found` 並一直重啟 | `docker-compose.dev.yml`（`git show archive/pre-go-rewrite:docker-compose.dev.yml` 同樣寫法） | 修：`frontend/Dockerfile` 加 `dev` stage（`FROM deps`）。回歸驗收：步驟 5 的 dev 組態經 Caddy 回 200 |
 
 ## F. 消費端
 
