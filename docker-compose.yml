@@ -35,7 +35,7 @@ services:
     pull_policy: never
     command: ["migrate"]
     environment:
-      MODE: ${MODE:-dev}
+      MODE: ${MODE:-prod}
       MIGRATE_DATABASE_URL: postgres://${DB_OWNER_USER:-fullstack_owner}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
       MIGRATE_DATABASE_PASSWORD_FILE: /run/secrets/db_owner_password
       DB_APP_USER: ${DB_APP_USER:-fullstack_app}
@@ -52,7 +52,7 @@ services:
     # longer than the 30s graceful shutdown, so in-flight requests finish before SIGKILL
     stop_grace_period: 35s
     environment:
-      MODE: ${MODE:-dev}
+      MODE: ${MODE:-prod}
       DATABASE_URL: postgres://${DB_APP_USER:-fullstack_app}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
       DATABASE_PASSWORD_FILE: /run/secrets/db_app_password
       SESSION_ABSOLUTE: ${SESSION_ABSOLUTE:-}

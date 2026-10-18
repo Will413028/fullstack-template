@@ -110,6 +110,7 @@ func TestValidationCodes(t *testing.T) {
 		{"missing body", "POST", "/api/widgets", "", gen.FieldError{Pointer: "", Code: "required"}},
 		{"query out_of_range", "GET", "/api/widgets?limit=0", "", gen.FieldError{Pointer: "/limit", Code: "out_of_range"}},
 		{"query invalid_type", "GET", "/api/widgets?limit=abc", "", gen.FieldError{Pointer: "/limit", Code: "invalid_type"}},
+		{"query empty value", "GET", "/api/widgets?limit=", "", gen.FieldError{Pointer: "/limit", Code: "invalid"}},
 		{"path format", "GET", "/api/widgets/not-a-uuid", "", gen.FieldError{Pointer: "/id", Code: "format"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -149,9 +150,12 @@ func TestValidationListsEveryError(t *testing.T) {
 
 func TestUnsupportedMediaType(t *testing.T) {
 	h := newStubAPI(t, Deps{})
-	for _, ct := range []string{"text/plain", ""} {
-		assertProblem(t, do(t, h, http.MethodPost, "/api/widgets", ct, `{"name":"abc"}`),
-			http.StatusUnsupportedMediaType, "/problems/unsupported-media-type")
+	for _, ct := range []string{"text/x-canary", ""} {
+		rec := do(t, h, http.MethodPost, "/api/widgets", ct, `{"name":"abc"}`)
+		p := assertProblem(t, rec, http.StatusUnsupportedMediaType, "/problems/unsupported-media-type")
+		if strings.Contains(rec.Body.String(), "canary") || p.Detail == nil || !strings.Contains(*p.Detail, "application/json") {
+			t.Errorf("detail = %v, want the accepted types without echoing the request header", p.Detail)
+		}
 	}
 	// Media type parameters are fine.
 	if rec := do(t, h, http.MethodPost, "/api/widgets", "application/json; charset=utf-8", `{"name":"abc"}`); rec.Code != http.StatusCreated {
@@ -160,7 +164,24 @@ func TestUnsupportedMediaType(t *testing.T) {
 }
 
 func TestMalformedJSON(t *testing.T) {
-	assertProblem(t, postWidget(t, newStubAPI(t, Deps{}), `{"name":`), http.StatusBadRequest, "/problems/bad-request")
+	h := newStubAPI(t, Deps{})
+	for _, body := range []string{`{"name":`, `{"name":"abc"} trailing`, `{"name":"abc"}{}`} {
+		assertProblem(t, postWidget(t, h, body), http.StatusBadRequest, "/problems/bad-request")
+	}
+}
+
+// failingBody fails like a body whose client went away mid-request.
+type failingBody struct{}
+
+func (failingBody) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+func TestBodyReadErrorIsNotValidation(t *testing.T) {
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://app.test/api/widgets", failingBody{})
+	req.ContentLength = 10
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	newStubAPI(t, Deps{}).ServeHTTP(rec, req)
+	assertProblem(t, rec, http.StatusInternalServerError, "/problems/internal")
 }
 
 func TestUndefinedRoute(t *testing.T) {

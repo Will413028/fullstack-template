@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -19,8 +21,29 @@ import (
 // Without a validator kin-openapi accepts any string as format: uuid; RFC 9562 covers the UUIDv7 primary keys. It is
 // registered globally because kin-openapi applies document-scoped formats (T.SetStringFormatValidator) to request
 // bodies only, not to path and query parameters.
+//
+// The JSON body decoders are replaced with one that rejects data after the first value ({"a":1} trailing):
+// kin-openapi's stops after the first value, and so does the generated code's json.Decoder, so the trailing data
+// would otherwise be silently ignored.
 func init() {
 	openapi3.DefineStringFormatValidator("uuid", openapi3.NewRegexpFormatValidator(openapi3.FormatOfStringForUUIDOfRFC9562))
+	for _, mediaType := range []string{"application/json", "application/merge-patch+json"} {
+		openapi3filter.RegisterBodyDecoder(mediaType, decodeSingleJSON)
+	}
+}
+
+// decodeSingleJSON decodes exactly one JSON value, numbers as json.Number like kin-openapi's own decoder.
+func decodeSingleJSON(body io.Reader, _ http.Header, _ *openapi3.SchemaRef, _ openapi3filter.EncodingFn) (any, error) {
+	dec := json.NewDecoder(body)
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil {
+		return nil, &openapi3filter.ParseError{Kind: openapi3filter.KindInvalidFormat, Cause: err}
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, &openapi3filter.ParseError{Kind: openapi3filter.KindInvalidFormat, Reason: "data after the JSON value"}
+	}
+	return value, nil
 }
 
 // loadSpec parses and validates an OpenAPI document.
@@ -68,12 +91,16 @@ func writeValidationError(w http.ResponseWriter, r *http.Request, logger *slog.L
 		writeError(w, r, logger, tooLarge)
 		return
 	}
-	if unsupportedMediaType(r, matched.Route) {
-		writeProblem(w, problemUnsupportedMediaType, "Content-Type "+r.Header.Get("Content-Type")+" is not accepted", "")
+	if accepted, unsupported := unsupportedMediaType(r, matched.Route); unsupported {
+		writeProblem(w, problemUnsupportedMediaType, "accepted Content-Type: "+strings.Join(accepted, ", "), "")
 		return
 	}
 	var c collector
 	c.walk(err, "")
+	if c.readErr != nil {
+		writeError(w, r, logger, c.readErr)
+		return
+	}
 	if c.malformed {
 		writeProblem(w, problemBadRequest, "request body is not valid JSON", "")
 		return
@@ -86,23 +113,34 @@ func writeValidationError(w http.ResponseWriter, r *http.Request, logger *slog.L
 	writeValidation(w, c.fields)
 }
 
-// unsupportedMediaType reports whether the request has a body whose Content-Type the operation does not declare.
-// It repeats kin-openapi's own lookup (Content.Get) rather than matching its error text.
-func unsupportedMediaType(r *http.Request, route *routers.Route) bool {
+// unsupportedMediaType reports whether the request has a body whose Content-Type the operation does not declare,
+// and the media types it accepts. It repeats kin-openapi's own lookup (Content.Get) rather than matching its error
+// text.
+func unsupportedMediaType(r *http.Request, route *routers.Route) ([]string, bool) {
 	if route == nil || route.Operation == nil || route.Operation.RequestBody == nil {
-		return false
+		return nil, false
 	}
 	body := route.Operation.RequestBody.Value
 	if body == nil || len(body.Content) == 0 || r.ContentLength == 0 {
-		return false
+		return nil, false
 	}
-	return body.Content.Get(r.Header.Get("Content-Type")) == nil
+	if body.Content.Get(r.Header.Get("Content-Type")) != nil {
+		return nil, false
+	}
+	accepted := make([]string, 0, len(body.Content))
+	for mediaType := range body.Content {
+		accepted = append(accepted, mediaType)
+	}
+	slices.Sort(accepted)
+	return accepted, true
 }
 
 // collector flattens kin-openapi's errors into one FieldError per invalid input.
 type collector struct {
 	fields    []gen.FieldError
 	malformed bool
+	// readErr is a failure to read the body (client gone, read timeout): not the client's input, so not a 422.
+	readErr error
 	// unknownSeen records objects whose unknown properties were already listed: kin-openapi reports each unknown
 	// property as a separate error on the object, without saying which property.
 	unknownSeen map[string]bool
@@ -138,13 +176,18 @@ func (c *collector) walkRequestError(e *openapi3filter.RequestError) {
 		base = "/" + escapePointerToken(e.Parameter.Name)
 	}
 	switch {
-	case errors.Is(e.Err, openapi3filter.ErrInvalidRequired), errors.Is(e.Err, openapi3filter.ErrInvalidEmptyValue):
+	case errors.Is(e.Err, openapi3filter.ErrInvalidRequired):
 		c.add(base, "required", "value is required")
+	case errors.Is(e.Err, openapi3filter.ErrInvalidEmptyValue):
+		// An empty value (?limit=) is present, so not "required"; the parameter may still be optional.
+		c.add(base, "invalid", "value must not be empty")
 	case e.RequestBody != nil && isParseError(e.Err):
 		// The body is not valid JSON (or not decodable as its media type): a malformed request, not invalid input.
 		c.malformed = true
 	case e.Err == nil:
 		c.add(base, "invalid", e.Reason)
+	case e.RequestBody != nil && !isValidationError(e.Err):
+		c.readErr = e.Err
 	default:
 		c.walk(e.Err, base)
 	}
@@ -153,6 +196,14 @@ func (c *collector) walkRequestError(e *openapi3filter.RequestError) {
 func isParseError(err error) bool {
 	var p *openapi3filter.ParseError
 	return errors.As(err, &p)
+}
+
+// isValidationError reports whether a request body error is about the input: a schema violation (single or
+// multiple). Anything else on the body, such as an I/O error from reading it, is not.
+func isValidationError(err error) bool {
+	var schemaErr *openapi3.SchemaError
+	var multi openapi3.MultiError
+	return errors.As(err, &schemaErr) || errors.As(err, &multi)
 }
 
 // schemaCodes maps a failed JSON Schema keyword to the stable code clients translate. Keywords not listed become

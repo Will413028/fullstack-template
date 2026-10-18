@@ -68,9 +68,8 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	}
 	routes := http.NewServeMux()
 	strict := gen.NewStrictHandlerWithOptions(&apiServer{}, nil, gen.StrictHTTPServerOptions{
-		// The validator has already checked the body, so a decode error here means a malformed request.
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeProblem(w, problemBadRequest, err.Error(), "")
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeBodyDecodeError(w, r, deps.Logger, err)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeError(w, r, deps.Logger, err)
@@ -79,8 +78,8 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
 		BaseURL:    "/api",
 		BaseRouter: routes,
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeProblem(w, problemBadRequest, err.Error(), "")
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeParamError(w, r, deps.Logger, err)
 		},
 	})
 	return assemble(deps, spec, routes), nil
