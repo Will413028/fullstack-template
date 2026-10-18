@@ -1,4 +1,5 @@
-// Command app is the backend's single binary. Subcommands: serve (HTTP API).
+// Command app is the backend's single binary. Subcommands: serve (HTTP API) and healthcheck (the container health
+// probe; the distroless image has no shell or curl).
 // This is the composition root: settings are read and validated once here, and platform and modules are wired.
 package main
 
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,7 +24,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = "usage: app serve"
+const usage = "usage: app serve|healthcheck"
 
 // Shutdown timing: readiness turns 503 and waits drainDelay, then the server closes within shutdownTimeout.
 const (
@@ -48,6 +50,12 @@ func run(ctx context.Context, command string) error {
 	switch command {
 	case "serve":
 		return serve(ctx)
+	case "healthcheck":
+		addr := os.Getenv("HTTP_ADDR")
+		if addr == "" {
+			addr = ":8000"
+		}
+		return healthcheck(ctx, probeAddr(addr))
 	}
 	return errors.New(usage)
 }
@@ -76,4 +84,36 @@ func serve(ctx context.Context) error {
 	}
 	logger.Info("serving", "app", cfg.AppName, "version", version, "addr", ln.Addr().String(), "mode", cfg.Mode)
 	return httpapi.Serve(ctx, ln, srv, ready, drainDelay, shutdownTimeout, logger)
+}
+
+// healthcheck asks the local server whether it is ready (GET /health/ready) and fails unless it answers 200.
+func healthcheck(ctx context.Context, addr string) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	// addr comes from HTTP_ADDR, deployment configuration rather than user input.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/health/ready", nil) //nolint:gosec // see above
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // addr is deployment configuration
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("not ready: %s", resp.Status)
+	}
+	return nil
+}
+
+// probeAddr turns a listen address into one to dial: an empty or unspecified host means this machine.
+func probeAddr(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }

@@ -12,9 +12,11 @@ services:
       timeout: 3s
       retries: 5
 
-  # applies backend/migrations (the deploy env in atlas.hcl reads DATABASE_URL); backend starts after it exits
+  # applies backend/migrations (the deploy env in atlas.hcl reads DATABASE_URL); backend starts after it exits.
+  # Same image as backend, built once by the backend service.
   migrate:
-    build: ./backend
+    image: fullstack-template-backend
+    pull_policy: never
     env_file: .env
     entrypoint: ["/usr/local/bin/atlas"]
     command: ["migrate", "apply", "--env", "deploy"]
@@ -25,6 +27,7 @@ services:
 
   backend:
     build: ./backend
+    image: fullstack-template-backend
     restart: unless-stopped
     # covers the 5s readiness drain plus up to 20s of graceful shutdown
     stop_grace_period: 30s
@@ -35,6 +38,11 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/app", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   frontend:
     build:
@@ -50,7 +58,8 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:

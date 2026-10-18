@@ -10,6 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// lockTimeout bounds how long a statement waits for a lock, so DDL queued behind a long transaction cannot stall
+// every query behind it. idleInTxTimeout ends transactions a caller forgot to finish; it is longer than the statement
+// timeout because a transaction legitimately spans several statements.
+const (
+	lockTimeout     = 3 * time.Second
+	idleInTxTimeout = 30 * time.Second
+)
+
 // Config configures the pool.
 type Config struct {
 	URL              string
@@ -20,18 +28,28 @@ type Config struct {
 // Open creates the pool. pgxpool connects lazily, so a database that is briefly unavailable does not fail
 // startup; readiness (Pool.Ping) reports it instead.
 //
-// Every connection sets statement_timeout, idle_in_transaction_session_timeout and TimeZone=UTC, so a runaway
-// query or an abandoned transaction cannot hold a connection.
+// Every connection sets statement_timeout, lock_timeout, idle_in_transaction_session_timeout and TimeZone=UTC, so
+// a runaway query, a lock queue or an abandoned transaction cannot hold a connection.
 func Open(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
+	pc, err := poolConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return pgxpool.NewWithConfig(ctx, pc)
+}
+
+func poolConfig(cfg Config) (*pgxpool.Config, error) {
 	pc, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
 	pc.MaxConns = cfg.MaxConns
-	ms := strconv.FormatInt(cfg.StatementTimeout.Milliseconds(), 10)
 	params := pc.ConnConfig.RuntimeParams
-	params["statement_timeout"] = ms
-	params["idle_in_transaction_session_timeout"] = ms
+	params["statement_timeout"] = millis(cfg.StatementTimeout)
+	params["lock_timeout"] = millis(lockTimeout)
+	params["idle_in_transaction_session_timeout"] = millis(idleInTxTimeout)
 	params["TimeZone"] = "UTC"
-	return pgxpool.NewWithConfig(ctx, pc)
+	return pc, nil
 }
+
+func millis(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) }

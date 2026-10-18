@@ -61,9 +61,11 @@ status:
 
 .PHONY: migration
 migration:
-	$(COMPOSE) run --rm --build migrate
+	$(COMPOSE) build backend
+	$(COMPOSE) run --rm migrate
 
-# Generates backend/migrations/<timestamp>_<MSG>.sql from the modules' schema.sql (needs Docker)
+# Generates backend/migrations/<timestamp>_<MSG>.sql from the modules' schema.sql (needs Docker);
+# apply it with `make migration` (make dev does not re-run migrate on changes)
 .PHONY: generate-migration
 generate-migration:
 	$(MAKE) -C backend migration name="$(MSG)"
