@@ -177,7 +177,7 @@ func (e *env) databaseURL(key string) string {
 		e.fail("%s must be a postgres:// or postgresql:// connection string", key)
 		return ""
 	}
-	if _, has := u.User.Password(); has {
+	if _, has := u.User.Password(); has || u.Query().Has("password") {
 		e.fail("%s must not contain a password; set it in the matching _PASSWORD or _PASSWORD_FILE variable", key)
 		return ""
 	}

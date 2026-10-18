@@ -180,6 +180,11 @@ func TestConfigRejectsPasswordInDatabaseURL(t *testing.T) {
 	if strings.Contains(err.Error(), "pw@") {
 		t.Errorf("error leaks the URL: %v", err)
 	}
+
+	env["DATABASE_URL"] = "postgres://app@db:5432/app?password=pw"
+	if _, err := Load(lookup(env)); err == nil || !strings.Contains(err.Error(), "must not contain a password") {
+		t.Fatalf("err = %v, want password-query error", err)
+	}
 }
 
 func TestLoadMigrate(t *testing.T) {
