@@ -1,334 +1,203 @@
 # Database Design Rules
 
-> **Go 改寫中**：本文件描述舊的 FastAPI 後端，改寫期間以 `docs/plans/2026-10-18-go-backend-rewrite.md` 為準。
+本專案使用 PostgreSQL 18、pgx v5（`pgxpool`）、sqlc 與 Atlas 宣告式 schema。schema 與查詢都是可以審閱的 SQL，沒有 ORM。決策來源見 [ADR go-backend](../adr/2026-10-18-go-backend.md)。
 
-本專案使用 async SQLAlchemy 2.0 + asyncpg + Alembic。所有資料庫設計必須遵守以下規則。
+## Schema 與查詢的位置
+
+- 每個模組擁有自己的表，宣告在 `backend/internal/modules/<m>/schema.sql`：這份檔案描述表的**目標狀態**，是 schema 唯一的真相（ADR go-backend D2）。
+- `backend/atlas.hcl` 收集所有模組的 `schema.sql`，auth 先載入（其他模組的 FK 指向 `users`）。新模組的 `schema.sql` 由 `fileset` 自動納入。
+- 所有表都在 `public` schema，DDL 不寫 schema 前綴。
+- 查詢只寫在 `internal/modules/<m>/queries/*.sql`，由該模組的 `sqlc.yaml` 生成到 `internal/modules/<m>/internal/store`（`make -C backend sqlc`）。生成碼不手改；`make -C backend sqlc-diff` 擋下過期的生成碼。
+- **NEVER** 在 Go 裡組 SQL 字串或用 ORM；每個查詢都經 sqlc 生成（ADR go-backend D2）。
+- sqlc 的 uuid 一律 override 成 `github.com/google/uuid.UUID`，`timestamptz` 成 `time.Time`，nullable 欄位生成指標（`emit_pointers_for_null_types: true`）。
 
 ## 命名規範
 
-### Table
+### Table 與 Column
 
-- 名稱用**複數 snake_case**：`users`, `order_items`, `payment_records`
-- 使用 `__tablename__` 明確指定，不依賴自動推導
-
-```python
-# 正確
-class OrderItem(Base, TimestampMixin):
-    __tablename__ = "order_items"
-
-# 錯誤
-class OrderItem(Base):  # 缺少 __tablename__，也缺少 TimestampMixin
-    pass
-```
-
-### Column
-
-- 欄位名用 **snake_case**：`created_at`, `user_id`, `is_active`
-- Boolean 欄位用 `is_` / `has_` 前綴：`is_active`, `is_verified`, `has_paid`
-- 時間欄位用 `_at` 後綴：`created_at`, `deleted_at`, `expired_at`
+- 表名用**複數 snake_case**：`users`、`sessions`、`login_throttles`、`order_items`。
+- 欄位名用 **snake_case**：`created_at`、`owner_id`、`is_disabled`。
+- Boolean 欄位用 `is_` / `has_` 前綴：`is_disabled`、`has_paid`。
+- 時間欄位用 `_at` 後綴：`created_at`、`last_used_at`、`expires_at`。
 
 ### Foreign Key
 
-- 格式：`<referenced_table_singular>_id`
-- 例如：`user_id` → `users.id`，`order_id` → `orders.id`
-- 必須明確是否允許 NULL
-- 預設 **不使用 CASCADE DELETE**，除非是純附屬資料（如 log、子項）
-
-```python
-# 一般 FK：不 cascade，刪除 parent 前須先處理 child
-owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-
-# 純附屬資料：可以 cascade（刪除 order 連帶刪除 order_items）
-order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
-```
+- 欄位名是 `<被參照的表單數>_id`（`user_id → users.id`），或表達角色的 `<角色>_id`（`owner_id → users.id`）。
+- 必須明確寫 `NOT NULL` 或允許 NULL。
+- 預設**不 cascade**：刪除仍被參照的 parent 會失敗，而不是靜默刪掉 child（`items.owner_id`）。只有純附屬資料才 `ON DELETE CASCADE`（`sessions.user_id`）。
 
 ### Index
 
-- 一般索引命名：`idx_<table>_<column>`
-- Unique 索引命名：`uidx_<table>_<column>`
-- 複合索引要在 `__table_args__` 中用 `Index()` 定義，名稱包含所有欄位
+- 名稱照 PostgreSQL 自動命名的格式，在 `schema.sql` 明寫：一般索引 `<table>_<columns>_idx`，unique 索引 `<table>_<column>_key`。
+- 為 keyset 分頁建複合索引，欄位與查詢的 `WHERE` 和 `ORDER BY` 一致。
 
-```python
-from sqlalchemy import Index
+```sql
+-- 正確：internal/modules/items/schema.sql
+-- Keyset pagination: WHERE owner_id = $1 AND id < $cursor ORDER BY id DESC.
+CREATE INDEX items_owner_id_id_idx ON items (owner_id, id DESC);
 
-class Order(Base, TimestampMixin):
-    __tablename__ = "orders"
-    # ...
-    __table_args__ = (
-        Index("idx_orders_user_id", "user_id"),
-        Index("uidx_orders_order_no", "order_no", unique=True),
-        Index("idx_orders_status_created", "status", "created_at"),
-    )
+CREATE UNIQUE INDEX sessions_id_key ON sessions (id);
 ```
 
-## Model 必要結構
+## 模組邊界
 
-### 每個 Model 必須
-
-1. 繼承 `Base` + `TimestampMixin`（提供 `created_at`, `updated_at`）
-2. 明確定義 `__tablename__`
-3. 使用 `Mapped[]` + `mapped_column()` 型別宣告（SQLAlchemy 2.0 風格）
-4. 用 `Mapped[]` 的型別控制 nullable（`Mapped[str]` = NOT NULL，`Mapped[str | None]` = NULL），不需要再加 `nullable=` 參數
-
-```python
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
-
-from src.core.models.base import Base, TimestampMixin
-
-
-class Item(Base, TimestampMixin):
-    __tablename__ = "items"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String(200))               # NOT NULL（由 Mapped[str] 推導）
-    description: Mapped[str | None] = mapped_column(Text)          # NULL（由 Mapped[str | None] 推導）
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))  # NOT NULL
-```
-
-### 軟刪除（Soft Delete）
-
-- template 預設不提供 soft-delete mixin（YAGNI）。需要時，在該 model 加一個
-  `deleted_at: Mapped[datetime | None]` 欄位，不要預設加在所有 table 上
-- 使用軟刪除的 table，repository 查詢必須過濾 `deleted_at IS NULL`
-
-### 主鍵
-
-- 預設使用 `int` 自增主鍵
-- 若有分散式需求再考慮 UUID，但必須用 `postgresql.UUID` 型別，不要用 String 存
+- 跨模組只允許 FK 指向 `users`（ADR go-backend Invariants）。
+- 模組的查詢**NEVER** `SELECT` 或 `JOIN` 其他模組的表。需要別的模組的 schema 才能解析 FK 時，`sqlc.yaml` 的 `schema` 可以列出它（items 列出 `../auth/schema.sql`），並設 `omit_unused_structs: true`，但查詢仍不讀那些表。
+- 需要別的模組的資料時，經由該模組的 service 取得。
 
 ## 型別選擇
 
+照 [PostgreSQL wiki「Don't Do This」](https://wiki.postgresql.org/wiki/Don%27t_Do_This)（ADR go-backend D3）：
+
 | 場景 | 使用 | 避免 |
 |------|------|------|
-| 短文字（名稱、標題） | `String(N)` 指定長度 | 無限制 `String` |
-| 長文字（描述、內容） | `Text` | `String(10000)` |
-| 時間 | `DateTime(timezone=True)` | 不帶 timezone 的 DateTime |
-| 金額 | `Numeric(precision, scale)` | `Float` |
-| JSON 資料 | `postgresql.JSONB` | `JSON` 或 `Text` 存 JSON string |
-| 布林 | `Boolean` | `SmallInteger` |
-| 列舉/狀態 | `String` + Pydantic Enum 驗證 | PG `Enum()` |
-| 陣列（標籤、多值） | `postgresql.ARRAY(Text)` | JSON 存簡單字串列表 |
+| 主鍵 | `uuid PRIMARY KEY DEFAULT uuidv7()` | `serial`、`int` 自增 |
+| 文字（有長度限制） | `text` + `CHECK (char_length(x) BETWEEN m AND n)` | `varchar(n)`、`char(n)` |
+| 文字（無限制） | `text` | `varchar` |
+| 狀態、role、列舉 | `text` + `CHECK (x IN (...))` | PG `ENUM` 型別、沒有 CHECK 的 `text` |
+| 時間 | `timestamptz` | `timestamp`（不帶時區） |
+| 整數計數 | `bigint` | `int`（squawk `prefer-bigint-over-int`） |
+| 金額 | `numeric(precision, scale)` | `float`、`real`、`money` |
+| 布林 | `boolean` | `smallint`、`'Y'/'N'` |
+| 二進位（雜湊等） | `bytea` + `CHECK (octet_length(x) = n)` | hex 字串存 `text` |
 
-### Enum / 狀態欄位規範
+- 主鍵由 DB 的 `uuidv7()`（PostgreSQL 18 內建）產生，JSON 裡是字串。UUIDv7 依時間排序，可以直接當 keyset 分頁的排序鍵（ADR go-backend D3）。
+- 長度與 enum 的 CHECK 數值必須和 `backend/api/openapi.yaml` 一致：契約是第一道防線，CHECK 是第二道，任何不合長度或 enum 的資料在 DB 層就寫不進去（ADR go-backend Expected Outcome）。
+- 新增狀態值時，在同一個 PR 改契約的 `enum` 與 `schema.sql` 的 CHECK。
 
-DB 層用 `String`，驗證交給 Pydantic Enum。不使用 PG Enum，也不加 `CheckConstraint`。
+```sql
+-- 正確：internal/modules/auth/schema.sql
+CREATE TABLE users (
+  id            uuid        PRIMARY KEY DEFAULT uuidv7(),
+  account       text        NOT NULL UNIQUE
+                            CHECK (account = lower(account) AND char_length(account) BETWEEN 3 AND 50),
+  password_hash text        NOT NULL,
+  role          text        NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+  is_disabled   boolean     NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
 
-**為什麼不用 PG Enum：**
-- `ALTER TYPE ADD VALUE` 不能 rollback，migration 風險高
-- 刪除/重命名值幾乎不可能
-- 每次加狀態都要 migration，不值得
-
-**為什麼不加 CheckConstraint：**
-- 每次加狀態要改兩個地方（Python enum + DB constraint），遲早忘記同步
-- Pydantic 已在 API 入口驗證，無效值進不了 service 層
-- 單體應用只有這個 app 寫 DB，不存在繞過驗證寫入的場景
-- 加 migration 只為了改 constraint = over-engineering
-
-**正確做法：** DB 存 `String`，Pydantic `str, enum.Enum` 做驗證：
-
-```python
-import enum
-from sqlalchemy import String
-
-# schemas.py — Pydantic 層驗證（API 入口把關，唯一的驗證點）
-class OrderStatus(str, enum.Enum):
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    SHIPPED = "shipped"
-    CANCELLED = "cancelled"
-
-# models.py — DB 層只存 String，不加約束
-class Order(Base, TimestampMixin):
-    __tablename__ = "orders"
-    status: Mapped[str] = mapped_column(String(20), default="pending")
+-- 錯誤：長度寫在型別裡、狀態沒有 CHECK、連號主鍵
+CREATE TABLE orders (
+  id     serial PRIMARY KEY,
+  title  varchar(200),
+  status text
+);
 ```
 
-新增狀態只需改 Python enum，不需要任何 DB migration。
+### JSONB 與 Array
 
-**何時才需要 DB 層約束：** 多個服務共用同一個 DB、或有人會直接操作 DB 時，再加 `CheckConstraint`。
+- JSONB 只用於彈性結構的資料（偏好設定、外部系統的原始 payload）；使用前必須能說明為何不用 table + FK。**NEVER** 在 JSONB 塞可以正規化的關聯資料。
+- 需要查詢 JSONB 或 array 的內容時，建 GIN 索引。
+- 簡單的多值屬性（標籤）可以用 `text[]`，不用 JSON 存字串列表。
 
-### JSONB 使用規範
+## 時間戳記
 
-JSONB 適用於**彈性結構資料**（如商品 attributes、使用者偏好設定），但不可取代正規化設計。
+- 對外的資源表（API 回傳 `updated_at` 的）都有 `created_at`、`updated_at timestamptz NOT NULL DEFAULT now()`。
+- **這些表的每個 UPDATE 查詢都明寫 `updated_at = now()`**，不靠 trigger，也不由 Go 傳值；並有測試覆蓋（`TestUpdatedAtChanges`）（ADR go-backend D3）。
+- 例外：內部的狀態表可以由 service 傳入時間，讓測試控制時鐘（`login_throttles.updated_at` 與 `sessions.last_used_at` 由 `@now` 傳入，限流與 idle 期限的測試因此不用等真實時間）。
+- 連線的 `TimeZone` 固定為 UTC。
 
-- 使用前必須能說明為何不用 table + FK
-- 需要查詢 JSONB 內容時，建立 GIN 索引
-- 欄位預設值用 `server_default=text("'{}'::jsonb")`
-
-```python
-from sqlalchemy.dialects.postgresql import JSONB
-
-attributes: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+```sql
+-- 正確：internal/modules/auth/queries/users.sql
+UPDATE users
+SET is_disabled = @is_disabled, updated_at = now()
+WHERE id = @id
+RETURNING ...;
 ```
 
-### Array 使用規範
+## Migration
 
-適用於標籤、多值簡單屬性、非關聯資料：
+### 產生
 
-```python
-from sqlalchemy.dialects.postgresql import ARRAY
+- 改 `schema.sql` 後，用 Atlas 產生 migration：`make -C backend migration name=<name>`，或在 root `make generate-migration MSG=<name>`（需要 Docker）。產生的檔案在 `backend/migrations/`，連同 `atlas.sum` 一起 commit。
+- 套用：root `make migration`（compose 的 `migrate` service 執行 `app migrate`）。
+- 產生 migration 與漂移檢查用 Atlas standard 版（`make -C backend tools` 下載到 `bin/atlas`）；image 內套用用 community 版（ADR go-backend D2）。
+- `make -C backend drift` 檢查 `schema.sql` 與 `migrations/` 一致。
+- **NEVER** 手寫 DDL migration。唯一的例外是純資料的 backfill（對既有表走 expand 步驟時）：在 `backend/` 下用 `bin/atlas migrate new <name> --env dev` 建立後手寫，一樣經 squawk 與 immutable 檢查（ADR go-backend D2）。
 
-tags: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'::text[]"))
+### 不可修改
+
+- 已合併進 `main` 的 migration 只能新增，**NEVER** 修改、刪除或改名；要改就新增一支。`make -C backend migrations-immutable` 以 `main`（`BASE`，預設 `origin/main`）的 `atlas.sum` 為基準檢查（ADR go-backend D2）。
+- 還沒合併進 `main` 的 migration 可以刪掉重新產生。
+
+### 鎖與安全（squawk）
+
+- `make -C backend squawk` 用 squawk 檢查每支 migration 會不會長時間鎖表（設定在 `backend/.squawk.toml`）。Atlas 的 migration lint 是付費功能，所以用 squawk（ADR go-backend D2）。
+- 對既有的表建或刪索引一律 `CONCURRENTLY`：`atlas.hcl` 的 `concurrent_index` 讓 Atlas 自動產生，並在檔頭加 `-- atlas:txmode none`。
+- 對已有資料的表加帶常數 default 的 `NOT NULL` 欄位（`ADD COLUMN n bigint NOT NULL DEFAULT 0`）是安全的：PostgreSQL 11 起不重寫表，squawk 也放行。會重寫表或讓既有列違反約束的是 volatile default（例如 `DEFAULT uuidv7()`）與沒有 default 的 `NOT NULL` 欄位，squawk 會擋下。這兩種改走 expand 步驟，每一步是一支 migration：先在 `schema.sql` 加 nullable、沒有 default 的欄位並產生 migration → `atlas migrate new` 手寫 backfill（ADR go-backend Review Notes）。需要 default 時，backfill 之後再在 `schema.sql` 加上：`ALTER COLUMN … SET DEFAULT` 只影響之後的新列，不重寫表。
+- 對已有資料的表補 `NOT NULL` 目前沒有不鎖表的做法：不鎖表的寫法是 `CHECK (x IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL`，但 Atlas 從 `schema.sql` 產生不了 `NOT VALID`（v1.3.3 實測：`schema.sql` 寫了 `NOT VALID`，產生的仍是一般的 `ADD CONSTRAINT … CHECK`），而手寫 DDL 違反 ADR go-backend D2。遇到時先修訂該 ADR，再動手。
+- **NEVER** 在 migration 裡寫 `SET lock_timeout`：`app migrate` 已在連線上設定 `lock_timeout` 5s（`internal/platform/migrate`），每支檔案在自己的 transaction 裡執行。
+
+## DB 角色與權限
+
+照 OWASP 最小權限（ADR go-backend D5）：
+
+- `POSTGRES_USER`（superuser）只用於初始化與容器內維運，app **NEVER** 用它連線。
+- migrate 用 owner 角色（`DB_OWNER_USER`，例如 `fullstack_owner`）：擁有 database 與 `public` schema，不是 superuser，經 `MIGRATE_DATABASE_URL` 連線。
+- `serve` 與 `seed-admin` 用 app 角色（`DB_APP_USER`，例如 `fullstack_app`），只有 DML，經 `DATABASE_URL` 連線。
+- 角色由 `deploy/postgres/initdb/10-roles.sh` 建立；授權（含 `ALTER DEFAULT PRIVILEGES`）由 `app migrate` 每次套用後冪等執行，所以新表自動給 app 角色 DML。
+- 密碼不放在 URL 或環境變數：用 `*_FILE`（compose secrets 掛檔）傳入，URL 只寫使用者名稱。
+- 整合測試（testcontainers，PostgreSQL 18）使用同一套角色。
+
+## 連線設定
+
+`internal/platform/db` 的 `Open` 建立 `pgxpool`，設定只有以下這些：
+
+| 設定 | 來源 | 預設 |
+|------|------|------|
+| `MaxConns` | `DB_MAX_CONNS` | 20 |
+| `statement_timeout` | `DB_STATEMENT_TIMEOUT` | 5s |
+| `lock_timeout` | 常數 | 3s |
+| `idle_in_transaction_session_timeout` | 常數 | 30s |
+| `TimeZone` | 常數 | UTC |
+
+- 這些以 `RuntimeParams` 設在每條連線上，讓失控的查詢、排隊等鎖或忘了結束的 transaction 佔不住連線。
+- pool 是 lazy 連線：DB 暫時連不上不會讓啟動失敗，由 readiness（`/health/ready`）回報。
+- 所有服務的 `DB_MAX_CONNS` 總和不得超過 PostgreSQL 的 `max_connections`。
+- migrate 連線另設 `lock_timeout` 5s，單次套用上限 30 分鐘（`internal/platform/migrate`）。
+
+## Transaction
+
+- 需要多個語句原子完成的 service 方法，自己用 `pgx.BeginFunc` 開 transaction，並以 `store.New(tx)` 取得查詢。單一語句不用 transaction。
+- **NEVER** 在 transaction 內呼叫外部服務（HTTP、HIBP、第三方 API）或做耗時的 CPU 工作（密碼雜湊）：transaction 持有連線與鎖，回應時間不可控會耗盡 pool，也會撞上 `idle_in_transaction_session_timeout`。先在 transaction 外做完，再開 transaction 寫入。
+- 需要在 commit 之後才做的事（通知、webhook），放在 `BeginFunc` 回傳成功之後。
+
+```go
+// 正確：internal/modules/auth/auth.go 的 CreateUser，雜湊在 transaction 外
+hash, err := s.newPasswordHash(ctx, password)
+if err != nil {
+	return User{}, Session{}, err
+}
+err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	q := store.New(tx)
+	row, err := q.CreateUser(ctx, store.CreateUserParams{Account: accountKey(account), PasswordHash: hash, Role: RoleUser})
+	// ...
+	sess, err = s.newSession(ctx, q, u.ID)
+	return err
+})
+
+// 錯誤：transaction 內呼叫外部服務
+err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	if _, err := store.New(tx).CreateOrder(ctx, params); err != nil {
+		return err
+	}
+	return s.notifier.Send(ctx, userID, "order created") // 禁止
+})
 ```
-
-需要查詢時建立 GIN 索引。
-
-## Relationship
-
-- 使用 `relationship()` 搭配 `back_populates`，不用 `backref`
-- **Async 模式下禁止隱式 lazy loading** — 存取未 eager load 的 relationship 會直接噴 `MissingGreenlet` error，不是 lazy load
-- 必須在查詢中**明確**使用 `selectinload()` / `joinedload()` 載入關聯資料
-
-```python
-# 正確：在 model 定義 relationship（宣告關聯，不控制載入策略）
-class User(Base, TimestampMixin):
-    __tablename__ = "users"
-    items: Mapped[list["Item"]] = relationship("Item", back_populates="owner")
-
-class Item(Base, TimestampMixin):
-    __tablename__ = "items"
-    owner: Mapped["User"] = relationship("User", back_populates="items")
-```
-
-```python
-# 正確：在查詢時明確指定 eager loading
-from sqlalchemy.orm import selectinload
-
-stmt = select(User).options(selectinload(User.items)).where(User.id == user_id)
-result = await session.execute(stmt)
-user = result.scalar_one()
-# user.items 已載入，可安全存取
-
-# 錯誤：查詢後直接存取 relationship（async 模式會噴 MissingGreenlet）
-stmt = select(User).where(User.id == user_id)
-result = await session.execute(stmt)
-user = result.scalar_one()
-print(user.items)  # MissingGreenlet error!
-```
-
-## Migration (Alembic)
-
-- 每個 schema 變更都要產生 migration：`make generate_migration`
-- 新增 model 後必須在 `alembic/env.py` 中 import model
-- Migration 檔的 `upgrade()` 和 `downgrade()` 都要實作
-- NEVER 手動修改已 apply 的 migration 檔
-- NEVER 在 migration 中寫業務邏輯或複雜的 data migration（用獨立腳本）
-
-## 連線池最佳實踐
-
-以下設定可避免連線池耗盡與服務啟動 hang 住：
-
-### connect_timeout 必設
-
-DSN 中必須包含 `connect_timeout`，防止 DB 連線 hang 時無限等待：
-
-```python
-# config.py — 確保 DSN 包含 connect_timeout
-DATABASE_URL = "postgresql://user:pass@host:5432/db?connect_timeout=10"
-```
-
-若 DSN 來自環境變數且不一定包含 connect_timeout，在 engine 建立時設定：
-
-```python
-engine = create_async_engine(
-    settings.async_database_url,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    pool_recycle=settings.DB_POOL_RECYCLE,
-    pool_pre_ping=True,              # 連線前自動 ping，偵測失效連線
-    connect_args={"timeout": 10},    # asyncpg connect timeout
-)
-```
-
-### Pool Sizing 原則
-
-- `pool_size`：常駐連線數，設為該服務**正常併發**的 DB 查詢數
-- `max_overflow`：突發流量時可額外建立的連線數
-- 所有服務的 `pool_size + max_overflow` 總和**不得超過** PostgreSQL `max_connections`
-- 多服務架構下，每個服務的 pool 不要太大（建議 pool_size=5~20）
-
-### 多服務同時重啟場景
-
-多服務同時重啟時，各服務同時嘗試建立最小連線數 → DB max_connections 耗盡。解法：
-
-- `pool_size` 不要設太高（讓連線按需建立）
-- DSN 必須有 `connect_timeout`，確保連線失敗時快速 fail 而非 hang
-
-## Transaction 規範
-
-### 禁止在 Transaction 內呼叫外部服務
-
-DB transaction 持有連線和鎖，外部呼叫（HTTP、Redis、第三方 API）的回應時間不可控。
-Transaction 內呼叫外部服務 → 連線長時間被佔用 → 連線池耗盡。
-
-```python
-# 錯誤：顯式 transaction 內呼叫外部服務
-async def create_order(self, data: OrderCreate, user_id: int) -> Order:
-    async with self.session.begin():
-        order = Order(**data.model_dump(), user_id=user_id)
-        self.session.add(order)
-        await self.session.flush()
-        await self.notification_client.send(user_id, "Order created")  # 禁止！
-        return order
-```
-
-### 注意 `get_db` 的 commit 時機
-
-本專案的 `get_db` 使用 `yield` pattern，commit 發生在 **endpoint 回傳之後**（dependency cleanup 階段）：
-
-```python
-async def get_db():
-    async with async_session_factory() as session:
-        try:
-            yield session
-            await session.commit()    # ← endpoint 回傳後才 commit
-        except Exception:
-            await session.rollback()
-            raise
-```
-
-因此在 service 層中，`repo.create()` 只是 `flush`（寫入 DB 但未 commit）。如果 service 中呼叫外部服務，此時 transaction 仍未結束：
-
-```python
-# 注意：notification 在 commit 前就送出了
-# 如果後續 commit 失敗，通知已發但資料未寫入
-async def create_order(self, data: OrderCreate, user_id: int) -> Order:
-    order = await self.repo.create(order)   # flush，但尚未 commit
-    await self.notification_client.send(...) # commit 尚未發生！
-    return order
-    # ← endpoint 回傳後，get_db 才 commit
-```
-
-**需要確保外部呼叫在 commit 之後執行的場景**（如通知、webhook），使用 BackgroundTasks：
-
-```python
-# 正確：用 BackgroundTasks 確保 commit 完成後才執行
-@router.post("")
-async def create_order(
-    data: OrderCreate,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
-    service: OrderService = Depends(get_order_service),
-) -> DataResponse[OrderResponse]:
-    order = await service.create_order(data, current_user.id)
-    background_tasks.add_task(send_notification, current_user.id, order.id)
-    return DataResponse(data=OrderResponse.model_validate(order))
-```
-
-### 同理適用於 Redis 操作
-
-Cache invalidation 理想上應在 commit 之後執行。但因 `get_db` 的 yield pattern，service 層無法得知 commit 是否成功。務實做法：在 service 中 invalidate 快取是可接受的（最壞情況只是下次多一次 cache miss），但不要在 flush 之前就 invalidate。
 
 ## 禁止事項
 
-- **NEVER** 使用 raw SQL string，一律用 SQLAlchemy ORM 或 `text()` 搭配參數綁定
-- **NEVER** 在 model 中寫業務邏輯（業務邏輯屬於 service 層）
-- **NEVER** 使用 sync SQLAlchemy（`Session`），只用 async（`AsyncSession`）
-- **NEVER** 在 model 中直接 import service 或 router（避免循環依賴）
-- **NEVER** 使用 `Float` 存金額
-- **NEVER** 存不帶 timezone 的時間
+- **NEVER** 手寫 DDL migration，或修改、刪除、改名已合併進 `main` 的 migration
+- **NEVER** 繞過 sqlc：在 Go 裡組 SQL 字串、用 ORM、手改生成碼
+- **NEVER** 在模組的查詢讀其他模組的表；**NEVER** 新增指向 `users` 以外的跨模組 FK
+- **NEVER** 用 `serial` 或 `int` 自增當主鍵；主鍵一律 `uuid DEFAULT uuidv7()`
+- **NEVER** 用 `varchar(n)`；有長度限制用 `text` + CHECK，數值與契約一致
+- **NEVER** 用 PG `ENUM` 型別，或讓狀態欄沒有 `CHECK (x IN (...))`
+- **NEVER** 存不帶時區的時間；**NEVER** 用 `float` 存金額
+- **NEVER** 對資源表寫一個不設 `updated_at = now()` 的 UPDATE 查詢
+- **NEVER** 對既有的表直接加 volatile default 或沒有 default 的 `NOT NULL` 欄位，或不用 `CONCURRENTLY` 建索引
+- **NEVER** 讓 app 用 owner 或 superuser 角色連線；**NEVER** 把 DB 密碼寫進 URL
 - **NEVER** 在 JSONB 中塞可以正規化的關聯資料
-- **NEVER** 使用 PG `Enum()` 型別（用 `String` + Pydantic Enum 驗證替代）
-- **NEVER** 用 `String` 存狀態值而沒有對應的 Pydantic Enum 驗證
-- **NEVER** 在 DB transaction 內呼叫外部服務（HTTP、Redis、第三方 API）
+- **NEVER** 在 DB transaction 內呼叫外部服務或做密碼雜湊這類耗時工作

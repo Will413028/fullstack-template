@@ -16,5 +16,5 @@ The browser calls the API on its own origin under `/api`. `pnpm dev` on the host
 forwards `/api` to `API_URL` (default `http://localhost:8000`, see `.env.example`);
 in Docker, Caddy does that routing.
 
-See [`CLAUDE.md`](./CLAUDE.md) for architecture, the auth flow, and conventions.
+See [`AGENTS.md`](./AGENTS.md) for architecture, the auth flow, and conventions.
 Normally you run the whole stack from the repo root with `make dev` / `make up`.
