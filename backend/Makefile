@@ -8,6 +8,11 @@ GOLANGCI_LINT_SHA256_darwin-arm64 := 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76e
 GOLANGCI_LINT_SHA256_linux-amd64  := ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
 GOLANGCI_LINT_SHA256_linux-arm64  := ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
 GOVULNCHECK   := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
+# sqlc builds with cgo (libpg_query); the first run compiles it, later runs use the Go build cache.
+SQLC          := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+SQUAWK        := npx --yes squawk-cli@2.65.0
+# Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
+BASE ?= origin/main
 
 # Generating migrations and drift checks use the Atlas standard build: the community build rejects several
 # schema.sql files (docs/adr/2026-10-18-go-backend.md D2). The image applies migrations with the community build
@@ -58,7 +63,34 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check lint test vuln
+check: fmt-check lint test vuln sqlc-diff drift squawk migrations-immutable
+
+.PHONY: sqlc
+sqlc: ## Regenerate each module's sqlc code from its sqlc.yaml
+	@for f in internal/modules/*/sqlc.yaml; do \
+		[ -e "$$f" ] || { echo "no module sqlc.yaml"; break; }; \
+		echo "sqlc generate -f $$f"; $(SQLC) generate -f "$$f" || exit 1; \
+	done
+
+.PHONY: sqlc-diff
+sqlc-diff: ## Fail when generated sqlc code differs from its schema and queries
+	@for f in internal/modules/*/sqlc.yaml; do \
+		[ -e "$$f" ] || { echo "no module sqlc.yaml, skipping sqlc diff"; break; }; \
+		echo "sqlc diff -f $$f"; $(SQLC) diff -f "$$f" || { echo "generated code is stale: run make sqlc"; exit 1; }; \
+	done
+
+.PHONY: drift
+drift: $(ATLAS) ## Needs Docker: schema.sql files and migrations/ must match
+	./scripts/check-schema-drift.sh $(ATLAS)
+
+.PHONY: squawk
+squawk: ## Lock and safety checks for migrations (needs Node)
+	@set -- migrations/*.sql; \
+	if [ -e "$$1" ]; then $(SQUAWK) --config .squawk.toml "$$@"; else echo "no migrations, skipping squawk"; fi
+
+.PHONY: migrations-immutable
+migrations-immutable: ## Migrations already on BASE must not change
+	./scripts/check-migrations-immutable.sh $(BASE)
 
 .PHONY: tools
 tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT)
