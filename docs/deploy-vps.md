@@ -57,9 +57,7 @@ nano .env
 > 生產環境（HTTPS）務必在 `.env` 設定：
 > - `MODE=prod`（啟用 placeholder secret 防呆）
 > - `COOKIE_SECURE=true`（auth cookie 才會在 HTTPS 下送出）
-> - `CORS_ORIGINS=["https://yourdomain.com"]`
-> - `NEXT_PUBLIC_API_URL=https://api.yourdomain.com` — 此值在 **build 時**編進前端 bundle，
->   修改後必須 `make build` 重新建置才會生效（僅 `make up` 無效）。
+> - `SITE_ADDRESS=yourdomain.com`：compose 內的 Caddy 以此網域自動申請 HTTPS 憑證；前端與 `/api` 同源，不需要 CORS
 
 ---
 

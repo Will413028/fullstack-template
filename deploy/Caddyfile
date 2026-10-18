@@ -1,0 +1,25 @@
+# The single entry point (docker-compose.yml): /api goes to the backend, everything else to Next, so the browser
+# sees one origin and the session cookie needs no Domain and no CORS.
+# SITE_ADDRESS is a domain name for automatic HTTPS, or :80 for plain http on a local machine.
+{$SITE_ADDRESS::80} {
+	log
+
+	# Ignored by browsers on plain http; applies once SITE_ADDRESS is a domain served over HTTPS.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			# Holds requests while the backend restarts (compose rebuild) instead of failing them; a single upstream
+			# needs no health_uri.
+			lb_try_duration 10s
+			# The backend believes the request id Caddy sends (TRUSTED_PROXIES), so never pass on the client's.
+			header_up X-Request-ID {http.request.uuid}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000 {
+			lb_try_duration 10s
+		}
+	}
+}

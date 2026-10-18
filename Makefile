@@ -6,16 +6,11 @@ COMPOSE_DEV = $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 .PHONY: up
 up:
 	$(COMPOSE) up -d
-	@echo "\nStack started:"
-	@echo "Frontend: http://localhost:3000"
-	@echo "Backend:  http://localhost:8000"
+	@echo "\nStack started: http://localhost (the API under /api)"
 
 .PHONY: dev
 dev:
 	$(COMPOSE_DEV) up --build --watch
-	@echo "\nDev stack started (hot reload enabled):"
-	@echo "Frontend: http://localhost:3000"
-	@echo "Backend:  http://localhost:8000"
 
 .PHONY: down
 down:
