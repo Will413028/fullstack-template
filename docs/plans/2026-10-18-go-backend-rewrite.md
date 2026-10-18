@@ -33,7 +33,7 @@
 - **契約是唯一來源：** 長度、格式、enum 只寫在 `openapi.yaml`。後端由 validator 執行，前端由生成的型別取用，不在 handler 或前端重寫一次。DB CHECK 是第二道防線，數值和契約一致。
 - **錯誤：** 一律在 `internal/httpapi` 一處轉成 RFC 9457 problem（I4）。
 - **改寫期間的指令檔：** 步驟 1–5 期間，root `AGENTS.md` 的 Design Rules 與 Constraints 中的 Alembic 規則、`backend/AGENTS.md`、`docs/rules/*` 描述的是舊系統，**由本計畫取代**。步驟 1 在這些檔案開頭各加一行「Go 改寫中，以 `docs/plans/2026-10-18-go-backend-rewrite.md` 為準」，步驟 6 完整改寫並移除該行。
-- **SQL：** 每個查詢都經 sqlc 生成。不手寫 migration；改 `schema.sql` 後用 `atlas migrate diff` 產生。
+- **SQL：** 每個查詢都經 sqlc 生成。DDL 不手寫：改 `schema.sql` 後用 `atlas migrate diff` 產生。唯一的例外是純資料的 backfill（對既有表走 expand 步驟時），用 `atlas migrate new` 手寫，一樣經 squawk 與 immutable 檢查（D17）。
 - **完成定義（每個模組）：**
   - 盤點表中屬於該模組的每一列，去向都已實作；
   - `test-map.md` 中該模組的每一列都有 Go integration 測試（testcontainers，PostgreSQL 18）；
@@ -106,7 +106,7 @@
 | **I2　錯誤一律是 RFC 9457 problem。** 每個 problem 有固定的 `type` URI；驗證錯誤帶 `errors[{pointer, code, detail}]`；前端只依 `type`、`code` 顯示訊息，不解析 `detail` | <ul><li>`internal/httpapi/problem.go`</li><li>`internal/platform/apperr`（kind 與 code）</li><li>`frontend/src/lib/api/errors.ts`</li><li>`frontend/messages/*.json` 的 `problems.*` 鍵</li></ul> |
 | **I3　認證憑證只在 `HttpOnly` cookie，JS 讀不到。** 所有狀態變更請求都經過 `CrossOriginProtection` | <ul><li>`internal/httpapi/auth.go`（cookie 的寫入與清除）</li><li>`internal/httpapi/server.go`（`CrossOriginProtection` 包住整個 mux）</li><li>`frontend/src/proxy.ts`（只檢查 cookie 是否存在）</li><li>`features/auth/server.ts`（轉發 cookie）</li></ul> |
 | **I4　分層與依賴方向**（見表後說明） | <ul><li>`.golangci.yml` 的 depguard 規則</li><li>`internal/httpapi` 負責組裝</li><li>`cmd/app`</li></ul> |
-| **I5　schema 只由 Atlas 產生。** Atlas standard 版從各模組的 `schema.sql` 產生 migration，auth 的 `schema.sql` 先載入；baseline 之後的 migration 只增不改；image 內用 community 版套用（D12） | <ul><li>`backend/atlas.hcl`（`src` 順序：auth、items）</li><li>`backend/Dockerfile` 的 community 版與 CI、`backend/Makefile` 的 standard 版，版本與 checksum 照 P14</li><li>`backend/migrations/`</li><li>`backend/scripts/check-schema-drift.sh`、`backend/scripts/check-migrations-immutable.sh`（寫法照 FathomPod 同名腳本）</li><li>root `AGENTS.md` 的 Constraints</li></ul> |
+| **I5　schema 只由 Atlas 產生。** Atlas standard 版從各模組的 `schema.sql` 產生 migration，auth 的 `schema.sql` 先載入；合併進 `main` 的 migration 只增不改，PR #12 合併前的 migration 可重新產生（D17）；image 內用 community 版套用（D12） | <ul><li>`backend/atlas.hcl`（`src` 順序：auth、items）</li><li>`backend/Dockerfile` 的 community 版與 CI、`backend/Makefile` 的 standard 版，版本與 checksum 照 P14</li><li>`backend/migrations/`</li><li>`backend/scripts/check-schema-drift.sh`、`backend/scripts/check-migrations-immutable.sh`（寫法照 FathomPod 同名腳本）</li><li>root `AGENTS.md` 的 Constraints</li></ul> |
 | **I7　回傳的資源網址都能 GET（D16）。** 每個 201 的 `Location` 都是契約裡有 GET 的路徑，建立者用同一組 cookie GET 得到 200；契約裡有 PATCH、PUT 或 DELETE 的 path 一定也有 GET | <ul><li>測試 helper `authAPI.do`：收到帶 `Location` 的 201 就 GET 它（`internal/httpapi/auth_test.go`）</li><li>契約測試 `TestEveryWritablePathHasGet`（`internal/httpapi/spec_test.go`）</li></ul> |
 | **I6　授權在查詢層。** 使用者擁有的資源，查詢一律帶 `owner_id = $current`，非 owner 回 404；admin 操作在 handler 前由 `requireRole("admin")` 把關 | <ul><li>`internal/modules/items/queries/*.sql`</li><li>`internal/httpapi/authz.go`</li><li>測試 `TestGetOtherUsersItem`、`TestNonAdminCannotPatchUser`</li></ul> |
 
@@ -380,6 +380,7 @@
         4. 再打 `GET /api/users/me` 回 401。
       - `make -C backend check` 綠燈、PR CI 綠燈。
 - [x] **4. items 模組**（被擋於：步驟 3）
+  - 2026-10-18：本步驟產生的第二支 migration 已由 D17 併入重新產生的 baseline（步驟 4b）；以下保留為完成時的紀錄。
   - 範圍：
     - `internal/modules/items`：
       - `schema.sql`：盤點 C3。
@@ -403,7 +404,8 @@
   - 完成後的狀態：後端完成；前端仍是舊的呼叫方式，必須接著做步驟 5。
 - [ ] **4b. auth 資源補齊（D16）**（被擋於：步驟 4）
   - 範圍：
-    - `internal/modules/auth/schema.sql`：sessions 加 `id uuid NOT NULL DEFAULT uuidv7() UNIQUE`（`token_hash` 仍是主鍵，每個請求依它查詢）；用 `make migration` 產生新 migration（I5：baseline 不改）。
+    - `internal/modules/auth/schema.sql`：sessions 加 `id uuid NOT NULL DEFAULT uuidv7()` 與 unique index（`token_hash` 仍是主鍵，每個請求依它查詢），`sessions_user_id_idx` 換成 `(user_id, id DESC)`。
+    - migration：刪除 PR #12 上未發布的兩支 migration，重新產生一支 baseline（D17）。原寫法「`make migration` 產生新 migration」觸發了停止條件：`ADD COLUMN … DEFAULT uuidv7()` 被 squawk 的 `adding-field-with-default` 擋下。
     - `api/openapi.yaml`：
       - `getUser`（`GET /users/{id}`）：本人或 admin，其他人 404。
       - `listUsers`（`GET /users`）：admin only，`Limit`、`Cursor` 參數，回 `{users, next_cursor}`，`ORDER BY id DESC`，含停用的使用者。
@@ -427,7 +429,7 @@
       - (f) 契約裡拿掉 `GET /items/{id}`（測試用副本）→ `TestEveryWritablePathHasGet`。
     - `make -C backend check` 綠燈；隔離 worktree 的 compose 以 curl 走：註冊 → `GET Location` 200 → 登入 → `GET Location` 200 → `GET /api/sessions` 兩筆 → `DELETE /api/sessions/{另一個}` 204 → admin `GET /api/users` 200、一般使用者 403。
     - code review（獨立 subagent）、PR CI 綠燈。
-  - 停止條件：squawk 擋下新增欄位的 migration（volatile default 會重寫表）時，停下回報，不加 ignore。
+  - 停止條件：squawk 擋下新增欄位的 migration（volatile default 會重寫表）時，停下回報，不加 ignore。2026-10-18 已觸發，Will 決定 D17。
   - 完成後的狀態：前端仍是舊呼叫方式，接著做步驟 5。
 - [ ] **5. 前端切換與同源部署**（被擋於：步驟 4b）
   - 範圍：
@@ -578,7 +580,20 @@
     - (d) 防止再犯兩道：I7。
   - ADR：`docs/adr/2026-10-18-api-and-auth-baseline.md`（D2、D7 修訂，D9 追加）。
 
-拍板順序：全部已決（D16 於 2026-10-18 拍板）。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
+- **D17 未發布的 migration 與 backfill**（已決 2026-10-18，Will 照建議；擋住：4b）
+  - 問題：4b 給既有的 sessions 表加 `id … DEFAULT uuidv7()`，squawk 以 `adding-field-with-default` 擋下：volatile default 會在 ACCESS EXCLUSIVE 鎖下重寫整張表。
+  - 業界基準：Rails Guides 與 Django 的做法是，還沒發布的 migration 可以改寫或 squash；已發布的走 expand 步驟（strong_migrations 與 squawk 的建議：先加 nullable、backfill，再用 `CHECK … NOT VALID`＋`VALIDATE` 加上 NOT NULL）。
+  - 約束：
+    - 沒有持久的 DB 套用過這些 migration。`origin/main` 沒有 `backend/migrations`；`docker volume ls` 沒有本專案的 volume；P1 也說範本沒有部署。
+    - I5 原本寫「baseline 之後」、ADR D2 寫「不手寫」，兩者都是 SELF-IMPOSED。
+    - `atlas.sum` 是累積雜湊，所以做不到「只重產 baseline、保留 items 那支」。
+    - 草稿交 Will 前，由沒參與的 subagent 審過。
+  - 決定：
+    - (a) 合併前把未發布的 migration squash 成一支重新產生的 baseline。不選 expand 三步：要手寫 backfill，而且是對一張沒有部署資料的空表。不選 squawk ignore：會在範本歷史留下壞示範。I5 與 ADR D2 改成「合併進 `main` 之後只增不改」。
+    - (b) 合併後要對既有表做 expand 時，純資料的 backfill 用 `atlas migrate new` 手寫，DDL 仍只由 diff 產生。
+  - ADR：`docs/adr/2026-10-18-go-backend.md`（D2 修訂）。
+
+拍板順序：全部已決（D16、D17 於 2026-10-18 拍板）。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
 
