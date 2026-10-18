@@ -111,7 +111,8 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 	return a
 }
 
-// do sends a same-origin request, with the session cookie when token is not empty.
+// do sends a same-origin request, with the session cookie when token is not empty. Every 201 it gets back is
+// checked against plan I7 (followLocation).
 func (a *authAPI) do(method, path, token, contentType, body string, headers ...string) *httptest.ResponseRecorder {
 	a.t.Helper()
 	req := httptest.NewRequestWithContext(a.t.Context(), method, "http://app.test"+path, strings.NewReader(body))
@@ -130,7 +131,30 @@ func (a *authAPI) do(method, path, token, contentType, body string, headers ...s
 	}
 	rec := httptest.NewRecorder()
 	a.h.ServeHTTP(rec, req)
+	a.followLocation(rec, token)
 	return rec
+}
+
+// followLocation checks plan I7 on a 201: it has a Location, and GET on it with the creator's cookie (the session the
+// response sets, else the one the request carried) is a 200. Errorf, not Fatalf: do runs in goroutines too.
+func (a *authAPI) followLocation(rec *httptest.ResponseRecorder, token string) {
+	a.t.Helper()
+	if rec.Code != http.StatusCreated {
+		return
+	}
+	loc := rec.Header().Get("Location")
+	if loc == "" {
+		a.t.Errorf("201 without Location (plan I7): %s", rec.Body)
+		return
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cookieName && c.MaxAge > 0 {
+			token = c.Value
+		}
+	}
+	if got := a.do(http.MethodGet, loc, token, "", ""); got.Code != http.StatusOK {
+		a.t.Errorf("GET %s, the Location of a 201, = %d, want 200 (plan I7): %s", loc, got.Code, got.Body)
+	}
 }
 
 func credentials(account, password string) string {
@@ -321,11 +345,8 @@ func TestCreateSession(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("code = %d, want 201 (body %q)", rec.Code, rec.Body)
 	}
-	if u := decodeUser(t, rec); u.Id != created.Id {
-		t.Errorf("signed in as %v, want %v", u.Id, created.Id)
-	}
-	if loc := rec.Header().Get("Location"); loc != "/api/sessions/current" {
-		t.Errorf("Location = %q", loc)
+	if sess := decodeSession(t, rec); sess.User.Id != created.Id {
+		t.Errorf("signed in as %v, want %v", sess.User.Id, created.Id)
 	}
 	assertMe(t, a, sessionCookie(t, rec).Value, http.StatusOK)
 }

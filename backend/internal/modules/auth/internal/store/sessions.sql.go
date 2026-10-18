@@ -40,6 +40,31 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
+const deleteUserSession = `-- name: DeleteUserSession :execrows
+DELETE FROM sessions
+WHERE id = $1 AND user_id = $2 AND expires_at > $3 AND last_used_at > $4
+`
+
+type DeleteUserSessionParams struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Now        time.Time
+	IdleBefore time.Time
+}
+
+func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserSession,
+		arg.ID,
+		arg.UserID,
+		arg.Now,
+		arg.IdleBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteUserSessions = `-- name: DeleteUserSessions :exec
 DELETE FROM sessions
 WHERE user_id = $1
@@ -51,13 +76,14 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) erro
 }
 
 const getSession = `-- name: GetSession :one
-SELECT s.last_used_at, s.expires_at, u.id, u.account, u.role, u.is_disabled, u.created_at
+SELECT s.id AS session_id, s.last_used_at, s.expires_at, u.id, u.account, u.role, u.is_disabled, u.created_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
 `
 
 type GetSessionRow struct {
+	SessionID  uuid.UUID
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
 	ID         uuid.UUID
@@ -72,6 +98,7 @@ func (q *Queries) GetSession(ctx context.Context, tokenHash []byte) (GetSessionR
 	row := q.db.QueryRow(ctx, getSession, tokenHash)
 	var i GetSessionRow
 	err := row.Scan(
+		&i.SessionID,
 		&i.LastUsedAt,
 		&i.ExpiresAt,
 		&i.ID,
@@ -83,9 +110,47 @@ func (q *Queries) GetSession(ctx context.Context, tokenHash []byte) (GetSessionR
 	return i, err
 }
 
-const insertSession = `-- name: InsertSession :exec
+const getUserSession = `-- name: GetUserSession :one
+SELECT id, created_at, last_used_at, expires_at
+FROM sessions
+WHERE id = $1 AND user_id = $2 AND expires_at > $3 AND last_used_at > $4
+`
+
+type GetUserSessionParams struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Now        time.Time
+	IdleBefore time.Time
+}
+
+type GetUserSessionRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
+func (q *Queries) GetUserSession(ctx context.Context, arg GetUserSessionParams) (GetUserSessionRow, error) {
+	row := q.db.QueryRow(ctx, getUserSession,
+		arg.ID,
+		arg.UserID,
+		arg.Now,
+		arg.IdleBefore,
+	)
+	var i GetUserSessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const insertSession = `-- name: InsertSession :one
 INSERT INTO sessions (token_hash, user_id, created_at, last_used_at, expires_at)
 VALUES ($1, $2, $3, $3, $4)
+RETURNING id, created_at, last_used_at, expires_at
 `
 
 type InsertSessionParams struct {
@@ -95,14 +160,89 @@ type InsertSessionParams struct {
 	ExpiresAt time.Time
 }
 
-func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
-	_, err := q.db.Exec(ctx, insertSession,
+type InsertSessionRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
+func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) (InsertSessionRow, error) {
+	row := q.db.QueryRow(ctx, insertSession,
 		arg.TokenHash,
 		arg.UserID,
 		arg.Now,
 		arg.ExpiresAt,
 	)
-	return err
+	var i InsertSessionRow
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const listUserSessions = `-- name: ListUserSessions :many
+
+SELECT id, created_at, last_used_at, expires_at
+FROM sessions
+WHERE user_id = $1 AND expires_at > $2 AND last_used_at > $3
+  AND ($4::uuid IS NULL OR id < $4::uuid)
+ORDER BY id DESC
+LIMIT $5
+`
+
+type ListUserSessionsParams struct {
+	UserID     uuid.UUID
+	Now        time.Time
+	IdleBefore time.Time
+	After      *uuid.UUID
+	RowLimit   int32
+}
+
+type ListUserSessionsRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
+// The session resource (plan D16): ListUserSessions, GetUserSession and DeleteUserSession are scoped to the user
+// (plan I6) and see only live sessions, within the limits Authenticate applies (before expires_at, and used after
+// idle_before), so an expired session that Cleanup has not removed yet is not found either.
+// ListUserSessions returns the user's live sessions newest first (UUIDv7 ids sort by creation time), after the
+// cursor id when one is given.
+func (q *Queries) ListUserSessions(ctx context.Context, arg ListUserSessionsParams) ([]ListUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listUserSessions,
+		arg.UserID,
+		arg.Now,
+		arg.IdleBefore,
+		arg.After,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserSessionsRow
+	for rows.Next() {
+		var i ListUserSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchSession = `-- name: TouchSession :exec

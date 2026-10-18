@@ -19,6 +19,7 @@ type LoginThrottle struct {
 
 type Session struct {
 	TokenHash  []byte
+	ID         uuid.UUID
 	UserID     uuid.UUID
 	CreatedAt  time.Time
 	LastUsedAt time.Time

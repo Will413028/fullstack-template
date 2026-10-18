@@ -136,6 +136,55 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 	return i, err
 }
 
+const listUsers = `-- name: ListUsers :many
+SELECT id, account, role, is_disabled, created_at
+FROM users
+WHERE $1::uuid IS NULL OR id < $1::uuid
+ORDER BY id DESC
+LIMIT $2
+`
+
+type ListUsersParams struct {
+	After    *uuid.UUID
+	RowLimit int32
+}
+
+type ListUsersRow struct {
+	ID         uuid.UUID
+	Account    string
+	Role       string
+	IsDisabled bool
+	CreatedAt  time.Time
+}
+
+// ListUsers returns all users, disabled ones included, newest first, after the cursor id when one is given. Only
+// admins call it (internal/httpapi requireRole).
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.After, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersRow
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Account,
+			&i.Role,
+			&i.IsDisabled,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setUserDisabled = `-- name: SetUserDisabled :one
 UPDATE users
 SET is_disabled = $1, updated_at = now()

@@ -24,6 +24,8 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/blocklist"
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/internal/store"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
 )
 
 // Roles.
@@ -51,12 +53,32 @@ type User struct {
 	CreatedAt  time.Time
 }
 
+// SessionInfo is a session as the API shows it. ID is its public identifier; the token is never part of it.
+type SessionInfo struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
 // Session is a newly issued session: the token goes in the cookie and is never stored.
 type Session struct {
-	Token     string
-	ExpiresAt time.Time
+	SessionInfo
+	Token string
 	// MaxAge is the absolute lifetime, for the cookie's Max-Age.
 	MaxAge time.Duration
+}
+
+// UserPage is one page of users, newest first. NextCursor is empty on the last page.
+type UserPage struct {
+	Users      []User
+	NextCursor string
+}
+
+// SessionPage is one page of sessions, newest first. NextCursor is empty on the last page.
+type SessionPage struct {
+	Sessions   []SessionInfo
+	NextCursor string
 }
 
 // BreachChecker reports whether a password appears in known breaches (Have I Been Pwned). It lives outside the
@@ -194,16 +216,55 @@ func (s *Service) EnsureAdmin(ctx context.Context, account, password string) (cr
 	return true, nil
 }
 
-// User returns the user with id.
+var errUserNotFound = apperr.New(apperr.NotFound, "", "user not found")
+
+// caller is the signed-in user. The HTTP layer requires a session for every operation that calls a method using it,
+// so a missing user is a wiring bug, not a client error.
+func caller(ctx context.Context) (authctx.User, error) {
+	u, ok := authctx.From(ctx)
+	if !ok {
+		return authctx.User{}, errors.New("auth: no authenticated user in context")
+	}
+	return u, nil
+}
+
+// User returns the user with id to that user or to an admin. Anyone else gets not found, the same as for an id that
+// does not exist, so ids reveal nothing about other accounts (plan I6).
 func (s *Service) User(ctx context.Context, id uuid.UUID) (User, error) {
+	c, err := caller(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	if c.ID != id && c.Role != RoleAdmin {
+		return User{}, errUserNotFound
+	}
 	row, err := s.q().GetUser(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, apperr.New(apperr.NotFound, "", "user not found")
+		return User{}, errUserNotFound
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("auth: get user: %w", err)
 	}
 	return User(row), nil
+}
+
+// ListUsers returns up to limit users, disabled ones included, after cursor (nil for the first page). Only admins
+// may call it; the HTTP layer enforces that before the call (requireRole), as for SetDisabled.
+func (s *Service) ListUsers(ctx context.Context, limit int, cursor *string) (UserPage, error) {
+	after, err := httpx.After(cursor)
+	if err != nil {
+		return UserPage{}, err
+	}
+	rows, err := s.q().ListUsers(ctx, store.ListUsersParams{After: after, RowLimit: httpx.PageRows(limit)})
+	if err != nil {
+		return UserPage{}, fmt.Errorf("auth: list users: %w", err)
+	}
+	rows, next := httpx.TrimPage(rows, limit, func(r store.ListUsersRow) uuid.UUID { return r.ID })
+	page := UserPage{Users: make([]User, 0, len(rows)), NextCursor: next}
+	for _, row := range rows {
+		page.Users = append(page.Users, User(row))
+	}
+	return page, nil
 }
 
 // SetDisabled disables or re-enables a user. Disabling deletes all of the user's sessions in the same transaction,
@@ -214,7 +275,7 @@ func (s *Service) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) 
 		q := store.New(tx)
 		row, err := q.SetUserDisabled(ctx, store.SetUserDisabledParams{ID: id, IsDisabled: disabled})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperr.New(apperr.NotFound, "", "user not found")
+			return errUserNotFound
 		}
 		if err != nil {
 			return fmt.Errorf("auth: set disabled: %w", err)

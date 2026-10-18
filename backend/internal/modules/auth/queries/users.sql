@@ -15,6 +15,15 @@ SELECT id, account, role, is_disabled, created_at
 FROM users
 WHERE id = @id;
 
+-- ListUsers returns all users, disabled ones included, newest first, after the cursor id when one is given. Only
+-- admins call it (internal/httpapi requireRole).
+-- name: ListUsers :many
+SELECT id, account, role, is_disabled, created_at
+FROM users
+WHERE sqlc.narg('after')::uuid IS NULL OR id < sqlc.narg('after')::uuid
+ORDER BY id DESC
+LIMIT @row_limit;
+
 -- name: GetLoginUser :one
 SELECT id, account, password_hash, role, is_disabled, created_at
 FROM users
