@@ -71,7 +71,8 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, error) 
 	if row.IsDisabled {
 		return User{}, ErrSessionInvalid
 	}
-	if now.Sub(row.LastUsedAt) >= touchEvery {
+	// a short idle limit (under two minutes) is touched more often, or a session in use would still lapse
+	if now.Sub(row.LastUsedAt) >= min(touchEvery, s.cfg.SessionIdle/2) {
 		if err := s.q().TouchSession(ctx, store.TouchSessionParams{Now: now, TokenHash: hash}); err != nil {
 			return User{}, fmt.Errorf("auth: touch session: %w", err)
 		}
