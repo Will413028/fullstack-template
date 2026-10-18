@@ -1,25 +1,45 @@
+# Each service gets only its own variables (values come from .env) and its own secrets (files under .secrets/,
+# created by `make init-env`), mounted at /run/secrets/<name> and read through <KEY>_FILE.
+# Database roles (deploy/postgres/initdb/10-roles.sh): the superuser only initializes the volume; migrate connects
+# as the owner role; backend connects as the app role, which has DML only.
+
+x-db-names: &db-names
+  POSTGRES_DB: ${POSTGRES_DB:-fullstack}
+  DB_OWNER_USER: ${DB_OWNER_USER:-fullstack_owner}
+  DB_APP_USER: ${DB_APP_USER:-fullstack_app}
+
 services:
   postgres:
     image: postgres:18
     restart: unless-stopped
-    env_file: .env
+    environment:
+      <<: *db-names
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, db_owner_password, db_app_password]
     volumes:
       # 18+ keeps data in a versioned subdirectory; mount the parent (docker-library/postgres#37)
       - postgres-data:/var/lib/postgresql
+      # runs only when the volume is empty; on an existing volume the roles must already exist
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # applies backend/migrations (the deploy env in atlas.hcl reads DATABASE_URL); backend starts after it exits.
+  # applies backend/migrations as the owner role and grants the app role; backend starts after it exits.
   # Same image as backend, built once by the backend service.
   migrate:
     image: fullstack-template-backend
     pull_policy: never
-    env_file: .env
-    entrypoint: ["/usr/local/bin/atlas"]
-    command: ["migrate", "apply", "--env", "deploy"]
+    command: ["migrate"]
+    environment:
+      MODE: ${MODE:-dev}
+      MIGRATE_DATABASE_URL: postgres://${DB_OWNER_USER:-fullstack_owner}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
+      MIGRATE_DATABASE_PASSWORD_FILE: /run/secrets/db_owner_password
+      DB_APP_USER: ${DB_APP_USER:-fullstack_app}
+    secrets: [db_owner_password]
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,7 +51,19 @@ services:
     restart: unless-stopped
     # longer than the 30s graceful shutdown, so in-flight requests finish before SIGKILL
     stop_grace_period: 35s
-    env_file: .env
+    environment:
+      MODE: ${MODE:-dev}
+      DATABASE_URL: postgres://${DB_APP_USER:-fullstack_app}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
+      DATABASE_PASSWORD_FILE: /run/secrets/db_app_password
+      SESSION_ABSOLUTE: ${SESSION_ABSOLUTE:-}
+      SESSION_IDLE: ${SESSION_IDLE:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      DB_MAX_CONNS: ${DB_MAX_CONNS:-}
+      DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-}
+      AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-}
+      PASSWORD_HIBP_CHECK: ${PASSWORD_HIBP_CHECK:-}
+    secrets: [db_app_password]
     # loopback only: ports published by Docker bypass ufw
     ports:
       - "127.0.0.1:8000:8000"
@@ -51,8 +83,9 @@ services:
         # browser-facing URL, inlined into the client bundle at build time
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
-    env_file: .env
     environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
       # server-side (SSR/RSC) fetches reach the backend by service name
       API_URL: http://backend:8000
     ports:
@@ -60,6 +93,14 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+secrets:
+  postgres_password:
+    file: .secrets/postgres_password
+  db_owner_password:
+    file: .secrets/db_owner_password
+  db_app_password:
+    file: .secrets/db_app_password
 
 volumes:
   postgres-data:

@@ -2,6 +2,8 @@ package config
 
 import (
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +17,7 @@ func lookup(m map[string]string) func(string) (string, bool) {
 }
 
 func baseEnv() map[string]string {
-	return map[string]string{"DATABASE_URL": "postgres://app@db:5432/app?sslmode=disable"}
+	return map[string]string{"DATABASE_URL": "postgres://app@db:5432/app?sslmode=disable", "DATABASE_PASSWORD": "pw"}
 }
 
 func TestConfigDefaults(t *testing.T) {
@@ -80,18 +82,18 @@ func TestCookieNameFollowsSecure(t *testing.T) {
 
 func TestConfigRejectsDriverSuffixInDatabaseURL(t *testing.T) {
 	env := baseEnv()
-	env["DATABASE_URL"] = "postgresql+asyncpg://app:pw@db:5432/app"
+	env["DATABASE_URL"] = "postgresql+asyncpg://app@db:5432/app"
 	_, err := Load(lookup(env))
 	if err == nil || !strings.Contains(err.Error(), "+asyncpg") {
 		t.Fatalf("err = %v, want driver suffix error", err)
 	}
 
-	env["DATABASE_URL"] = "mysql://app:pw@db/app"
+	env["DATABASE_URL"] = "mysql://app@db/app"
 	if _, err := Load(lookup(env)); err == nil {
 		t.Fatal("non-postgres scheme accepted")
 	}
 
-	env["DATABASE_URL"] = "postgresql://app:pw@db:5432/app"
+	env["DATABASE_URL"] = "postgresql://app@db:5432/app"
 	if _, err := Load(lookup(env)); err != nil {
 		t.Fatalf("postgresql:// rejected: %v", err)
 	}
@@ -120,6 +122,87 @@ func TestConfigReportsAllProblems(t *testing.T) {
 	for _, key := range []string{"MODE", "DB_MAX_CONNS", "DATABASE_URL"} {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("error %q does not mention %s", err, key)
+		}
+	}
+}
+
+func writeSecret(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestConfigReadsPasswordFile(t *testing.T) {
+	env := baseEnv()
+	delete(env, "DATABASE_PASSWORD")
+	env["DATABASE_PASSWORD_FILE"] = writeSecret(t, "s3cret\n")
+	cfg, err := Load(lookup(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DatabasePassword != "s3cret" {
+		t.Errorf("DatabasePassword = %q, want the file contents without the trailing newline", cfg.DatabasePassword)
+	}
+
+	env["DATABASE_PASSWORD_FILE"] = filepath.Join(t.TempDir(), "missing")
+	if _, err := Load(lookup(env)); err == nil || !strings.Contains(err.Error(), "DATABASE_PASSWORD_FILE") {
+		t.Fatalf("err = %v, want unreadable DATABASE_PASSWORD_FILE", err)
+	}
+}
+
+func TestConfigRejectsValueAndFile(t *testing.T) {
+	env := baseEnv()
+	env["DATABASE_PASSWORD_FILE"] = writeSecret(t, "other")
+	_, err := Load(lookup(env))
+	if err == nil || !strings.Contains(err.Error(), "only one of DATABASE_PASSWORD and DATABASE_PASSWORD_FILE") {
+		t.Fatalf("err = %v, want both-set error", err)
+	}
+}
+
+func TestConfigRequiresDatabasePassword(t *testing.T) {
+	env := baseEnv()
+	delete(env, "DATABASE_PASSWORD")
+	if _, err := Load(lookup(env)); err == nil || !strings.Contains(err.Error(), "DATABASE_PASSWORD") {
+		t.Fatalf("err = %v, want missing DATABASE_PASSWORD", err)
+	}
+}
+
+func TestConfigRejectsPasswordInDatabaseURL(t *testing.T) {
+	env := baseEnv()
+	env["DATABASE_URL"] = "postgres://app:pw@db:5432/app"
+	_, err := Load(lookup(env))
+	if err == nil || !strings.Contains(err.Error(), "must not contain a password") {
+		t.Fatalf("err = %v, want password-in-URL error", err)
+	}
+	if strings.Contains(err.Error(), "pw@") {
+		t.Errorf("error leaks the URL: %v", err)
+	}
+}
+
+func TestLoadMigrate(t *testing.T) {
+	env := map[string]string{
+		"MIGRATE_DATABASE_URL":           "postgres://owner@db:5432/app?sslmode=disable",
+		"MIGRATE_DATABASE_PASSWORD_FILE": writeSecret(t, "ownerpw\n"),
+		"DB_APP_USER":                    "app",
+	}
+	cfg, err := LoadMigrate(lookup(env))
+	if err != nil {
+		t.Fatalf("LoadMigrate: %v", err)
+	}
+	if cfg.DatabasePassword != "ownerpw" || cfg.AppRole != "app" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+
+	if _, err := LoadMigrate(lookup(map[string]string{})); err == nil {
+		t.Fatal("LoadMigrate accepted an empty environment")
+	} else {
+		for _, key := range []string{"MIGRATE_DATABASE_URL", "MIGRATE_DATABASE_PASSWORD", "DB_APP_USER"} {
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error %q does not mention %s", err, key)
+			}
 		}
 	}
 }

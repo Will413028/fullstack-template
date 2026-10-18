@@ -24,11 +24,3 @@ env "dev" {
     }
   }
 }
-
-# Applying migrations on deploy (compose migrate service, community build in the image).
-env "deploy" {
-  url = getenv("DATABASE_URL")
-  migration {
-    dir = "file://migrations"
-  }
-}
