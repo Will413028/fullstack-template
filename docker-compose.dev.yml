@@ -11,8 +11,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      target: base
-    command: ["pnpm", "dev"]
+      target: dev
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/messages:/app/messages
