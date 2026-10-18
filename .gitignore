@@ -1,10 +1,6 @@
 .env
 .secrets/
 .DS_Store
-__pycache__/
-*.pyc
-.coverage
-.pytest_cache/
 backend/bin/
 backend/coverage.out
 backend/coverage.xml

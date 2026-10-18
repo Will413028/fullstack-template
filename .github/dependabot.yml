@@ -13,7 +13,7 @@ updates:
       github-actions:
         patterns: ["*"]
 
-  - package-ecosystem: uv
+  - package-ecosystem: gomod
     directory: /backend
     schedule:
       interval: weekly
@@ -22,6 +22,14 @@ updates:
     groups:
       backend-minor-patch:
         update-types: [minor, patch]
+
+  # the Go toolchain and distroless base images, pinned by digest in backend/Dockerfile
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
     directory: /frontend

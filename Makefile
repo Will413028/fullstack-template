@@ -84,12 +84,14 @@ seed:
 
 # --- Rename ---
 
+# Renames images, packages, database names, branding and the Go module path (default
+# github.com/Will413028/<NAME>/backend; MODULE= overrides it), then checks that the backend builds.
 .PHONY: rename
 rename:
 ifndef NAME
-	$(error NAME is required. Usage: make rename NAME=my-project)
+	$(error NAME is required. Usage: make rename NAME=my-project [MODULE=example.com/me/my-project/backend])
 endif
-	@python3 scripts/rename.py $(NAME)
+	@python3 scripts/rename.py "$(NAME)" $(if $(MODULE),--module "$(MODULE)")
 
 .PHONY: init-env
 init-env:
