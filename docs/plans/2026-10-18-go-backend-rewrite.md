@@ -309,7 +309,7 @@
       - PR #12 的 backend job summary 有 total coverage 與 diff-cover 的結果。
       - oasdiff 步驟的 log 顯示「main 沒有 openapi.yaml，跳過」。在 scratchpad 以兩份本機 spec 跑 oasdiff：刪一個 required 欄位要回報 breaking。
       - PR CI 綠燈。
-- [ ] **3. auth 模組**（被擋於：步驟 2）
+- [x] **3. auth 模組**（被擋於：步驟 2）
   - 步驟 3 拆成 3a–3c，各自有驗收與 commit（2026-10-18 拆）。順序依相依：3b 的 service 用 3a 的 sqlc 碼與 migration；3c 的 `seed-admin` 用 3b 的 service。步驟 3 完成 = 3a–3c 都完成。
   - 消費端（整個步驟 3）：`rg -n "/auth/" frontend/src`，前端在步驟 5 改。
   - 不能動（整個步驟 3）：
@@ -317,7 +317,7 @@
     - timing 防護：未知帳號也要跑一次 argon2 驗證。
     - 節流行為不得洩漏帳號是否存在。
   - 步驟 1 的 migrate service 已經跑真正的 `atlas migrate apply`（2a），原列「若步驟 1 讓 migrate 直接 `exit 0`，這一步補上」不適用。
-  - [ ] **3a. 資料層：schema、baseline migration、sqlc、authctx**（被擋於：步驟 2）
+  - [x] **3a. 資料層：schema、baseline migration、sqlc、authctx**（被擋於：步驟 2）
     - 範圍：
       - `internal/modules/auth/schema.sql`：盤點 C1、C2、C4。
       - `internal/modules/auth/queries/*.sql` 與 `sqlc.yaml`，生成到 `internal/modules/auth/internal/store`（Go 的 `internal` 讓其他模組 import 不到）；uuid 對應 `github.com/google/uuid.UUID`、`timestamptz` 對應 `time.Time`（P4）。
@@ -328,7 +328,7 @@
       - `TestBaselineAppliesWithCommunity`（dbtest）：community 版對全新 DB 套用成功；revision 表在 `atlas_schema_revisions` schema、不在 `public`；app 角色對三張表有 DML，對 `atlas_schema_revisions` 沒有任何權限。
       - `TestSchemaChecks`：大寫帳號、`role` 不在清單、`failures` 為負都被 DB 拒絕；刪除 user 時 session 一起刪除。mutation：拿掉 `account = lower(account)` 的 CHECK（重新產生 migration），測試要失敗。
       - `make -C backend check` 綠燈、PR CI 綠燈。
-  - [ ] **3b. auth service 與 HTTP**（被擋於：3a）
+  - [x] **3b. auth service 與 HTTP**（被擋於：3a）
     - 範圍：
       - `internal/modules/auth` 的 service：
         - 建立使用者：建 user 與建 session 在同一個 transaction；雜湊在 transaction 之外做。帳號重複由 UNIQUE 約束判定，回 409 `account_taken`。
@@ -345,7 +345,8 @@
         - `auth.go`：`/api` 子樹在 validator 之前讀 cookie、查 session，把使用者放進 `authctx`（cookie 無效時視為匿名，DB 錯誤回 500）；validator 的 `AuthenticationFunc` 依契約的 `security` 要求 `authctx` 有使用者，否則回 401（在 body 驗證之前判定）；cookie 的寫入與清除（I3、P6）。
         - `users.go`：handler。
         - `authz.go`：`requireRole("admin", "patchUser")`，對應 I6；非 admin 回 403。
-        - per-IP limiter（2d）：把 `createUser`、`createSession` 加進 `server.go` 的 `limitOperations`。
+        - per-IP limiter（2d）：把 `createUser`、`createSession` 加進 `server.go` 的 `limitOperations`。strict middleware 收到的是生成的方法名（`CreateUser`），不是契約的 operationId，所以名單寫方法名，`NewHandler` 啟動時以 reflect 檢查名稱存在於 `gen.StrictServerInterface`（3b 實作時發現：2d 照 operationId 寫的名單不會套用到任何 operation）。
+        - 帶著無效 session cookie 的請求，回應一律清除 cookie：cookie 是 HttpOnly，只有伺服器能清，前端又以 cookie 是否存在判斷登入（wiki `tech/login-death-loop-stale-cookie`）。
       - `cmd/app serve`：組裝 auth service、每小時清理。
     - 驗收：
       - `test-map.md` 的 auth 16 列與 auth 新增列（`TestSeedAdmin*` 除外，屬 3c）全部通過。
@@ -363,7 +364,7 @@
         - (j) 拿掉 NFKC → `TestPasswordNormalized`（用全形與半形版本的同一組密碼，要能互相登入）。
         - (k) 節流改成先驗證、失敗才計數 → `TestLoginThrottleConcurrent`（同時送出的請求不得超過允許次數）。
       - `make -C backend check` 綠燈、PR CI 綠燈。
-  - [ ] **3c. `seed-admin`、root Makefile 與 compose 驗收**（被擋於：3b）
+  - [x] **3c. `seed-admin`、root Makefile 與 compose 驗收**（被擋於：3b）
     - 範圍：
       - `cmd/app seed-admin`（E8）：讀 `ADMIN_ACCOUNT`、`ADMIN_PASSWORD`（或 `_FILE`），沒設就失敗；從內嵌的 `openapi.yaml` 取 `CreateUserRequest` schema，用 kin-openapi 驗證輸入（I1）；清單比對同 3b；帳號已存在時不做任何修改，以 exit 0 結束並印出提示。以 app 角色連線（盤點 D8）。
       - root `Makefile` 的 `seed`、`reset-db`（F4 後半）：`seed` 需要 `ADMIN_ACCOUNT=<name>`，密碼從終端機（不回顯）或 stdin 讀入，經 `ADMIN_PASSWORD_FILE=/dev/stdin` 傳給容器，不上命令列；`reset-db` 以 `docker compose up -d --wait backend` 等待 readiness（盤點 B22）。
@@ -535,7 +536,13 @@
   - 依據：OWASP Database Security Cheat Sheet（最小權限；「should not be the owner of the database」）；PostgreSQL `ALTER DEFAULT PRIVILEGES` 只影響之後由該角色建立的物件；postgres image 的 initdb 只在空 volume 執行、支援 `_FILE`；Docker Compose secrets 文件。
   - ADR：`docs/adr/2026-10-18-go-backend.md`（D5）。
 
-拍板順序：全部已決。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
+- **D16 `POST /api/users` 的 `Location`**（未決，2026-10-18 提出；擋住：無，步驟 5 前要決定）
+  - 問題：盤點 A3 定 `Location: /api/users/{id}`，但契約沒有 `GET /api/users/{id}`，這個網址打不開。RFC 9110 只要求 Location 指向建立的資源，慣例上可以 GET。
+  - 選項：(A) 新增 `GET /api/users/{id}`（admin 或本人可讀）；(B) Location 改為 `/api/users/me`；(C) 維持現狀。
+  - 建議：B，不新增沒有消費端的 operation；之後需要 admin 讀使用者時再加 A。
+  - 目前實作：照盤點（C）。
+
+拍板順序：D16 未決，其餘已決。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
 
@@ -550,9 +557,9 @@
 | 2c 契約、problem、validator | 完成 | `make -C backend check` 綠燈（本機，含新加的 gen-check）；mutation（scratchpad 隔離 worktree）21 項都讓指定測試失敗：第一輪 13 項（minLength 改 `invalid`、拿掉 recover、拿掉 deny handler、500 帶錯誤字串、拿掉 uuid format、拿掉 415、prod 也掛文件、validator 內不轉 413、壞 JSON 改 422、unknown property 不拆、ready 503 改回非 problem，以及改 spec 不重生 → `make gen-check` 失敗）、review 修正後 8 項（已開始回應後 panic／error 仍附加 problem、接受 JSON 後的尾巴、415 回顯 header、空值回 `required`、body 讀取失敗回 422、binder 錯誤回 400 並回顯、decode 型別錯誤回 400）；code review（獨立 subagent）0 HIGH、2 MED、6 LOW：D1（binder 與 kin-openapi 解析不一致時回 400 並回顯）、D2（已開始回應後的 panic）、D3、D4、D6、D7、D8（prod compose 預設 `MODE=prod`）已修，D5（405 缺 `Allow`）駁回：kin-openapi 的 router 不回報該路徑允許的方法，要自己重做一次路由比對，契約也沒有要求 405；後續步驟會踩到的三點寫進 2d、3、4。實作與計畫字面不同處：dev 文件路由用 mux 在 validator 前攔下，取代 `Options.Skipper`（效果相同，且 POST 等其他方法仍經 validator 回 problem，reviewer 實測）；`/health/ready` 的 503 與 `/api` 外未定義路徑也回 problem（I2）；uuid format 全域註冊（kin-openapi 的 document 範圍 format 不套用到參數）。swagger-ui-dist 5.33.0 發布於 2026-09-16（npm registry），SRI 由 jsDelivr 下載的檔案以 `openssl dgst -sha384` 算出；PR #12 在 `bdb9ba5` 與 `4c12ebb` 的 `gh pr checks` 都是 6 項全綠 | 無；不在本步驟範圍：D1 的修正走過生成碼的端到端驗證，要等有真正的 operation（列為步驟 4 的驗收） | `bdb9ba5`、`4c12ebb` |
 | 2d middleware 與分頁 | 完成 | `make -C backend check` 綠燈（本機，含 `go test -race`）；mutation（scratchpad 副本）13 項都讓指定測試失敗：拿掉 request id 格式檢查、不受信任來源的 request id 也採用、request id 移到 `recoverPanics` 內層（panic log 沒有 `request_id`）、problem 不帶 `request_id`、拿掉 `no-store`、一律採用 XFF（`TestClientIP` 與 `TestRateLimitIgnoresXFFFromUntrustedPeer`）、limiter 套到所有 operation、sweep 刪掉未閒置的 bucket、sweep 不刪除、access log 的 path 帶 query、cursor 解碼不檢查長度，以及 review 修正後的 IPv6 不以 /64 為 key、abort 時記 implicit 200、`statusWriter` 拿掉 `Unwrap`；code review（獨立 subagent）0 HIGH、1 MED、3 LOW：D1（IPv6 每個位址各一個 bucket，改以 /64 為 key）、D2（abort 前沒寫出東西時 access log 記成 200）、D4（`Unwrap` 沒有測試，補 `ResponseController` 的 Flush 測試）已修；D3（RemoteAddr 解析不出來時大家共用一個 bucket）駁回：`http.Server` 走 TCP 時 RemoteAddr 一定是 `ip:port`。reviewer 指出 Next 也在受信任的 subnet，已寫進步驟 5 的驗收。實作與計畫字面不同處：安全標頭套到所有回應，不只 `/api`，因為 COP 的 403、413 與 panic 的 500 都在 mux 外層產生，而且對 `/health` 與 dev 文件無害（reviewer 確認）；限流做成 strict middleware 並以 operationID 指定，在 validator 之後執行，被契約擋下的請求不扣額度；`/health` 的 access log 用 debug 等級（容器探針每幾秒呼叫一次）；problem 的 `request_id` 寫進 `openapi.yaml`（I1）。PR #12 在 `65d4924` 的 `gh pr checks` 6 項全綠 | 無 | `65d4924` |
 | 2e CI 報表 | 完成 | `make -C backend check` 綠燈（本機，`api-breaking` 已加入 `check`）；oasdiff：PR #12 的 backend job log 印出 `the base has no api/openapi.yaml, skipping the breaking-change check`；scratchpad 隔離 worktree 以帶 operation 的 spec 為 base commit（分支上的 `openapi.yaml` 是 `paths: {}`，oasdiff 只比 operation），刪掉 response 的 required 欄位 → `response-required-property-removed`、exit 1，未改 → exit 0；mutation：拿掉 `--fail-on ERR` → 同一個 breaking change exit 0（所以這個旗標是必要的）；coverage：`go test -coverpkg=./... -coverprofile`，gocover-cobertura `-ignore-gen-files`，PR #12 的 backend job summary 有 total（80.8%，760/941 行）與 diff-cover（對 `origin/main`，80%）；shellcheck、actionlint 通過；code review（獨立 subagent）NO DEFECTS FOUND；PR #12 在 `71f2b30` 的 `gh pr checks` 6 項全綠 | 無 | `71f2b30` |
-| 3a 資料層 | 未開始 | | | |
-| 3b service 與 HTTP | 未開始 | | | |
-| 3c seed-admin 與 compose | 未開始 | | | |
+| 3a 資料層 | 完成 | `make -C backend check` 綠燈（本機）；`TestBaselineAppliesWithCommunity`（revision 表在 `atlas_schema_revisions`、app 角色對三張表有 DML、對 revision schema 無權限）與 `TestSchemaChecks` 通過；mutation：拿掉 `account = lower(account)` 的 CHECK 並重產 migration → `TestSchemaChecks` 失敗；squawk 的 `prefer-bigint-over-int` 讓 `failures` 改 bigint（盤點 C4 已改）；盤點 F29 補上 `10-roles.sh`，`check_inventory.py` 通過；PR #12 在 `731bb4c` 的 `gh pr checks` 6 項全綠 | 無 | `45c8950`、`731bb4c` |
+| 3b service 與 HTTP | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 auth 16 列與新增列都有測試；mutation（scratchpad 副本）17 項都讓指定測試失敗：(a)–(h)、(j)、(k)（另加 Verify 次數必須為 5，因為「先驗證後計數」時 401／429 的比例不變，只有被驗證的密碼次數會變）、拿掉 `CreateSession` 的限流、`AuthenticationFunc` 一律放行、`requireRole` 名單為空、`operations` 不檢查名稱、無效 cookie 不清除、session 每分鐘才 touch（idle < 2 分鐘時使用中的 session 會失效）；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（短 idle 的 touch 間隔、`Retry-After` 依真實時鐘的硬編值）；GitGuardian 把 `hibp_test.go` 註解裡 "password" 的 SHA-1 判成 Generic Password（incident 38354498），fixture 改成執行時計算，Will 選擇改寫歷史：`filter-branch` 把該檔在 `731bb4c..` 每個 commit 換成最終版，最終 tree 與改寫前相同，force push；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `05bc4de`、`41b0530` |
+| 3c seed-admin 與 compose | 完成 | `make -C backend check` 綠燈（本機）；mutation：(i) 不驗證輸入 → `TestSeedAdminRejectsShortPassword` 失敗；`CreateUserIfAbsent` 改成覆寫 → `TestSeedAdminExistingAccountUnchanged` 失敗；隔離 worktree 的 compose（`make init-env`）：migrate exit 0、backend healthy；`make seed ADMIN_ACCOUNT=Admin`（stdin）建立 `admin`，再跑一次 exit 0 且不改變，短密碼 exit 非 0、訊息不含密碼，沒帶帳號時印 usage；curl：`POST /api/users` 201 → `GET /api/users/me` 200 → `DELETE /api/sessions/current` 204（`Set-Cookie: session=; Max-Age=0; HttpOnly; SameSite=Lax`）→ 舊 cookie `GET /api/users/me` 401；另測跨站 POST 403、admin 停用後該使用者 401；`make reset-db` 沒帶帳號時在 `down -v` 前就擋下，帶了則重建並 seed；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `f9091d3` |
 | 4 items | 未開始 | | | |
 | 5 前端切換 | 未開始 | | | |
 | 6 外圍與文件 | 未開始 | | | |
