@@ -1,5 +1,6 @@
-// Command app is the backend's single binary. Subcommands: serve (HTTP API) and healthcheck (the container health
-// probe; the distroless image has no shell or curl).
+// Command app is the backend's single binary. Subcommands: serve (HTTP API), migrate (apply migrations as the owner
+// role and grant the app role) and healthcheck (the container health probe; the distroless image has no shell or
+// curl).
 // This is the composition root: settings are read and validated once here, and platform and modules are wired.
 package main
 
@@ -19,12 +20,19 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/platform/config"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/db"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = "usage: app serve|healthcheck"
+const usage = "usage: app serve|migrate|healthcheck"
+
+// Where the image puts the Atlas community build and the migrations (Dockerfile).
+const (
+	atlasBin      = "/usr/local/bin/atlas"
+	migrationsDir = "/app/migrations"
+)
 
 // shutdownTimeout lets the longest legitimate request (httpapi.DefaultTimeouts.Write) finish; compose's
 // stop_grace_period is a few seconds longer.
@@ -48,6 +56,8 @@ func run(ctx context.Context, command string) error {
 	switch command {
 	case "serve":
 		return serve(ctx)
+	case "migrate":
+		return runMigrate(ctx)
 	case "healthcheck":
 		addr := os.Getenv("HTTP_ADDR")
 		if addr == "" {
@@ -66,6 +76,7 @@ func serve(ctx context.Context) error {
 	logger := logx.New(os.Stdout, cfg.Mode)
 	pool, err := db.Open(ctx, db.Config{
 		URL:              cfg.DatabaseURL,
+		Password:         cfg.DatabasePassword,
 		MaxConns:         cfg.DBMaxConns,
 		StatementTimeout: cfg.DBStatementTimeout,
 	})
@@ -81,6 +92,26 @@ func serve(ctx context.Context) error {
 	}
 	logger.Info("serving", "app", cfg.AppName, "version", version, "addr", ln.Addr().String(), "mode", cfg.Mode)
 	return httpapi.Serve(ctx, ln, srv, shutdownTimeout, logger)
+}
+
+func runMigrate(ctx context.Context) error {
+	cfg, err := config.LoadMigrate(os.LookupEnv)
+	if err != nil {
+		return err
+	}
+	logger := logx.New(os.Stdout, cfg.Mode)
+	err = migrate.Run(ctx, migrate.Config{
+		URL:           cfg.DatabaseURL,
+		Password:      cfg.DatabasePassword,
+		AppRole:       cfg.AppRole,
+		AtlasBin:      atlasBin,
+		MigrationsDir: migrationsDir,
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("migrated", "version", version, "app_role", cfg.AppRole)
+	return nil
 }
 
 // healthcheck asks the local server whether it is ready (GET /health/ready) and fails unless it answers 200.

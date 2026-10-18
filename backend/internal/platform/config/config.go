@@ -2,6 +2,10 @@
 //
 // A missing required value or a malformed one never falls back to a default: every problem is collected
 // and Load reports them together, so the process fails at startup. Variables and defaults match `.env-example`.
+//
+// Any variable KEY can instead be given as KEY_FILE, the path of a file holding the value (compose secrets mount
+// them under /run/secrets); one trailing newline is dropped. Setting both is an error. Passwords never sit in a
+// connection URL: the URL names the user and the password comes from its own variable.
 package config
 
 import (
@@ -9,6 +13,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +25,9 @@ type Config struct {
 	Mode     string // dev or prod
 	HTTPAddr string
 
+	// DatabaseURL has no password; DatabasePassword holds it (DATABASE_PASSWORD or DATABASE_PASSWORD_FILE).
 	DatabaseURL        string
+	DatabasePassword   string
 	DBMaxConns         int32
 	DBStatementTimeout time.Duration
 
@@ -43,7 +50,17 @@ func (c Config) CookieName() string {
 	return "session"
 }
 
-// Load reads the settings through lookup (normally os.LookupEnv).
+// MigrateConfig holds the settings migrate needs: it connects as the owner role, which owns the schema, and grants
+// DML to the app role that serve connects as.
+type MigrateConfig struct {
+	Mode string
+	// DatabaseURL has no password; DatabasePassword holds the owner role's password.
+	DatabaseURL      string
+	DatabasePassword string
+	AppRole          string
+}
+
+// Load reads the settings serve needs through lookup (normally os.LookupEnv).
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	e := &env{lookup: lookup}
 	cfg := Config{
@@ -52,6 +69,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 		HTTPAddr: e.str("HTTP_ADDR", ":8000"),
 
 		DatabaseURL:        e.databaseURL("DATABASE_URL"),
+		DatabasePassword:   e.required("DATABASE_PASSWORD"),
 		DBMaxConns:         parse(e, "DB_MAX_CONNS", int32(20), parseInt32),
 		DBStatementTimeout: parse(e, "DB_STATEMENT_TIMEOUT", 5*time.Second, time.ParseDuration),
 
@@ -81,6 +99,21 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	return cfg, errors.Join(e.problems...)
 }
 
+// LoadMigrate reads the settings migrate needs through lookup (normally os.LookupEnv).
+func LoadMigrate(lookup func(string) (string, bool)) (MigrateConfig, error) {
+	e := &env{lookup: lookup}
+	cfg := MigrateConfig{
+		Mode:             e.str("MODE", "dev"),
+		DatabaseURL:      e.databaseURL("MIGRATE_DATABASE_URL"),
+		DatabasePassword: e.required("MIGRATE_DATABASE_PASSWORD"),
+		AppRole:          e.required("DB_APP_USER"),
+	}
+	if cfg.Mode != "dev" && cfg.Mode != "prod" {
+		e.fail("MODE must be dev or prod, got %q", cfg.Mode)
+	}
+	return cfg, errors.Join(e.problems...)
+}
+
 type env struct {
 	lookup   func(string) (string, bool)
 	problems []error
@@ -90,9 +123,33 @@ func (e *env) fail(format string, args ...any) {
 	e.problems = append(e.problems, fmt.Errorf(format, args...))
 }
 
+// get returns KEY, or the contents of the file KEY_FILE names. An empty value counts as unset.
 func (e *env) get(key string) (string, bool) {
 	v, ok := e.lookup(key)
-	return v, ok && v != ""
+	set := ok && v != ""
+	path, ok := e.lookup(key + "_FILE")
+	if !ok || path == "" {
+		return v, set
+	}
+	if set {
+		e.fail("set only one of %s and %s_FILE", key, key)
+		return "", false
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // the path is deployment configuration
+	if err != nil {
+		e.fail("read %s_FILE: %w", key, err)
+		return "", false
+	}
+	v = strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r")
+	return v, v != ""
+}
+
+func (e *env) required(key string) string {
+	v, ok := e.get(key)
+	if !ok {
+		e.fail("missing required environment variable %s (or %s_FILE)", key, key)
+	}
+	return v
 }
 
 func (e *env) str(key, def string) string {
@@ -118,6 +175,10 @@ func (e *env) databaseURL(key string) string {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Host == "" {
 		e.fail("%s must be a postgres:// or postgresql:// connection string", key)
+		return ""
+	}
+	if _, has := u.User.Password(); has {
+		e.fail("%s must not contain a password; set it in the matching _PASSWORD or _PASSWORD_FILE variable", key)
 		return ""
 	}
 	return raw

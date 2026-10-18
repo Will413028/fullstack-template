@@ -21,6 +21,12 @@ ATLAS         := bin/atlas
 ATLAS_SHA256_darwin-arm64 := 59856bce61637e5a40f7f32f3a4e4909419752b917cac48d6d500a608ff7803e
 ATLAS_SHA256_linux-amd64  := a41ea66b5aaad1e363fd829613a6725c3934378792d0be5591269c041c112b96
 ATLAS_SHA256_linux-arm64  := 8044e6dd2971c741563748b35b0d32ca69908c40548b9797d46a626c00d2e07f
+# The community build applies migrations: in the image (Dockerfile, same checksums for linux) and in the integration
+# tests (internal/platform/dbtest), so tests exercise the build that runs in production.
+ATLAS_COMMUNITY := bin/atlas-community
+ATLAS_COMMUNITY_SHA256_darwin-arm64 := a9b2e223191b60108bcf6ca35a55a8b4810197a5067dad83781289e324e9a156
+ATLAS_COMMUNITY_SHA256_linux-amd64  := 7bddc9a0cebbb1f3e21cdd5f5811d346850e481e3b7c85e31206613d1f63f068
+ATLAS_COMMUNITY_SHA256_linux-arm64  := 546de518d9875e4fed991b917295395dc5400aa26922fa4cd3fbce33afdb75be
 PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
 .PHONY: run
@@ -44,7 +50,7 @@ lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 
 .PHONY: test
-test:
+test: $(ATLAS_COMMUNITY) ## Needs Docker: integration tests start PostgreSQL with testcontainers
 	go test -race ./...
 
 .PHONY: vuln
@@ -55,7 +61,7 @@ vuln:
 check: fmt-check lint test vuln
 
 .PHONY: tools
-tools: $(ATLAS) $(GOLANGCI_LINT)
+tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT)
 
 $(GOLANGCI_LINT):
 	@sum="$(GOLANGCI_LINT_SHA256_$(PLATFORM))"; \
@@ -72,6 +78,14 @@ $(ATLAS):
 	if [ -z "$$sum" ]; then echo "no Atlas checksum for $(PLATFORM)"; exit 1; fi; \
 	mkdir -p bin && \
 	curl -sSfL -o $@.tmp "https://release.ariga.io/atlas/atlas-$(PLATFORM)-$(ATLAS_VERSION)" && \
+	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
+	chmod 0755 $@.tmp && mv $@.tmp $@
+
+$(ATLAS_COMMUNITY):
+	@sum="$(ATLAS_COMMUNITY_SHA256_$(PLATFORM))"; \
+	if [ -z "$$sum" ]; then echo "no Atlas community checksum for $(PLATFORM)"; exit 1; fi; \
+	mkdir -p bin && \
+	curl -sSfL -o $@.tmp "https://release.ariga.io/atlas/atlas-community-$(PLATFORM)-$(ATLAS_VERSION)" && \
 	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
 	chmod 0755 $@.tmp && mv $@.tmp $@
 

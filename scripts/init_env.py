@@ -1,45 +1,48 @@
 #!/usr/bin/env python3
+"""Create .env from .env-example and the database password files compose mounts as secrets.
+
+Existing files are never overwritten, so re-running cannot rotate a password the database volume already uses.
+"""
+
 import os
 import secrets
-import string
+import shutil
 
-def generate_secure_password(length=16):
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+ENV_PATH = ".env"
+ENV_EXAMPLE_PATH = ".env-example"
+SECRETS_DIR = ".secrets"
+# docker-compose.yml `secrets:`
+SECRET_NAMES = ("postgres_password", "db_owner_password", "db_app_password")
 
-def generate_secret_key(length=48):
-    return secrets.token_urlsafe(length)
 
-def main():
-    env_path = ".env"
-    env_example_path = ".env-example"
+def write_secret(path: str) -> bool:
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(secrets.token_urlsafe(32) + "\n")
+    # 0444: file secrets are bind mounts, so compose's uid/mode options do not apply; the postgres and nonroot
+    # users inside the containers must be able to read them. The 0700 directory keeps other host users out.
+    os.chmod(path, 0o444)
+    return True
 
-    if os.path.exists(env_path):
-        print(".env file already exists. Skipping initialization.")
-        return
 
-    if not os.path.exists(env_example_path):
-        print(f"Error: {env_example_path} not found. Cannot initialize environment.")
-        return
+def main() -> None:
+    if os.path.exists(ENV_PATH):
+        print(".env already exists; leaving it unchanged.")
+    elif not os.path.exists(ENV_EXAMPLE_PATH):
+        raise SystemExit(f"{ENV_EXAMPLE_PATH} not found; run from the repository root.")
+    else:
+        shutil.copyfile(ENV_EXAMPLE_PATH, ENV_PATH)
+        print("Created .env from .env-example.")
 
-    print("Creating .env from .env-example...")
-    with open(env_example_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    os.makedirs(SECRETS_DIR, mode=0o700, exist_ok=True)
+    os.chmod(SECRETS_DIR, 0o700)
+    for name in SECRET_NAMES:
+        path = os.path.join(SECRETS_DIR, name)
+        print(("Created " if write_secret(path) else "Kept existing ") + path)
 
-    secret_key = generate_secret_key()
-    postgres_password = generate_secure_password()
-
-    # Replace placeholders
-    content = content.replace("POSTGRES_PASSWORD=changeme", f"POSTGRES_PASSWORD={postgres_password}")
-    content = content.replace("postgres:changeme@", f"postgres:{postgres_password}@")
-    content = content.replace("SECRET_KEY=change-me-to-a-random-string-at-least-32-chars", f"SECRET_KEY={secret_key}")
-
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    print("Successfully initialized .env with secure random keys!")
-    print(f"Generated SECRET_KEY: {secret_key[:10]}...")
-    print("Generated POSTGRES_PASSWORD successfully.")
 
 if __name__ == "__main__":
     main()

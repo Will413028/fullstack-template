@@ -41,12 +41,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - run: cp .env-example .env
+      # .env and the password files under .secrets/, as a developer gets them
+      - run: make init-env
+      - name: Each service gets only its own secrets
+        run: |
+          docker compose config --format json > /tmp/compose.json
+          test "$(jq -c '.services.backend.secrets | map(.source)' /tmp/compose.json)" = '["db_app_password"]'
+          test "$(jq -c '.services.migrate.secrets | map(.source)' /tmp/compose.json)" = '["db_owner_password"]'
+          test "$(jq -c '.services.frontend.secrets // []' /tmp/compose.json)" = '[]'
+          ! jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'
       - run: docker compose up -d --build --wait backend
       - name: Migrate exited cleanly and backend is ready
         run: |
           test "$(docker compose ps -a migrate --format '{{.ExitCode}}')" = 0
           curl -fsS http://127.0.0.1:8000/health/ready
+      - name: The app role cannot change the schema
+        run: |
+          ! docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fullstack_app -d fullstack -c 'CREATE TABLE intruder (id int)'
       - if: failure()
         run: docker compose logs
 

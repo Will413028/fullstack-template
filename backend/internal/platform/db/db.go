@@ -20,7 +20,9 @@ const (
 
 // Config configures the pool.
 type Config struct {
+	// URL has no password; Password is set on the connection config so it never appears in a URL or error.
 	URL              string
+	Password         string
 	MaxConns         int32
 	StatementTimeout time.Duration
 }
@@ -43,6 +45,7 @@ func poolConfig(cfg Config) (*pgxpool.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
+	pc.ConnConfig.Password = cfg.Password
 	pc.MaxConns = cfg.MaxConns
 	params := pc.ConnConfig.RuntimeParams
 	params["statement_timeout"] = millis(cfg.StatementTimeout)
