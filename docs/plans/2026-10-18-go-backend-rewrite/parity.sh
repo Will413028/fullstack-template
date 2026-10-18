@@ -181,9 +181,9 @@ titles() {
 A="parity_a_$RANDOM"
 # shellcheck disable=SC2034 # read through ${!u} in the registration row
 B="parity_b_$RANDOM"
-# Test passwords are made per run (8 random hex characters each), so no literal password sits in the repo.
+# Test passwords are made per run from 8 random hex characters, so no literal password sits in the repo.
 R="$(openssl rand -hex 4)"
-PW="Parity-${R}-Pass-1" # 21 characters with a digit, valid under both rules
+PW="Parity-${R}-Pass-1" # 22 characters with a digit, valid under both rules
 WEAK_OLD="S${R:0:4}1a"  # 7 characters: too short for the old rules
 WEAK_NEW="A${R}12345"   # 14 characters: one short of the new minimum
 LOWER="parity${R}lower1" # 20 characters, no uppercase: the old rules refuse it, the new accept it
@@ -232,7 +232,7 @@ call new anon POST /sessions "{\"account\":\"${A}_weak\",\"password\":\"$WEAK_NE
 eq "new not created" "$ST" 401
 end_row
 
-row "刻意差異 B12（NIST 不設組合規則）: 全小寫 17 字 422 -> 201"
+row "刻意差異 B12（NIST 不設組合規則）: 全小寫 20 字 422 -> 201"
 call old anon POST /auth/register "{\"account\":\"${A}_lower\",\"password\":\"$LOWER\"}"
 eq "old status" "$ST" 422
 call new anon POST /users "{\"account\":\"${A}_lower\",\"password\":\"$LOWER\"}"
