@@ -17,3 +17,8 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/messages:/app/messages
       - ./frontend/public:/app/public
+
+  # the browser goes through caddy in dev too, the same /api routing as production; loopback only
+  caddy:
+    ports: !override
+      - "127.0.0.1:80:80"

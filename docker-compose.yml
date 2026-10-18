@@ -2,6 +2,8 @@
 # created by `make init-env`), mounted at /run/secrets/<name> and read through <KEY>_FILE.
 # Database roles (deploy/postgres/initdb/10-roles.sh): the superuser only initializes the volume; migrate connects
 # as the owner role; backend connects as the app role, which has DML only.
+# Only caddy publishes ports (deploy/Caddyfile): /api goes to the backend, the rest to Next, one origin for the
+# browser. Ports Docker publishes bypass ufw, so nothing else is published.
 
 x-db-names: &db-names
   POSTGRES_DB: ${POSTGRES_DB:-fullstack}
@@ -58,15 +60,14 @@ services:
       SESSION_ABSOLUTE: ${SESSION_ABSOLUTE:-}
       SESSION_IDLE: ${SESSION_IDLE:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-}
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # caddy's fixed address: only it may set X-Forwarded-For and X-Request-ID. Next is on the same network but is
+      # not a proxy, so its server-side calls cannot choose the client address.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.30.0.2/32}
       DB_MAX_CONNS: ${DB_MAX_CONNS:-}
       DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-}
       AUTH_RATE_LIMIT_PER_MIN: ${AUTH_RATE_LIMIT_PER_MIN:-}
       PASSWORD_HIBP_CHECK: ${PASSWORD_HIBP_CHECK:-}
     secrets: [db_app_password]
-    # loopback only: ports published by Docker bypass ufw
-    ports:
-      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -77,22 +78,47 @@ services:
       retries: 5
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        # browser-facing URL, inlined into the client bundle at build time
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    build: ./frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-      # server-side (SSR/RSC) fetches reach the backend by service name
+      # server-side (SSR/RSC) fetches reach the backend by service name; the browser uses /api through caddy
       API_URL: http://backend:8000
-    ports:
-      - "127.0.0.1:3000:3000"
     depends_on:
       backend:
         condition: service_healthy
+
+  caddy:
+    image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
+    restart: unless-stopped
+    environment:
+      # a domain name for automatic HTTPS, or :80 for plain http on a local machine
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        # outside ip_range, so no other container can take it; TRUSTED_PROXIES names it
+        ipv4_address: 172.30.0.2
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          # containers without a fixed address get one from here
+          ip_range: 172.30.0.128/25
 
 secrets:
   postgres_password:
@@ -104,3 +130,5 @@ secrets:
 
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:
