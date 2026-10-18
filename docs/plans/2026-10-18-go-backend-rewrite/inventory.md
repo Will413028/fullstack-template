@@ -73,7 +73,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | C1 | `users(id serial, account varchar(50) unique, password varchar(255), is_disabled bool, role int default 3, created_at, updated_at)`；`id`、`role` 都是 int4，見 `alembic/versions/2024_05_16_0041-*.py:26,30` | 改寫為 `users`：<br>• `id uuid PK DEFAULT uuidv7()`<br>• `account text NOT NULL UNIQUE CHECK (account = lower(account) AND char_length(account) BETWEEN 3 AND 50)`<br>• `password_hash text NOT NULL`<br>• `role text NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user'))`<br>• `is_disabled boolean NOT NULL DEFAULT false`<br>• `created_at`、`updated_at timestamptz NOT NULL DEFAULT now()` |
 | C2 | `refresh_tokens(token_hash, user_id, expires_at, revoked, created_at)` | 刪除，改為 `sessions`：<br>• `token_hash bytea PK`（SHA-256）<br>• `user_id uuid NOT NULL REFERENCES users ON DELETE CASCADE`，並建索引<br>• `created_at`、`last_used_at`、`expires_at timestamptz NOT NULL` |
 | C3 | `items(id, title varchar(200), description text null, owner_id fk, created_at, updated_at)`；`owner_id` 有 index | 改寫為 `items`：<br>• `id uuid PK DEFAULT uuidv7()`<br>• `title text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 200)`<br>• `description text`，可為 NULL<br>• `owner_id uuid NOT NULL REFERENCES users`，不 cascade<br>• 複合索引 `(owner_id, id DESC)`，供 keyset 分頁使用<br>• `owner_id` 是唯一允許的跨模組 FK（計畫 I4） |
-| C4 | — | 新增 `login_throttles`：<br>• `account_key text PK`<br>• `failures int NOT NULL DEFAULT 0 CHECK (failures >= 0)`<br>• `next_allowed_at timestamptz`<br>• `updated_at timestamptz NOT NULL`<br>屬於 auth 模組；成功登入時刪除該列 |
+| C4 | — | 新增 `login_throttles`：<br>• `account_key text PK`<br>• `failures bigint NOT NULL DEFAULT 0 CHECK (failures >= 0)`（squawk 的 `prefer-bigint-over-int`；步驟 3a 由 int 改）<br>• `next_allowed_at timestamptz`<br>• `updated_at timestamptz NOT NULL`<br>屬於 auth 模組；成功登入時刪除該列 |
 | C5 | 4 支 Alembic migration | 刪除。範本沒有部署、沒有資料（計畫 P1），改由 Atlas 產生 baseline migration |
 
 ## D. 設定（環境變數）
@@ -143,3 +143,4 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | F26 | `frontend/src/features/auth/validations.ts`、`frontend/src/features/auth/components/login-form.tsx` | 改寫：zod 只保留「必填」檢查，刪除長度與組合規則（避免在前端重複契約，見 B12）；錯誤依 problem 的 `pointer` 顯示在對應欄位、依 `code` 翻譯，不顯示 `detail` |
 | F27 | `frontend/Dockerfile`（`ARG NEXT_PUBLIC_API_URL`） | 改寫：刪除該 build arg（B16） |
 | F28 | `AGENTS.local.md`（git 不追蹤）、專案頁 frontmatter `tech`／`tags`、Architecture、Key Files | 改寫（步驟 8）：計畫刪除後移除指向；專案頁改成 Go 版描述 |
+| F29 | `deploy/postgres/initdb/10-roles.sh` | 保留：步驟 2a 新增的 initdb 腳本（D15）；命中搜尋是因為註解引用 `docs/adr/2026-10-18-go-backend.md` |

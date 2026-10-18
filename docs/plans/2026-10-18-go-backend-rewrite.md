@@ -310,51 +310,72 @@
       - oasdiff 步驟的 log 顯示「main 沒有 openapi.yaml，跳過」。在 scratchpad 以兩份本機 spec 跑 oasdiff：刪一個 required 欄位要回報 breaking。
       - PR CI 綠燈。
 - [ ] **3. auth 模組**（被擋於：步驟 2）
-  - 範圍：
-    - `internal/modules/auth`：
-      - `schema.sql`：盤點 C1、C2、C4。
-      - queries，經 sqlc 生成。
-      - service：
-        - 建立使用者：建 user 與建 session 在同一個 transaction。
-        - 登入：依帳號節流，含定期清理超過 24 小時的 `login_throttles` 列；`serve` 每小時執行一次。
-        - 登出（目前 session）、登出全部 session、目前使用者、admin 停用使用者並撤銷 session。
-        - 依據：盤點 B6、B10、B12、B15、B17、B18、B20，前提 P6、P7、P8。
-      - `blocklist/`：內嵌的密碼清單，以及 HIBP 選項。
-    - `internal/httpapi`：
-      - `auth.go`、`users.go`：盤點 A3、A4、A6、A7、A12。
-      - `authz.go`：`requireRole`，對應 I6。
-      - per-IP limiter（2d）：把 `createUser`、`createSession` 加進 `server.go` 的 `limitOperations(limiter, …)`（目前沒有傳 operation id，所以 limiter 不套用到任何 operation）。驗收：兩個 operation 超限時回 429 帶 `Retry-After`；mutation：從清單拿掉 `createSession`，測試要失敗。
-    - `internal/platform/authctx`。
-    - 若在 `openapi.yaml` 宣告 `securitySchemes`／`security`，validator 的 `openapi3filter.Options` 要設 `AuthenticationFunc`；不設時每個帶 `security` 的請求都會因 `ErrAuthenticationServiceMissing` 回 422 `invalid`（kin-openapi `validate_request.go:439`；2c code review 2026-10-18）。
-    - 用 `atlas migrate diff baseline` 產生 baseline migration。產生前把 `atlas.hcl` 的 dev URL 改成 schema scope（`docker://postgres/18/dev?search_path=public`），因為所有表都在 `public`；重新評估：某個模組需要自己的 PG schema 時（設計審查 2026-10-18）。產生後用 community 版對全新 DB 套用一次，確認 revision 表位置。
-    - `cmd/app seed-admin`（E8）：從內嵌的 `openapi.yaml` 取 `CreateUserRequest` schema，用 kin-openapi 驗證輸入（I1）；帳號已存在時不做任何修改，以 exit 0 結束。
-    - root `Makefile` 的 `seed`、`reset-db`（F4 後半）：`reset-db` 以 `docker compose up -d --wait backend` 等待 readiness（盤點 B22）。
-    - 若步驟 1 讓 migrate service 直接 `exit 0`，這一步補上真正的 migrate。
-  - 消費端：`rg -n "/auth/" frontend/src`，前端在步驟 5 改。
-  - 不能動：
+  - 步驟 3 拆成 3a–3c，各自有驗收與 commit（2026-10-18 拆）。順序依相依：3b 的 service 用 3a 的 sqlc 碼與 migration；3c 的 `seed-admin` 用 3b 的 service。步驟 3 完成 = 3a–3c 都完成。
+  - 消費端（整個步驟 3）：`rg -n "/auth/" frontend/src`，前端在步驟 5 改。
+  - 不能動（整個步驟 3）：
     - I1–I3、I6。
     - timing 防護：未知帳號也要跑一次 argon2 驗證。
     - 節流行為不得洩漏帳號是否存在。
-  - 驗收：
-    - `test-map.md` 的 auth 16 列與 auth 新增列全部通過。
-    - mutation，每一項都必須讓指定的測試失敗：
-      - (a) 拿掉 dummy hash 分支 → `TestCreateSessionUnknownAccountRunsHash`。
-      - (b) 登入時沿用請求帶來的 token → `TestCreateSessionIssuesNewToken`。
-      - (c) 拿掉 idle 期限檢查 → `TestSessionIdleExpiry`。
-      - (d) 拿掉 `is_disabled` 檢查 → `TestCreateSessionDisabledAccount`。
-      - (e) 只對存在的帳號節流 → `TestLoginThrottlePerAccount`。
-      - (f) 停用帳號時不撤銷 session → `TestAdminDisablesUserRevokesSessions`。
-      - (g) 拿掉清單比對 → `TestCreateUserCommonPassword`。
-      - (h) 拿掉 argon2 semaphore → `TestArgonConcurrencyBounded`。
-      - (i) `seed-admin` 不驗證輸入 → `TestSeedAdminRejectsShortPassword`。
-      - (j) 拿掉 NFKC → `TestPasswordNormalized`（用全形與半形版本的同一組密碼，要能互相登入）。
-    - `TestSeedAdminExistingAccountUnchanged`：既有的 `user` 帳號跑 `seed-admin` 後，role 不變。
-    - 用 curl 手動走一遍（帶 `Origin` 與 `Sec-Fetch-Site: same-origin`）：
-      1. `POST /api/users` 回 201；
-      2. `GET /api/users/me` 回 200；
-      3. `DELETE /api/sessions/current` 回 204；
-      4. 再打 `GET /api/users/me` 回 401。
-    - PR CI 綠燈。
+  - 步驟 1 的 migrate service 已經跑真正的 `atlas migrate apply`（2a），原列「若步驟 1 讓 migrate 直接 `exit 0`，這一步補上」不適用。
+  - [ ] **3a. 資料層：schema、baseline migration、sqlc、authctx**（被擋於：步驟 2）
+    - 範圍：
+      - `internal/modules/auth/schema.sql`：盤點 C1、C2、C4。
+      - `internal/modules/auth/queries/*.sql` 與 `sqlc.yaml`，生成到 `internal/modules/auth/internal/store`（Go 的 `internal` 讓其他模組 import 不到）；uuid 對應 `github.com/google/uuid.UUID`、`timestamptz` 對應 `time.Time`（P4）。
+      - `atlas.hcl` 的 dev URL 改成 schema scope（`docker://postgres/18/dev?search_path=public`），因為所有表都在 `public`；重新評估：某個模組需要自己的 PG schema 時（設計審查 2026-10-18）。之後用 `make migration name=baseline` 產生 baseline migration。
+      - `internal/platform/authctx`：目前使用者（id、role）經 `context.Context` 傳給模組（I4）。
+    - 驗收：
+      - `make sqlc-diff`、`make drift`、`make squawk` 綠燈。
+      - `TestBaselineAppliesWithCommunity`（dbtest）：community 版對全新 DB 套用成功；revision 表在 `atlas_schema_revisions` schema、不在 `public`；app 角色對三張表有 DML，對 `atlas_schema_revisions` 沒有任何權限。
+      - `TestSchemaChecks`：大寫帳號、`role` 不在清單、`failures` 為負都被 DB 拒絕；刪除 user 時 session 一起刪除。mutation：拿掉 `account = lower(account)` 的 CHECK（重新產生 migration），測試要失敗。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+  - [ ] **3b. auth service 與 HTTP**（被擋於：3a）
+    - 範圍：
+      - `internal/modules/auth` 的 service：
+        - 建立使用者：建 user 與建 session 在同一個 transaction；雜湊在 transaction 之外做。帳號重複由 UNIQUE 約束判定，回 409 `account_taken`。
+        - 登入：依帳號節流（盤點 B6）。每次嘗試先在同一條 upsert 裡原子地「檢查是否仍在等待期、計入一次失敗」，再驗證密碼；成功時刪除該列。所以同時送出的多個請求無法繞過等待期，存在與不存在的帳號走同一條路徑。被擋時回 429 `login_throttled` 加 `Retry-After`，不驗證密碼。
+        - session（P6）：過期判斷在 Go 以注入的時鐘做；`last_used_at` 每分鐘最多寫一次。
+        - 登出（目前 session）、登出全部 session、目前使用者、admin 停用使用者並撤銷該使用者的所有 session（同一個 transaction）。
+        - 清理：刪除超過 24 小時沒更新的 `login_throttles` 列與已過期的 session；`serve` 每小時執行一次。
+        - 密碼（P7、盤點 B10、B12、B20）：NFKC 之後才比對清單與雜湊；argon2id PHC 字串；同時進行的雜湊與驗證以 semaphore 限制在 `NumCPU`；未知帳號以啟動時產生的 dummy hash 驗證一次。
+        - 依據：盤點 B6、B10、B12、B15、B17、B18、B20，前提 P6、P7、P8。
+      - `internal/modules/auth/blocklist/`：內嵌的密碼清單（P14 的 SecLists 檔，只留長度 ≥15 code point 的列，附授權與來源）；比對 NFKC 之後的完整字串，大小寫不同視為不同密碼（清單本身已收錄常見的大小寫變體）。
+      - HIBP 選項（`PASSWORD_HIBP_CHECK`）的 HTTP client 放在 `internal/platform/hibp`，以介面注入 auth service：模組不得 import `net/http`（I4），所以不放在 `blocklist/`。k-anonymity range API、`Add-Padding: true`、3 秒逾時；查詢失敗時放行並記 warn log（fail open：HIBP 停擺不應擋下註冊）。
+      - `api/openapi.yaml`：盤點 A3、A4、A6、A7、A12 的 6 個 operation 與 `User`、`CreateUserRequest`、`CreateSessionRequest`、`UserPatch`。`securitySchemes.sessionCookie`（apiKey in cookie）設為全域 `security`；`createUser`、`createSession`、`deleteCurrentSession` 設 `security: []`（登出是冪等的：沒有有效 session 也回 204 並清 cookie）。
+      - `internal/httpapi`：
+        - `auth.go`：`/api` 子樹在 validator 之前讀 cookie、查 session，把使用者放進 `authctx`（cookie 無效時視為匿名，DB 錯誤回 500）；validator 的 `AuthenticationFunc` 依契約的 `security` 要求 `authctx` 有使用者，否則回 401（在 body 驗證之前判定）；cookie 的寫入與清除（I3、P6）。
+        - `users.go`：handler。
+        - `authz.go`：`requireRole("admin", "patchUser")`，對應 I6；非 admin 回 403。
+        - per-IP limiter（2d）：把 `createUser`、`createSession` 加進 `server.go` 的 `limitOperations`。
+      - `cmd/app serve`：組裝 auth service、每小時清理。
+    - 驗收：
+      - `test-map.md` 的 auth 16 列與 auth 新增列（`TestSeedAdmin*` 除外，屬 3c）全部通過。
+      - 兩個 operation 超限時回 429 帶 `Retry-After`；mutation：從清單拿掉 `createSession`，測試要失敗。
+      - 未帶 session 的 `PATCH /api/users/{id}` 送不合法的 body 回 401，不是 422。mutation：`AuthenticationFunc` 一律放行，測試要失敗。
+      - mutation，每一項都必須讓指定的測試失敗：
+        - (a) 拿掉 dummy hash 分支 → `TestCreateSessionUnknownAccountRunsHash`。
+        - (b) 登入時沿用請求帶來的 token → `TestCreateSessionIssuesNewToken`。
+        - (c) 拿掉 idle 期限檢查 → `TestSessionIdleExpiry`。
+        - (d) 拿掉 `is_disabled` 檢查 → `TestCreateSessionDisabledAccount`。
+        - (e) 只對存在的帳號節流 → `TestLoginThrottlePerAccount`。
+        - (f) 停用帳號時不撤銷 session → `TestAdminDisablesUserRevokesSessions`。
+        - (g) 拿掉清單比對 → `TestCreateUserCommonPassword`。
+        - (h) 拿掉 argon2 semaphore → `TestArgonConcurrencyBounded`。
+        - (j) 拿掉 NFKC → `TestPasswordNormalized`（用全形與半形版本的同一組密碼，要能互相登入）。
+        - (k) 節流改成先驗證、失敗才計數 → `TestLoginThrottleConcurrent`（同時送出的請求不得超過允許次數）。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
+  - [ ] **3c. `seed-admin`、root Makefile 與 compose 驗收**（被擋於：3b）
+    - 範圍：
+      - `cmd/app seed-admin`（E8）：讀 `ADMIN_ACCOUNT`、`ADMIN_PASSWORD`（或 `_FILE`），沒設就失敗；從內嵌的 `openapi.yaml` 取 `CreateUserRequest` schema，用 kin-openapi 驗證輸入（I1）；清單比對同 3b；帳號已存在時不做任何修改，以 exit 0 結束並印出提示。以 app 角色連線（盤點 D8）。
+      - root `Makefile` 的 `seed`、`reset-db`（F4 後半）：`seed` 需要 `ADMIN_ACCOUNT=<name>`，密碼從終端機（不回顯）或 stdin 讀入，經 `ADMIN_PASSWORD_FILE=/dev/stdin` 傳給容器，不上命令列；`reset-db` 以 `docker compose up -d --wait backend` 等待 readiness（盤點 B22）。
+    - 驗收：
+      - (i) `seed-admin` 不驗證輸入 → `TestSeedAdminRejectsShortPassword` 失敗。
+      - `TestSeedAdminExistingAccountUnchanged`：既有的 `user` 帳號跑 `seed-admin` 後，role 不變。
+      - ft-verify 隔離 worktree：`make seed ADMIN_ACCOUNT=admin`（密碼由 stdin）建立 admin；再跑一次 exit 0 且不改變；用 curl 手動走一遍（帶 `Origin` 與 `Sec-Fetch-Site: same-origin`）：
+        1. `POST /api/users` 回 201；
+        2. `GET /api/users/me` 回 200；
+        3. `DELETE /api/sessions/current` 回 204；
+        4. 再打 `GET /api/users/me` 回 401。
+      - `make -C backend check` 綠燈、PR CI 綠燈。
 - [ ] **4. items 模組**（被擋於：步驟 3）
   - 範圍：
     - `internal/modules/items`：
@@ -529,7 +550,9 @@
 | 2c 契約、problem、validator | 完成 | `make -C backend check` 綠燈（本機，含新加的 gen-check）；mutation（scratchpad 隔離 worktree）21 項都讓指定測試失敗：第一輪 13 項（minLength 改 `invalid`、拿掉 recover、拿掉 deny handler、500 帶錯誤字串、拿掉 uuid format、拿掉 415、prod 也掛文件、validator 內不轉 413、壞 JSON 改 422、unknown property 不拆、ready 503 改回非 problem，以及改 spec 不重生 → `make gen-check` 失敗）、review 修正後 8 項（已開始回應後 panic／error 仍附加 problem、接受 JSON 後的尾巴、415 回顯 header、空值回 `required`、body 讀取失敗回 422、binder 錯誤回 400 並回顯、decode 型別錯誤回 400）；code review（獨立 subagent）0 HIGH、2 MED、6 LOW：D1（binder 與 kin-openapi 解析不一致時回 400 並回顯）、D2（已開始回應後的 panic）、D3、D4、D6、D7、D8（prod compose 預設 `MODE=prod`）已修，D5（405 缺 `Allow`）駁回：kin-openapi 的 router 不回報該路徑允許的方法，要自己重做一次路由比對，契約也沒有要求 405；後續步驟會踩到的三點寫進 2d、3、4。實作與計畫字面不同處：dev 文件路由用 mux 在 validator 前攔下，取代 `Options.Skipper`（效果相同，且 POST 等其他方法仍經 validator 回 problem，reviewer 實測）；`/health/ready` 的 503 與 `/api` 外未定義路徑也回 problem（I2）；uuid format 全域註冊（kin-openapi 的 document 範圍 format 不套用到參數）。swagger-ui-dist 5.33.0 發布於 2026-09-16（npm registry），SRI 由 jsDelivr 下載的檔案以 `openssl dgst -sha384` 算出；PR #12 在 `bdb9ba5` 與 `4c12ebb` 的 `gh pr checks` 都是 6 項全綠 | 無；不在本步驟範圍：D1 的修正走過生成碼的端到端驗證，要等有真正的 operation（列為步驟 4 的驗收） | `bdb9ba5`、`4c12ebb` |
 | 2d middleware 與分頁 | 完成 | `make -C backend check` 綠燈（本機，含 `go test -race`）；mutation（scratchpad 副本）13 項都讓指定測試失敗：拿掉 request id 格式檢查、不受信任來源的 request id 也採用、request id 移到 `recoverPanics` 內層（panic log 沒有 `request_id`）、problem 不帶 `request_id`、拿掉 `no-store`、一律採用 XFF（`TestClientIP` 與 `TestRateLimitIgnoresXFFFromUntrustedPeer`）、limiter 套到所有 operation、sweep 刪掉未閒置的 bucket、sweep 不刪除、access log 的 path 帶 query、cursor 解碼不檢查長度，以及 review 修正後的 IPv6 不以 /64 為 key、abort 時記 implicit 200、`statusWriter` 拿掉 `Unwrap`；code review（獨立 subagent）0 HIGH、1 MED、3 LOW：D1（IPv6 每個位址各一個 bucket，改以 /64 為 key）、D2（abort 前沒寫出東西時 access log 記成 200）、D4（`Unwrap` 沒有測試，補 `ResponseController` 的 Flush 測試）已修；D3（RemoteAddr 解析不出來時大家共用一個 bucket）駁回：`http.Server` 走 TCP 時 RemoteAddr 一定是 `ip:port`。reviewer 指出 Next 也在受信任的 subnet，已寫進步驟 5 的驗收。實作與計畫字面不同處：安全標頭套到所有回應，不只 `/api`，因為 COP 的 403、413 與 panic 的 500 都在 mux 外層產生，而且對 `/health` 與 dev 文件無害（reviewer 確認）；限流做成 strict middleware 並以 operationID 指定，在 validator 之後執行，被契約擋下的請求不扣額度；`/health` 的 access log 用 debug 等級（容器探針每幾秒呼叫一次）；problem 的 `request_id` 寫進 `openapi.yaml`（I1）。PR #12 在 `65d4924` 的 `gh pr checks` 6 項全綠 | 無 | `65d4924` |
 | 2e CI 報表 | 完成 | `make -C backend check` 綠燈（本機，`api-breaking` 已加入 `check`）；oasdiff：PR #12 的 backend job log 印出 `the base has no api/openapi.yaml, skipping the breaking-change check`；scratchpad 隔離 worktree 以帶 operation 的 spec 為 base commit（分支上的 `openapi.yaml` 是 `paths: {}`，oasdiff 只比 operation），刪掉 response 的 required 欄位 → `response-required-property-removed`、exit 1，未改 → exit 0；mutation：拿掉 `--fail-on ERR` → 同一個 breaking change exit 0（所以這個旗標是必要的）；coverage：`go test -coverpkg=./... -coverprofile`，gocover-cobertura `-ignore-gen-files`，PR #12 的 backend job summary 有 total（80.8%，760/941 行）與 diff-cover（對 `origin/main`，80%）；shellcheck、actionlint 通過；code review（獨立 subagent）NO DEFECTS FOUND；PR #12 在 `71f2b30` 的 `gh pr checks` 6 項全綠 | 無 | `71f2b30` |
-| 3 auth | 未開始 | | | |
+| 3a 資料層 | 未開始 | | | |
+| 3b service 與 HTTP | 未開始 | | | |
+| 3c seed-admin 與 compose | 未開始 | | | |
 | 4 items | 未開始 | | | |
 | 5 前端切換 | 未開始 | | | |
 | 6 外圍與文件 | 未開始 | | | |
