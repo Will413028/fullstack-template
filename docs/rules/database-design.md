@@ -1,5 +1,7 @@
 # Database Design Rules
 
+> **Go 改寫中**：本文件描述舊的 FastAPI 後端，改寫期間以 `docs/plans/2026-10-18-go-backend-rewrite.md` 為準。
+
 本專案使用 async SQLAlchemy 2.0 + asyncpg + Alembic。所有資料庫設計必須遵守以下規則。
 
 ## 命名規範

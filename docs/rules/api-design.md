@@ -1,5 +1,7 @@
 # API Design Rules
 
+> **Go 改寫中**：本文件描述舊的 FastAPI 後端，改寫期間以 `docs/plans/2026-10-18-go-backend-rewrite.md` 為準。
+
 本專案的 API 遵循 Pragmatic DDD 架構，分層為 Router → Service → Repository。
 
 ## URL 設計
