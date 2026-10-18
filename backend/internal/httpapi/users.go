@@ -7,6 +7,7 @@ import (
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
 )
 
 // The auth operations: accounts (/users) and sessions (/sessions).
@@ -151,6 +152,10 @@ func (s *apiServer) GetCurrentSession(ctx context.Context, _ gen.GetCurrentSessi
 	}
 	current := currentSessionID(ctx)
 	sess, err := s.auth.Session(ctx, current)
+	if e, ok := apperr.As(err); ok && e.Kind == apperr.NotFound {
+		// revoked or expired since authenticate read it: the request no longer has a session
+		return nil, auth.ErrSessionInvalid
+	}
 	if err != nil {
 		return nil, err
 	}

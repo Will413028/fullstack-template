@@ -237,7 +237,7 @@ func TestListSessions(t *testing.T) {
 	}
 }
 
-// A session past its idle limit is gone from the API before Cleanup deletes its row.
+// A session past its idle or absolute limit is gone from the API before Cleanup deletes its row.
 func TestListSessionsExcludesExpired(t *testing.T) {
 	a := newAuthAPI(t)
 	_, old := a.mustSignUp("alice")
@@ -251,6 +251,22 @@ func TestListSessionsExcludesExpired(t *testing.T) {
 	}
 	assertProblem(t, a.do(http.MethodGet, a.sessionPath(stale.Id), token, "", ""), http.StatusNotFound, "/problems/not-found")
 	assertProblem(t, a.do(http.MethodDelete, a.sessionPath(stale.Id), token, "", ""), http.StatusNotFound, "/problems/not-found")
+
+	// the absolute limit too: a session used every 12 hours ends 7 days after sign-in
+	a = newAuthAPI(t)
+	_, old = a.mustSignUp("alice")
+	stale = a.currentSession(old)
+	for range 13 {
+		a.clock.Advance(12 * time.Hour)
+		assertMe(t, a, old, http.StatusOK)
+	}
+	fresh, token = a.mustSignInSession("alice")
+	a.clock.Advance(13 * time.Hour) // 7 days and 1 hour after the first sign-in, 13 hours after its last use
+	got = a.listSessions(token, 20)
+	if len(got) != 1 || len(got[0]) != 1 || got[0][0].Id != fresh.Id {
+		t.Errorf("past the absolute limit: sessions = %v, want only %s", got, fresh.Id)
+	}
+	assertProblem(t, a.do(http.MethodGet, a.sessionPath(stale.Id), token, "", ""), http.StatusNotFound, "/problems/not-found")
 }
 
 func TestDeleteSession(t *testing.T) {
