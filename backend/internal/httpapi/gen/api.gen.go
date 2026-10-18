@@ -40,6 +40,9 @@ type Problem struct {
 	// Detail Human-readable explanation for developers; clients must not parse it.
 	Detail *string `json:"detail,omitempty"`
 
+	// RequestId The request's `X-Request-ID`, for matching a report with the server logs.
+	RequestId *string `json:"request_id,omitempty"`
+
 	// Status The HTTP status code.
 	Status int `json:"status"`
 
@@ -60,6 +63,9 @@ type ValidationProblem struct {
 	// Detail Human-readable explanation for developers; clients must not parse it.
 	Detail *string      `json:"detail,omitempty"`
 	Errors []FieldError `json:"errors"`
+
+	// RequestId The request's `X-Request-ID`, for matching a report with the server logs.
+	RequestId *string `json:"request_id,omitempty"`
 
 	// Status The HTTP status code.
 	Status int `json:"status"`

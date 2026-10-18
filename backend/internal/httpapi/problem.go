@@ -54,7 +54,7 @@ const problemContentType = "application/problem+json"
 
 // writeProblem writes a problem of type p. detail and code are omitted when empty.
 func writeProblem(w http.ResponseWriter, p problemType, detail, code string) {
-	body := gen.Problem{Type: p.uri(), Title: p.title, Status: p.status}
+	body := gen.Problem{Type: p.uri(), Title: p.title, Status: p.status, RequestId: requestIDOf(w)}
 	if detail != "" {
 		body.Detail = &detail
 	}
@@ -67,7 +67,18 @@ func writeProblem(w http.ResponseWriter, p problemType, detail, code string) {
 // writeValidation writes a validation problem listing each invalid input.
 func writeValidation(w http.ResponseWriter, fields []gen.FieldError) {
 	p := problemValidation
-	writeProblemBody(w, p.status, gen.ValidationProblem{Type: p.uri(), Title: p.title, Status: p.status, Errors: fields})
+	writeProblemBody(w, p.status, gen.ValidationProblem{
+		Type: p.uri(), Title: p.title, Status: p.status, Errors: fields, RequestId: requestIDOf(w),
+	})
+}
+
+// requestIDOf returns the request id withRequestInfo put in the X-Request-ID response header, so the body and the
+// header always agree; nil without one.
+func requestIDOf(w http.ResponseWriter) *string {
+	if id := w.Header().Get(headerRequestID); id != "" {
+		return &id
+	}
+	return nil
 }
 
 func writeProblemBody(w http.ResponseWriter, status int, body any) {

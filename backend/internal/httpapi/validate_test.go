@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/getkin/kin-openapi/openapi3"
+
 	"github.com/Will413028/fullstack-template/backend/api"
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 )
@@ -17,14 +19,7 @@ import (
 // /api/widgets echoes the body it receives with 201, GET /api/fail panics, other operations answer 200.
 func newStubAPI(t *testing.T, deps Deps) http.Handler {
 	t.Helper()
-	data, err := os.ReadFile("testdata/test-openapi.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec, err := loadSpec(t.Context(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := loadTestSpec(t)
 	routes := http.NewServeMux()
 	routes.HandleFunc("POST /api/widgets", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -41,6 +36,19 @@ func newStubAPI(t *testing.T, deps Deps) http.Handler {
 		deps.Ready = ok
 	}
 	return assemble(deps, spec, routes)
+}
+
+func loadTestSpec(t *testing.T) *openapi3.T {
+	t.Helper()
+	data, err := os.ReadFile("testdata/test-openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := loadSpec(t.Context(), data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return spec
 }
 
 func do(t *testing.T, h http.Handler, method, target, contentType, body string) *httptest.ResponseRecorder {
@@ -232,6 +240,9 @@ func TestDocs(t *testing.T) {
 
 func newTestHandlerDeps(t *testing.T, deps Deps) http.Handler {
 	t.Helper()
+	if deps.RateLimitPerMin == 0 {
+		deps.RateLimitPerMin = 5
+	}
 	h, err := NewHandler(t.Context(), deps)
 	if err != nil {
 		t.Fatal(err)

@@ -85,7 +85,13 @@ func serve(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	h, err := httpapi.NewHandler(ctx, httpapi.Deps{Ready: pool.Ping, Logger: logger, Docs: cfg.Mode == "dev"})
+	h, err := httpapi.NewHandler(ctx, httpapi.Deps{
+		Ready:           pool.Ping,
+		Logger:          logger,
+		Docs:            cfg.Mode == "dev",
+		TrustedProxies:  cfg.TrustedProxies,
+		RateLimitPerMin: cfg.AuthRateLimitPerMin,
+	})
 	if err != nil {
 		return err
 	}
