@@ -10,6 +10,7 @@ up:
 
 .PHONY: dev
 dev:
+	@echo "Dev stack: http://localhost:3000 (the API under /api)"
 	$(COMPOSE_DEV) up --build --watch
 
 .PHONY: down
