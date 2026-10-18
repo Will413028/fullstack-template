@@ -46,7 +46,7 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 ## Decision
 
 - **D1**：直接取代，舊系統保存在 tag `archive/pre-go-rewrite`。
-- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；baseline 之後的 migration 只能新增，不能修改。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖 v1.1.3 與 checksum。
+- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；baseline 之後的 migration 只能新增，不能修改。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖同一個版本與 checksum（2026-10-18 起 v1.3.3）。
 - **D3**：主鍵用 `uuid DEFAULT uuidv7()`，JSON 裡是字串。文字欄用 `text`，有長度限制時加 CHECK；狀態與 role 欄用 `text` 加 `CHECK (x IN (...))`；時間一律用 `timestamptz`。`updated_at` 由每一個 UPDATE 查詢明寫 `= now()`，並有測試覆蓋。
 - **D4**：`make rename` 先執行 `go mod edit -module`，再改寫所有 import 前綴，預設路徑是 `github.com/Will413028/<NAME>/backend`，也可以用 `MODULE=` 覆寫。作法同 [`gonew`](https://pkg.go.dev/golang.org/x/tools/cmd/gonew)。
 
@@ -71,10 +71,12 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 
 ## Revocation Triggers
 
-- Atlas 的 standard 版改成需要登入或付費，或 community 版的 `migrate apply` 不再遵守 txmode directive → 重新評估 D2（改用 goose，或全用 community 版加合併腳本）。
+- Atlas 的 standard 版改成需要登入或付費、或下架週期短到每次升版都來不及重測，或 community 版的 `migrate apply` 不再遵守 txmode directive → 重新評估 D2（改用 goose，或全用 community 版加合併腳本）。
 - 某個下游專案需要可排序、且不洩漏時間的 ID → 重新評估 D3（改用 UUIDv4 或 bigint）。
 
 ## Review Notes
+
+- 2026-10-18（Will 選 A）：Atlas 會把發布超過 6 個月的二進位從 CDN 移除，v1.1.3 已在下架邊緣，改鎖 v1.3.3，並以 `make atlas-age` 在發布滿 150 天時擋下 CI。v1.3.3 兩個版本別的多檔 `src`、txmode directive 與套用行為已在隔離容器重測。代價：每 5 個月內要升一次版，Dependabot 追不到。
 
 - 2026-10-18（Will，照建議）：原 revocation trigger「community 版拿掉必要功能」在計畫步驟 0 查證時已成立：community 版 v1.1.3 不接受多個 schema 檔（實測）。依 FathomPod 的實測與做法，D2 改為 standard 版產生、community 版套用，不改用 goose。來源：wiki `tech/atlas-migrate-ci-gate` Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`。
 

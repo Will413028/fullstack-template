@@ -47,7 +47,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | B4 | middleware：`X-Request-ID`（直接採用 client 送的值）、`X-Process-Time`、五個安全標頭、CORS | `core/middleware.py`、`main.py` | 改寫：<br>• request id：只信任 `TRUSTED_PROXIES` 送來的 `X-Request-ID`，其餘一律重新產生（E5）<br>• 安全標頭：`X-Content-Type-Options: nosniff`、`Cache-Control: no-store`（所有 `/api` 回應）、`Referrer-Policy: no-referrer`；`X-Frame-Options`、`Permissions-Policy`、`X-XSS-Protection` 不放在 JSON API 上（OWASP HTTP Headers：對 JSON 回應沒有作用），HSTS 交給 Caddy<br>• CORS：刪除，因為同源（B16）<br>• `X-Process-Time`：刪除，改記進 access log 的 `duration_ms` |
 | B5 | structlog：dev 輸出 console 格式，prod 輸出 JSON，綁定 request_id | `core/logging.py` | 改寫：`log/slog`，dev 用 text、prod 用 JSON；request_id 經 context 帶入 |
 | B6 | rate limit：slowapi in-memory，以連線 IP 為 key；4 個 auth 寫入 endpoint 各每分鐘 5 次 | `auth/router.py` | 改寫成兩層：<br>• **依帳號節流**：`login_throttles` 表，key 是正規化後的帳號名，不論帳號是否存在都記錄，避免洩漏帳號存在與否；連續失敗 5 次後，下次允許的時間為 2^(n−5) 分鐘，上限 1 小時；成功登入時歸零（OWASP Authentication、Credential Stuffing Cheat Sheet；NIST 800-63B-4 每個 authenticator 最多 100 次連續失敗）<br>• **per-IP**：`x/time/rate` in-memory，只套用在 `POST /api/users` 與 `POST /api/sessions`；IP 依 `TRUSTED_PROXIES` 解析（E3）。compose 的 `TRUSTED_PROXIES` 設為 compose network 的固定 subnet（`172.30.0.0/24`）：backend 不對外發佈 port，同一 subnet 裡只有 Caddy 與 Next 會連進來<br>• 超限一律回 429 problem 加 `Retry-After`；登出不限流 |
-| B7 | 每個請求一個 DB session：成功 commit、例外 rollback | `core/database.py` | 改寫：pgxpool；需要多個語句原子完成的 service 方法自己開 transaction；每條連線以 `RuntimeParams` 設定 `statement_timeout`、`idle_in_transaction_session_timeout`、`TimeZone=UTC` |
+| B7 | 每個請求一個 DB session：成功 commit、例外 rollback | `core/database.py` | 改寫：pgxpool；需要多個語句原子完成的 service 方法自己開 transaction；每條連線以 `RuntimeParams` 設定 `statement_timeout`（`DB_STATEMENT_TIMEOUT`）、`lock_timeout` 3s、`idle_in_transaction_session_timeout` 30s（各自獨立；設計審查 2026-10-18）、`TimeZone=UTC`。migrate 連線的 `lock_timeout` 在步驟 2 與 squawk 一起處理 |
 | B8 | `BaseRepository[T]` 泛型 CRUD | `core/repository/base.py` | 刪除：sqlc 為每個查詢生成函式 |
 | B9 | `PaginationParams`：page ≥ 1、size 1–100 | `core/dependencies.py` | 改寫成 keyset 分頁：`limit` 1–100（預設 20）、`cursor` 為 opaque 字串（base64url 編碼最後一筆的 id）；不支援 total。理由：Zalando #160、#254，Google AIP-158 |
 | B10 | argon2（pwdlib recommended）；無法解析的 hash 視為驗證失敗 | `core/security.py` | 保留：argon2id，m=19 MiB、t=2、p=1（OWASP Password Storage），PHC 字串格式；同時進行的雜湊數以 semaphore 限制（預設 `NumCPU`），避免記憶體被打爆 |
@@ -62,6 +62,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | B19 | uvicorn 預設行為：沒有 request body 上限，timeout 交給 uvicorn | `Dockerfile` CMD | 改寫：`http.Server` 設定 `ReadHeaderTimeout` 5s、`ReadTimeout` 15s、`WriteTimeout` 30s、`IdleTimeout` 120s；每個 body 用 `http.MaxBytesReader` 限制在 1 MiB；收到 SIGTERM 後 readiness 先回 503，等 5s，再 `Shutdown`（上限 20s），最後關閉 pool |
 | B20 | — | — | 新增：內嵌常見與外洩密碼清單，存成 `internal/modules/auth/blocklist/*.txt`（`go:embed`），來源與授權在步驟 0 核准；以設定 `PASSWORD_HIBP_CHECK=true` 可另外查 HIBP k-anonymity API（預設關閉） |
 | B21 | 沒有 CSRF 防護，只靠 `SameSite=Lax`（`docs/frontend-known-issues.md:18`） | — | 新增：在 mux 外層套 Go 1.25 的 `http.CrossOriginProtection`（看 `Sec-Fetch-Site`，沒有時退回 `Origin`）；`docs/frontend-known-issues.md` 那段改寫（E12） |
+| B22 | image 的 `HEALTHCHECK` 打 `/health`（`python -c urllib`） | `backend/Dockerfile` | 改寫（步驟 1，設計審查補列）：distroless 沒有 shell 與 curl，改由 `app healthcheck` 子指令打 `/health/ready`；compose 的 backend `healthcheck` 用它，frontend 以 `service_healthy` 等 backend，CI 的 stack job 與 `reset-db` 用 `docker compose up --wait` |
 
 ## C. 表（舊 3 張 → 新 4 張）與 migration（4 支）
 
@@ -85,7 +86,7 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | D4 | `COOKIE_SECURE`、`COOKIE_SAMESITE`（含值驗證；none 必須搭配 Secure）、`COOKIE_DOMAIN` | `COOKIE_SECURE` 保留（預設 true），只為了本機 http 開發；`COOKIE_SAMESITE`、`COOKIE_DOMAIN` 刪除：同源部署下固定 `SameSite=Lax`、不帶 Domain。cookie 名稱：Secure 時為 `__Host-session`，非 Secure 時為 `session`（`__Host-` 前綴必須搭配 Secure） |
 | D5 | `DB_POOL_SIZE`、`DB_MAX_OVERFLOW`、`DB_POOL_RECYCLE` | 改為 `DB_MAX_CONNS`（預設 20）與 `DB_STATEMENT_TIMEOUT`（預設 `5s`），其餘刪除 |
 | D6 | `CORS_ORIGINS` | 刪除：同源部署（B16） |
-| D7 | — | 新增：<br>• `TRUSTED_PROXIES`：CIDR 清單，預設空，表示不信任 XFF 與 `X-Request-ID`<br>• `AUTH_RATE_LIMIT_PER_MIN`：預設 5<br>• `PASSWORD_HIBP_CHECK`：預設 false<br>• `ADMIN_ACCOUNT`、`ADMIN_PASSWORD`：seed 用<br>• frontend 的 `API_URL`：容器內的後端網址 |
+| D7 | — | 新增：<br>• `TRUSTED_PROXIES`：CIDR 清單，預設空，表示不信任 XFF 與 `X-Request-ID`<br>• `AUTH_RATE_LIMIT_PER_MIN`：預設 5。數字沿用舊值，沒有業界標準值（OWASP Credential Stuffing 只要求分層）；暴力破解已由依帳號節流處理，這層只擋大量註冊與噴灑。重新評估：共用 NAT 的正常使用者回報 429<br>• `PASSWORD_HIBP_CHECK`：預設 false<br>• `ADMIN_ACCOUNT`、`ADMIN_PASSWORD`：seed 用<br>• frontend 的 `API_URL`：容器內的後端網址 |
 
 ## E. 既有缺陷
 
