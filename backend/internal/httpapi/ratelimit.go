@@ -87,12 +87,12 @@ func (l *ipLimiter) sweep(now time.Time) {
 	}
 }
 
-// limitOperations applies l to the operations with the given operationIDs, keyed by the client address
+// limitOperations applies l to the named operations (generated method names, see operations), keyed by the client address
 // withRequestInfo resolved. Over the limit, the operation is not called and the client gets a 429 problem with
 // Retry-After (writeError). It runs after request validation, so a request the contract rejects uses no token.
-func limitOperations(l *ipLimiter, operationIDs ...string) gen.StrictMiddlewareFunc {
-	return func(f gen.StrictHandlerFunc, operationID string) gen.StrictHandlerFunc {
-		if !slices.Contains(operationIDs, operationID) {
+func limitOperations(l *ipLimiter, names ...string) gen.StrictMiddlewareFunc {
+	return func(f gen.StrictHandlerFunc, name string) gen.StrictHandlerFunc {
+		if !slices.Contains(names, name) {
 			return f
 		}
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {

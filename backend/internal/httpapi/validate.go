@@ -62,11 +62,13 @@ func loadSpec(ctx context.Context, data []byte) (*openapi3.T, error) {
 
 // validateRequests checks every request against spec before next sees it, so length, format and enum rules live
 // only in the contract (plan I1). It is mounted on /api/ only; spec's servers entry (/api) is the path prefix.
-// Failures become problems: an undefined route 404, a body over the limit 413, a Content-Type the operation does not
-// accept 415, a body that is not valid JSON 400, and anything else 422 listing each invalid input.
+// Failures become problems: an undefined route 404, a body over the limit 413, a missing session where the operation
+// declares security 401, a Content-Type the operation does not accept 415, a body that is not valid JSON 400, and
+// anything else 422 listing each invalid input.
 func validateRequests(spec *openapi3.T, logger *slog.Logger, next http.Handler) http.Handler {
 	return nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		Options: openapi3filter.Options{MultiError: true},
+		// requireSession enforces the contract's security; authenticate has put the session's user in the context.
+		Options: openapi3filter.Options{MultiError: true, AuthenticationFunc: requireSession},
 		// The only server is the relative /api, which the router matches as a path prefix without a Host check.
 		SilenceServersWarning: true,
 		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, r *http.Request,
@@ -89,6 +91,13 @@ func writeValidationError(w http.ResponseWriter, r *http.Request, logger *slog.L
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
 		writeError(w, r, logger, tooLarge)
+		return
+	}
+	// Security is checked before parameters and body, and its failure wins over theirs: an anonymous caller learns
+	// nothing about the request it would have to send.
+	var secErr *openapi3filter.SecurityRequirementsError
+	if errors.As(err, &secErr) {
+		writeProblem(w, problemUnauthenticated, "this operation needs a signed-in session", "")
 		return
 	}
 	if accepted, unsupported := unsupportedMediaType(r, matched.Route); unsupported {

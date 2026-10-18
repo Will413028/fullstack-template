@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"reflect"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/Will413028/fullstack-template/backend/api"
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
 )
 
 // maxBodyBytes caps every request body.
@@ -60,10 +62,16 @@ type Deps struct {
 	TrustedProxies []netip.Prefix
 	// RateLimitPerMin is the per-IP limit on the operations limitOperations names (AUTH_RATE_LIMIT_PER_MIN).
 	RateLimitPerMin int
+	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
+	Auth   *auth.Service
+	Cookie Cookie
 }
 
 // apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
-type apiServer struct{}
+type apiServer struct {
+	auth   *auth.Service
+	cookie Cookie
+}
 
 // NewHandler builds the public handler: the API under /api from the embedded contract, and the health checks.
 func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
@@ -75,10 +83,23 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
 	}
 	routes := http.NewServeMux()
-	// The auth module's operations join limitOperations in step 3 (POST /api/users, POST /api/sessions).
+	// Sign-up and sign-in are limited per client address (inventory B6); sign-in is also throttled per account in
+	// the auth module.
+	limited, err := operations("CreateUser", "CreateSession")
+	if err != nil {
+		return nil, err
+	}
+	adminOnly, err := operations("PatchUser")
+	if err != nil {
+		return nil, err
+	}
 	limiter := newIPLimiter(deps.RateLimitPerMin, time.Now)
-	middlewares := []gen.StrictMiddlewareFunc{limitOperations(limiter)}
-	strict := gen.NewStrictHandlerWithOptions(&apiServer{}, middlewares, gen.StrictHTTPServerOptions{
+	middlewares := []gen.StrictMiddlewareFunc{
+		limitOperations(limiter, limited...),
+		requireRole(auth.RoleAdmin, adminOnly...),
+	}
+	server := &apiServer{auth: deps.Auth, cookie: deps.Cookie}
+	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeBodyDecodeError(w, r, deps.Logger, err)
 		},
@@ -94,6 +115,19 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		},
 	})
 	return assemble(deps, spec, routes), nil
+}
+
+// operations checks that each name is an operation as strict middleware sees it: the generated method name
+// (CreateUser for operationId createUser), not the contract's operationId. A misspelled name would otherwise make
+// its middleware silently apply to nothing.
+func operations(names ...string) ([]string, error) {
+	iface := reflect.TypeFor[gen.StrictServerInterface]()
+	for _, n := range names {
+		if _, ok := iface.MethodByName(n); !ok {
+			return nil, fmt.Errorf("no operation %q in gen.StrictServerInterface", n)
+		}
+	}
+	return names, nil
 }
 
 // assemble mounts the API routes behind request validation against spec, adds the health checks, and wraps
@@ -114,7 +148,7 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler 
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	apiHandler := validateRequests(spec, deps.Logger, apiRoutes)
+	apiHandler := authenticate(deps.Auth, deps.Cookie, deps.Logger, validateRequests(spec, deps.Logger, apiRoutes))
 	if deps.Docs {
 		apiHandler = withDocs(apiHandler)
 	}
