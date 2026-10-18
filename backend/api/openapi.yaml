@@ -57,6 +57,9 @@ components:
         code:
           type: string
           description: Stable machine-readable code refining `type`, for example `account_taken`.
+        request_id:
+          type: string
+          description: The request's `X-Request-ID`, for matching a report with the server logs.
     ValidationProblem:
       description: A problem with type `/problems/validation`, listing each invalid input.
       allOf:

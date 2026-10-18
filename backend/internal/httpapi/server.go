@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -55,6 +56,10 @@ type Deps struct {
 	Logger *slog.Logger
 	// Docs serves the contract at /api/openapi.yaml and Swagger UI at /api/docs (MODE=dev only).
 	Docs bool
+	// TrustedProxies are the peers whose X-Forwarded-For and X-Request-ID are believed (TRUSTED_PROXIES).
+	TrustedProxies []netip.Prefix
+	// RateLimitPerMin is the per-IP limit on the operations limitOperations names (AUTH_RATE_LIMIT_PER_MIN).
+	RateLimitPerMin int
 }
 
 // apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
@@ -62,12 +67,18 @@ type apiServer struct{}
 
 // NewHandler builds the public handler: the API under /api from the embedded contract, and the health checks.
 func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
+	if deps.RateLimitPerMin < 1 {
+		return nil, errors.New("RateLimitPerMin must be positive")
+	}
 	spec, err := loadSpec(ctx, api.Spec)
 	if err != nil {
 		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
 	}
 	routes := http.NewServeMux()
-	strict := gen.NewStrictHandlerWithOptions(&apiServer{}, nil, gen.StrictHTTPServerOptions{
+	// The auth module's operations join limitOperations in step 3 (POST /api/users, POST /api/sessions).
+	limiter := newIPLimiter(deps.RateLimitPerMin, time.Now)
+	middlewares := []gen.StrictMiddlewareFunc{limitOperations(limiter)}
+	strict := gen.NewStrictHandlerWithOptions(&apiServer{}, middlewares, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeBodyDecodeError(w, r, deps.Logger, err)
 		},
@@ -111,16 +122,23 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler 
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeProblem(w, problemNotFound, "", "")
 	})
-	return protect(deps.Logger, mux)
+	return protect(deps, mux)
 }
 
 // protect applies the protections every request gets, outermost first:
+//   - withRequestInfo resolves the client address and the request id. It is outermost so that every log line,
+//     the panic log included, and every response, problems included, carry the request id.
+//   - accessLog logs the request once it ends, with the status recoverPanics chose.
+//   - securityHeaders, set before any handler writes.
 //   - A panic becomes a logged 500 problem.
 //   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with a 403 problem, using
 //     Sec-Fetch-Site and falling back to comparing Origin with Host. Non-browser clients that send neither header
 //     pass. GET, HEAD and OPTIONS are not checked.
 //   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413.
-func protect(logger *slog.Logger, h http.Handler) http.Handler {
+//
+// A middleware that wraps the ResponseWriter must provide Unwrap: responseStarted walks the chain to find
+// recoverPanics' startWriter.
+func protect(deps Deps, h http.Handler) http.Handler {
 	limited := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		h.ServeHTTP(w, r)
@@ -129,7 +147,8 @@ func protect(logger *slog.Logger, h http.Handler) http.Handler {
 	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeProblem(w, problemForbidden, "cross-origin request rejected", codeCrossOrigin)
 	}))
-	return recoverPanics(logger, cop.Handler(limited))
+	inner := recoverPanics(deps.Logger, cop.Handler(limited))
+	return withRequestInfo(deps.TrustedProxies, accessLog(deps.Logger, securityHeaders(inner)))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
