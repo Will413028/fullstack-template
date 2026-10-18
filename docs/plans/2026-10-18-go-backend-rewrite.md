@@ -265,7 +265,7 @@
       - 暫時 migration 含對既有表的 `CREATE INDEX`（無 `CONCURRENTLY`）→ squawk 失敗。
       - 暫時兩個模組 `aa`、`bb`，`bb` import `aa` → 架構測試失敗；`aa` import `net/http` → 架構測試與 depguard 都失敗。
       - `make -C backend check` 綠燈、PR CI 綠燈。
-  - [ ] **2c. 契約、problem 與 validator**（I1、I2；被擋於：步驟 1）
+  - [x] **2c. 契約、problem 與 validator**（I1、I2；被擋於：步驟 1）
     - 範圍：
       - `api/openapi.yaml` 骨架：`servers: [{url: /api}]`，共用 schema `Problem`、`ValidationProblem`，cursor 分頁參數 `limit`、`cursor`，共用 problem responses。
       - oapi-codegen 生成到 `internal/httpapi/gen`（`go tool` 或 `go run` 鎖 v2.8.0，設定檔 `internal/httpapi/oapi-codegen.yaml`）；`make gen` 與 `make gen-check`（重新生成後 diff 必須為空）加入 `make check`。
@@ -290,6 +290,7 @@
       - request id：只採用 `TRUSTED_PROXIES` 來源送的 `X-Request-ID`，且限 ≤64 字的 `[A-Za-z0-9-]`；其餘重新產生（UUIDv7）；放進 context 與回應標頭，problem 帶 `request_id` 擴充欄位。
       - 安全標頭（`/api` 回應）：`X-Content-Type-Options: nosniff`、`Cache-Control: no-store`、`Referrer-Policy: no-referrer`；不送 `X-XSS-Protection`、`X-Frame-Options`、`Permissions-Policy`。
       - access log：method、path（不含 query）、status、`duration_ms`、`client_ip`、`request_id`。
+      - 順序：request id middleware 放在 `recoverPanics` 外層（2c 的 `recoverPanics` 目前在最外層，放在它內層的 middleware 塞進 context 的值，panic 的 log 拿不到）；新 middleware 若包 `ResponseWriter`，要提供 `Unwrap()`，否則 `responseStarted` 看不到 2c 的 `startWriter`（2c code review 2026-10-18）。
       - client IP 解析：連線來源在 `TRUSTED_PROXIES` 內時，取 XFF 由右往左第一個不受信任的位址；否則用連線來源。
       - per-IP rate limiter（`x/time/rate`，in-memory，每 IP 一個 limiter，閒置項定期清除）：提供可套在指定 operation 的 middleware，步驟 3 掛到 `POST /api/users`、`POST /api/sessions`；超限回 429 problem 加 `Retry-After`。
       - `internal/platform/httpx` 的 cursor 編碼與解碼（base64url 編碼最後一筆的 id）；壞掉的 cursor 回 422 validation problem（pointer `/cursor`，code `invalid`）。
@@ -323,6 +324,7 @@
       - `auth.go`、`users.go`：盤點 A3、A4、A6、A7、A12。
       - `authz.go`：`requireRole`，對應 I6。
     - `internal/platform/authctx`。
+    - 若在 `openapi.yaml` 宣告 `securitySchemes`／`security`，validator 的 `openapi3filter.Options` 要設 `AuthenticationFunc`；不設時每個帶 `security` 的請求都會因 `ErrAuthenticationServiceMissing` 回 422 `invalid`（kin-openapi `validate_request.go:439`；2c code review 2026-10-18）。
     - 用 `atlas migrate diff baseline` 產生 baseline migration。產生前把 `atlas.hcl` 的 dev URL 改成 schema scope（`docker://postgres/18/dev?search_path=public`），因為所有表都在 `public`；重新評估：某個模組需要自己的 PG schema 時（設計審查 2026-10-18）。產生後用 community 版對全新 DB 套用一次，確認 revision 表位置。
     - `cmd/app seed-admin`（E8）：從內嵌的 `openapi.yaml` 取 `CreateUserRequest` schema，用 kin-openapi 驗證輸入（I1）；帳號已存在時不做任何修改，以 exit 0 結束。
     - root `Makefile` 的 `seed`、`reset-db`（F4 後半）：`reset-db` 以 `docker compose up -d --wait backend` 等待 readiness（盤點 B22）。
@@ -371,6 +373,7 @@
       - (c) keyset 條件改成 offset → `TestPaginationKeyset`（測試會在分頁途中插入新資料）。
       - (d) update 查詢拿掉 `updated_at = now()` → `TestUpdatedAtChanges`。
     - `rg -n "users" backend/internal/modules/items/queries` 沒有結果（I4）。
+    - `GET /api/items?limit=0x10` 回 422，`errors[0]` 為 `{pointer: /limit, code: invalid_type}`：kin-openapi 以 base 0 解析整數會放行，生成碼的 binder 擋下，2c 的 `writeParamError` 轉成 422。2c 只有 unit test，這一項是第一個走過生成碼的端到端驗證（2c code review 2026-10-18）。
     - PR CI 綠燈。
   - 完成後的狀態：後端完成；前端仍是舊的呼叫方式，必須接著做步驟 5。
 - [ ] **5. 前端切換與同源部署**（被擋於：步驟 4）
@@ -521,7 +524,7 @@
 | 1 Walking skeleton | 完成 | `make -C backend check` 綠燈；7 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout、Shutdown→Close）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`up --wait` 後 backend healthy、`docker compose stop backend` exit 0；設計審查 11 項已分流；D14 已實作；draft PR #12 在 `29d72d9` 的 `gh pr checks` 6 項全綠 | 無 | `9f014ed`…`29d72d9` |
 | 2a 角色、憑證、migrate、harness | 完成 | `make -C backend check` 綠燈（本機）；mutation 10 項都讓指定測試失敗（default privileges、`GRANT … ON ALL TABLES`、`lock_timeout`（20s 逾時才失敗，有設定時 5.3s 結束）、`--url`、harness 改用 superuser、拿掉 txmode directive 並重算 atlas.sum、NewDB 漏 `GRANT CONNECT`、`_FILE` 兩者並存檢查、結尾換行、URL 帶密碼）；compose 驗收（ft-verify 隔離 worktree，`make init-env`）：migrate exit 0、`/health/ready` 200、backend 以 `fullstack_app` 連線、app 角色 `CREATE TABLE` 被拒、migrate 重跑 exit 0、`docker compose config` 中 backend 只有 `db_app_password`、migrate 只有 `db_owner_password`、frontend 沒有 secret 與 DB 變數 ；code review（獨立 subagent）7 項：1–6 已修（`7872d30`：initdb 缺密碼檔或空檔改為失敗並實測 exit 1、密碼改經 psql 環境、URL 的 `password` query 參數也拒絕、CI 兩個可能空過的斷言、`backend/.env-example`、init-env 拒絕空的殘留檔），7（`docs/deploy-vps.md` 過時）留給步驟 6 的 F10；GitGuardian 抓到 `command_test.go` 的測試假密碼（incident 38348098），check run 的 Skip 只放行單次，Will 選擇改寫歷史：`filter-branch` 把該檔在每個 commit 換成最終版本，最終 tree 與改寫前相同（`git diff` 為空），force push；PR #12 在 `5341e11` 的 `gh pr checks` 6 項全綠（GitGuardian：No secrets detected） | 無 | `c886bef`、`7872d30` |
 | 2b 資料層工具與模組邊界 | 完成 | `make -C backend check` 綠燈（本機）；mutation（scratchpad 隔離 worktree）：只加 `zz/schema.sql` → drift 失敗且不寫進 repo，產生 migration 後通過；改 base 的 migration（含重算 `atlas.sum`）與刪除 → immutable 失敗；改檔不重算 → drift 失敗（checksum mismatch）；手寫無 `CONCURRENTLY` 的 `CREATE INDEX` → squawk 失敗，txmode none 檔內同樣寫法也失敗；Atlas 產生的 `CREATE TABLE`、單獨與混合的 `CONCURRENTLY` 檔 → squawk 通過，混合檔拿掉分組 → 失敗；query 改了不重生 → sqlc-diff 失敗；`bb` import `aa` → archtest 失敗；`aa` import `net/http` → archtest 與 depguard 都失敗；`Check` 不判模組間 → fixture 測試失敗；有 migration 沒有 schema.sql → drift 失敗；code review（獨立 subagent）：squawk 誤報混合檔（實測）已修、`main` 取消 run 讓 immutable 失效已修（不再 cancel）、測試檔跨模組 import 寫明為允許、drift 兩個邊界已修；`sqlc.yml` 等其他檔名不支援（慣例只用 `sqlc.yaml`）、squawk 也掃舊 migration（版本鎖死，升版時再處理）駁回；PR #12 在 `6d5b80b` 的 `gh pr checks` 6 項全綠 | 無 | `d2e067a`、`a09d553`、`6d5b80b` |
-| 2c 契約、problem、validator | 未開始 | | | |
+| 2c 契約、problem、validator | 完成 | `make -C backend check` 綠燈（本機，含新加的 gen-check）；mutation（scratchpad 隔離 worktree）21 項都讓指定測試失敗：第一輪 13 項（minLength 改 `invalid`、拿掉 recover、拿掉 deny handler、500 帶錯誤字串、拿掉 uuid format、拿掉 415、prod 也掛文件、validator 內不轉 413、壞 JSON 改 422、unknown property 不拆、ready 503 改回非 problem，以及改 spec 不重生 → `make gen-check` 失敗）、review 修正後 8 項（已開始回應後 panic／error 仍附加 problem、接受 JSON 後的尾巴、415 回顯 header、空值回 `required`、body 讀取失敗回 422、binder 錯誤回 400 並回顯、decode 型別錯誤回 400）；code review（獨立 subagent）0 HIGH、2 MED、6 LOW：D1（binder 與 kin-openapi 解析不一致時回 400 並回顯）、D2（已開始回應後的 panic）、D3、D4、D6、D7、D8（prod compose 預設 `MODE=prod`）已修，D5（405 缺 `Allow`）駁回：kin-openapi 的 router 不回報該路徑允許的方法，要自己重做一次路由比對，契約也沒有要求 405；後續步驟會踩到的三點寫進 2d、3、4。實作與計畫字面不同處：dev 文件路由用 mux 在 validator 前攔下，取代 `Options.Skipper`（效果相同，且 POST 等其他方法仍經 validator 回 problem，reviewer 實測）；`/health/ready` 的 503 與 `/api` 外未定義路徑也回 problem（I2）；uuid format 全域註冊（kin-openapi 的 document 範圍 format 不套用到參數）。swagger-ui-dist 5.33.0 發布於 2026-09-16（npm registry），SRI 由 jsDelivr 下載的檔案以 `openssl dgst -sha384` 算出；PR #12 在 `bdb9ba5` 與 `4c12ebb` 的 `gh pr checks` 都是 6 項全綠 | 無；不在本步驟範圍：D1 的修正走過生成碼的端到端驗證，要等有真正的 operation（列為步驟 4 的驗收） | `bdb9ba5`、`4c12ebb` |
 | 2d middleware 與分頁 | 未開始 | | | |
 | 2e CI 報表 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
