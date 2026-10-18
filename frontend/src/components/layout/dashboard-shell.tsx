@@ -5,7 +5,14 @@ import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useUiStore } from "@/store/use-ui-store";
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+// actions fills the right end of the top bar (the signed-in user and sign out).
+export function DashboardShell({
+  children,
+  actions,
+}: {
+  children: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
   const { sidebarOpen, setSidebarOpen, toggleSidebar } = useUiStore();
   const pathname = usePathname();
   const t = useTranslations("dashboard");
@@ -77,7 +84,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             )}
           </button>
           <div className="flex-1" />
-          <div className="w-8 h-8 rounded-full bg-zinc-700" />
+          {actions}
         </header>
 
         {/* Page content */}

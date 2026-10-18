@@ -1,9 +1,10 @@
+export type { Credentials, User } from "./api/auth-api";
 export { authApi } from "./api/auth-api";
-export { LoginForm } from "./components/login-form";
+export { AuthForm } from "./components/auth-form";
+export { LogoutButton } from "./components/logout-button";
 export {
   useCurrentUser,
   useLogin,
   useLogout,
   useRegister,
 } from "./hooks/use-auth";
-export type { LoginCredentials, UserResponse } from "./types";

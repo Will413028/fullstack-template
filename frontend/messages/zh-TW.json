@@ -16,7 +16,7 @@
   },
   "home": {
     "title": "Fullstack Template",
-    "description": "使用 Next.js、FastAPI 和 k3s 建構的 Production-ready 全端範本。"
+    "description": "使用 Next.js、Go 和 Docker Compose 建構的 Production-ready 全端範本。"
   },
   "footer": {
     "brand": "Fullstack Template",
@@ -27,14 +27,56 @@
     "login": "登入",
     "register": "註冊",
     "logout": "登出",
-    "email": "電子郵件",
+    "account": "帳號",
     "password": "密碼",
-    "forgotPassword": "忘記密碼？",
     "noAccount": "還沒有帳號？",
-    "hasAccount": "已經有帳號？"
+    "hasAccount": "已經有帳號？",
+    "loginTitle": "歡迎回來",
+    "loginSubtitle": "登入你的帳號",
+    "registerTitle": "建立帳號",
+    "registerSubtitle": "選一個帳號名稱與一段夠長的密碼，不需要特殊字元"
   },
   "dashboard": {
     "overview": "總覽",
     "settings": "設定"
+  },
+  "problems": {
+    "unknown": "發生錯誤，請再試一次。",
+    "types": {
+      "bad-request": "無法讀取這個請求。",
+      "unauthenticated": "請先登入。",
+      "forbidden": "你沒有權限執行這個動作。",
+      "not-found": "找不到資料。",
+      "method-not-allowed": "不支援這個動作。",
+      "conflict": "與現有資料衝突。",
+      "payload-too-large": "請求內容太大。",
+      "unsupported-media-type": "不支援這個請求格式。",
+      "validation": "部分欄位不正確。",
+      "rate-limited": "嘗試次數過多，請稍後再試。",
+      "internal": "系統發生錯誤，請再試一次。",
+      "unavailable": "服務暫時無法使用。"
+    },
+    "codes": {
+      "account_taken": "這個帳號名稱已被使用。",
+      "invalid_credentials": "帳號或密碼錯誤。",
+      "login_throttled": "這個帳號登入失敗次數過多，請稍後再試。",
+      "session_invalid": "登入已失效，請重新登入。",
+      "insufficient_role": "你的帳號沒有權限執行這個動作。",
+      "cross_origin_request": "來自其他網站的請求已被擋下。"
+    },
+    "fields": {
+      "required": "必填。",
+      "too_short": "太短。",
+      "too_long": "太長。",
+      "pattern": "包含不允許的字元。",
+      "enum": "不是允許的值。",
+      "format": "格式不正確。",
+      "out_of_range": "超出範圍。",
+      "invalid_type": "型別不正確。",
+      "null_not_allowed": "不可為空。",
+      "additional_property": "不接受這個欄位。",
+      "invalid": "不正確。",
+      "password_too_common": "這個密碼太常見，或曾出現在外洩資料中，請換一個。"
+    }
   }
 }

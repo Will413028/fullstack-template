@@ -9,10 +9,12 @@ pnpm build          # production build (standalone output)
 pnpm lint           # tsc --noEmit + Biome
 pnpm format         # Biome format --write
 pnpm test           # Vitest
+pnpm gen:api        # regenerate src/lib/api/schema.d.ts from backend/api/openapi.yaml
 ```
 
-Set `NEXT_PUBLIC_API_URL` (browser → backend) in `.env`. It is **inlined at build
-time**, so changing it for production requires a rebuild, not just a restart.
+The browser calls the API on its own origin under `/api`. `pnpm dev` on the host
+forwards `/api` to `API_URL` (default `http://localhost:8000`, see `.env.example`);
+in Docker, Caddy does that routing.
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture, the auth flow, and conventions.
 Normally you run the whole stack from the repo root with `make dev` / `make up`.

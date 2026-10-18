@@ -16,7 +16,7 @@
   },
   "home": {
     "title": "Fullstack Template",
-    "description": "A production-ready fullstack template with Next.js, FastAPI, and k3s."
+    "description": "A production-ready fullstack template with Next.js, Go, and Docker Compose."
   },
   "footer": {
     "brand": "Fullstack Template",
@@ -27,14 +27,56 @@
     "login": "Sign In",
     "register": "Sign Up",
     "logout": "Sign Out",
-    "email": "Email",
+    "account": "Account",
     "password": "Password",
-    "forgotPassword": "Forgot Password?",
     "noAccount": "Don't have an account?",
-    "hasAccount": "Already have an account?"
+    "hasAccount": "Already have an account?",
+    "loginTitle": "Welcome back",
+    "loginSubtitle": "Sign in to your account",
+    "registerTitle": "Create an account",
+    "registerSubtitle": "Choose an account name and a long passphrase; no special characters are required"
   },
   "dashboard": {
     "overview": "Overview",
     "settings": "Settings"
+  },
+  "problems": {
+    "unknown": "Something went wrong. Please try again.",
+    "types": {
+      "bad-request": "The request could not be read.",
+      "unauthenticated": "Please sign in.",
+      "forbidden": "You are not allowed to do this.",
+      "not-found": "Not found.",
+      "method-not-allowed": "This action is not supported.",
+      "conflict": "This conflicts with existing data.",
+      "payload-too-large": "The request is too large.",
+      "unsupported-media-type": "The request format is not supported.",
+      "validation": "Some fields are invalid.",
+      "rate-limited": "Too many attempts. Please wait and try again.",
+      "internal": "Something went wrong on our side. Please try again.",
+      "unavailable": "The service is temporarily unavailable."
+    },
+    "codes": {
+      "account_taken": "This account name is already taken.",
+      "invalid_credentials": "Incorrect account or password.",
+      "login_throttled": "Too many failed sign-ins for this account. Please wait and try again.",
+      "session_invalid": "Your session has ended. Please sign in again.",
+      "insufficient_role": "Your account is not allowed to do this.",
+      "cross_origin_request": "The request came from another site and was blocked."
+    },
+    "fields": {
+      "required": "Required.",
+      "too_short": "Too short.",
+      "too_long": "Too long.",
+      "pattern": "Contains characters that are not allowed.",
+      "enum": "Not one of the allowed values.",
+      "format": "Wrong format.",
+      "out_of_range": "Out of range.",
+      "invalid_type": "Wrong type.",
+      "null_not_allowed": "Must not be empty.",
+      "additional_property": "Not an accepted field.",
+      "invalid": "Invalid.",
+      "password_too_common": "This password is too common or has appeared in a data breach. Choose another."
+    }
   }
 }
