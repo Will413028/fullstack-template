@@ -250,12 +250,13 @@
       - lib/pq 不把 URL 的 `lock_timeout` 當成 runtime parameter → 改用 `options=-c%20lock_timeout%3D5s`，兩者都不行就回報。
       - `postgres.WithInitScripts` 跑不了 `.sh`、或拿不到密碼檔 → 回報，不改成在 harness 裡重寫一份建角色的 SQL。
     - 需要人做的事：Will 在本機跑 `make init-env` 前先把舊 `.env` 移開（或手動補新變數與 `.secrets/`）；既有的本機 volume 已初始化過，角色不會自動建立，要 `make down-v` 重建（會刪本機資料）。
-  - [ ] **2b. 資料層工具與模組邊界**（I4、I5；被擋於：2a）
+  - [x] **2b. 資料層工具與模組邊界**（I4、I5；被擋於：2a）
     - 範圍：
-      - sqlc：`make sqlc` 與 `make sqlc-diff` 逐一處理 `internal/modules/*/sqlc.yaml`；沒有模組時通過。
-      - `scripts/check-schema-drift.sh`：standard 版 `atlas migrate diff --env dev` 不得產生新檔；`scripts/check-migrations-immutable.sh`：對 `git merge-base HEAD origin/main` 已有的 migration 不得修改或刪除（寫法照 FathomPod 同名腳本）。
-      - squawk 檢查 `migrations/*.sql`（`npx --yes squawk-cli@2.65.0`），設定檔放 `backend/.squawk.toml`；`concurrent_index` policy 維持在 `atlas.hcl`。
-      - 架構測試 `internal/archtest`：用 `go list -deps` 斷言 `internal/modules/<x>` 不 import 其他模組、不 import `net/http`、不 import `internal/httpapi`；取代 `.golangci.yml` 裡「新增模組時手動補 depguard 規則」的註解與做法。
+      - sqlc：`make sqlc` 與 `make sqlc-diff` 逐一處理 `internal/modules/*/sqlc.yaml`；沒有模組時通過。sqlc 以 `go run …@v1.31.1` 執行（版本經 Go checksum DB 驗證）；它要 cgo 編 libpg_query，本機首次編譯 8 分 53 秒，之後走 build cache。CI 在步驟 3 有模組後才會真的跑到 sqlc，屆時若每次都重編，改成 release binary 加 checksum（同 golangci-lint）。
+      - `scripts/check-schema-drift.sh`：standard 版 `atlas migrate diff --env dev` 不得產生新檔；`scripts/check-migrations-immutable.sh`：對 `git merge-base HEAD origin/main` 已有的 migration 不得修改或刪除（寫法照 FathomPod 同名腳本）。drift 與 FathomPod 不同處：FathomPod 用 `atlas schema diff` 並在腳本裡重寫一次載入順序（`env://src` 不接受多檔，且 `--from` 為空目錄時直接報錯）；這裡對 `migrations/` 的暫存複本跑 `migrate diff --dir`（實測 `--dir` 會覆寫 env 的設定），沿用 `atlas.hcl` 的 `src` 順序、不寫進 repo，也順便擋下 `atlas.sum` 不符。
+      - squawk 檢查 `migrations/*.sql`（`npx --yes squawk-cli@2.65.0`，`scripts/squawk.sh`），設定檔放 `backend/.squawk.toml`；`concurrent_index` policy 維持在 `atlas.hcl`。檔頭是 `-- atlas:txmode none` 的檔案加 `--no-assume-in-transaction`：Atlas 會把 `CONCURRENTLY` 與同次的其他變更放在同一支檔，squawk 讀不懂這個 directive，否則會誤報 `ban-concurrent-index-creation-in-transaction`（code review 實測）。
+      - 架構測試 `internal/archtest`：用 `go list -deps` 斷言 `internal/modules/<x>` 不 import 其他模組、不 import `net/http`、不 import `internal/httpapi`；取代 `.golangci.yml` 裡「新增模組時手動補 depguard 規則」的註解與做法。只檢查非測試程式的依賴：模組的測試可以 import 別的模組來建 fixture（items 測試經 auth 建 user，滿足 `items.owner_id → users.id`）；depguard 的 `modules-no-http` 仍檢查每個檔案（含測試）的直接 import。
+      - CI 的 backend job：`fetch-depth: 0`、setup-node（squawk）；PR 以 `origin/<base_ref>`、push `main` 以 `github.event.before` 作為 `BASE`；`main` 的 run 不再 `cancel-in-progress`，否則被取消的 run 會讓下一次 push 把改過的 migration 當成 base。
       - `make check` 加入 sqlc-diff、drift、squawk、migrations-immutable。
     - 會受影響的既有檔案：`backend/Makefile`、`backend/.golangci.yml`、`.github/workflows/ci.yml`（backend job 要 `fetch-depth: 0` 才有 merge-base）。
     - 驗收（mutation 在 scratchpad 的隔離 worktree 做，做完丟棄）：
@@ -519,7 +520,7 @@
 | 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
 | 1 Walking skeleton | 完成 | `make -C backend check` 綠燈；7 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout、Shutdown→Close）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`up --wait` 後 backend healthy、`docker compose stop backend` exit 0；設計審查 11 項已分流；D14 已實作；draft PR #12 在 `29d72d9` 的 `gh pr checks` 6 項全綠 | 無 | `9f014ed`…`29d72d9` |
 | 2a 角色、憑證、migrate、harness | 完成 | `make -C backend check` 綠燈（本機）；mutation 10 項都讓指定測試失敗（default privileges、`GRANT … ON ALL TABLES`、`lock_timeout`（20s 逾時才失敗，有設定時 5.3s 結束）、`--url`、harness 改用 superuser、拿掉 txmode directive 並重算 atlas.sum、NewDB 漏 `GRANT CONNECT`、`_FILE` 兩者並存檢查、結尾換行、URL 帶密碼）；compose 驗收（ft-verify 隔離 worktree，`make init-env`）：migrate exit 0、`/health/ready` 200、backend 以 `fullstack_app` 連線、app 角色 `CREATE TABLE` 被拒、migrate 重跑 exit 0、`docker compose config` 中 backend 只有 `db_app_password`、migrate 只有 `db_owner_password`、frontend 沒有 secret 與 DB 變數 ；code review（獨立 subagent）7 項：1–6 已修（`7872d30`：initdb 缺密碼檔或空檔改為失敗並實測 exit 1、密碼改經 psql 環境、URL 的 `password` query 參數也拒絕、CI 兩個可能空過的斷言、`backend/.env-example`、init-env 拒絕空的殘留檔），7（`docs/deploy-vps.md` 過時）留給步驟 6 的 F10；GitGuardian 抓到 `command_test.go` 的測試假密碼（incident 38348098），check run 的 Skip 只放行單次，Will 選擇改寫歷史：`filter-branch` 把該檔在每個 commit 換成最終版本，最終 tree 與改寫前相同（`git diff` 為空），force push；PR #12 在 `5341e11` 的 `gh pr checks` 6 項全綠（GitGuardian：No secrets detected） | 無 | `c886bef`、`7872d30` |
-| 2b 資料層工具與模組邊界 | 未開始 | | | |
+| 2b 資料層工具與模組邊界 | 完成 | `make -C backend check` 綠燈（本機）；mutation（scratchpad 隔離 worktree）：只加 `zz/schema.sql` → drift 失敗且不寫進 repo，產生 migration 後通過；改 base 的 migration（含重算 `atlas.sum`）與刪除 → immutable 失敗；改檔不重算 → drift 失敗（checksum mismatch）；手寫無 `CONCURRENTLY` 的 `CREATE INDEX` → squawk 失敗，txmode none 檔內同樣寫法也失敗；Atlas 產生的 `CREATE TABLE`、單獨與混合的 `CONCURRENTLY` 檔 → squawk 通過，混合檔拿掉分組 → 失敗；query 改了不重生 → sqlc-diff 失敗；`bb` import `aa` → archtest 失敗；`aa` import `net/http` → archtest 與 depguard 都失敗；`Check` 不判模組間 → fixture 測試失敗；有 migration 沒有 schema.sql → drift 失敗；code review（獨立 subagent）：squawk 誤報混合檔（實測）已修、`main` 取消 run 讓 immutable 失效已修（不再 cancel）、測試檔跨模組 import 寫明為允許、drift 兩個邊界已修；`sqlc.yml` 等其他檔名不支援（慣例只用 `sqlc.yaml`）、squawk 也掃舊 migration（版本鎖死，升版時再處理）駁回；PR #12 在 `6d5b80b` 的 `gh pr checks` 6 項全綠 | 無 | `d2e067a`、`a09d553`、`6d5b80b` |
 | 2c 契約、problem、validator | 未開始 | | | |
 | 2d middleware 與分頁 | 未開始 | | | |
 | 2e CI 報表 | 未開始 | | | |
