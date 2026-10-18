@@ -16,9 +16,8 @@ import (
 
 var discard = slog.New(slog.DiscardHandler)
 
-func newTestHandler(ping func(context.Context) error) (http.Handler, *Readiness) {
-	ready := NewReadiness(ping)
-	return NewHandler(Deps{Ready: ready, Logger: discard}), ready
+func newTestHandler(ping func(context.Context) error) http.Handler {
+	return NewHandler(Deps{Ready: ping, Logger: discard})
 }
 
 func ok(context.Context) error { return nil }
@@ -45,45 +44,59 @@ func assertStatusBody(t *testing.T, rec *httptest.ResponseRecorder, code int, st
 }
 
 func TestHealth(t *testing.T) {
-	h, _ := newTestHandler(func(context.Context) error { return errors.New("db down") })
+	h := newTestHandler(func(context.Context) error { return errors.New("db down") })
 	// Liveness ignores dependencies: still 200 with the database down.
 	assertStatusBody(t, get(t, h, "/health"), http.StatusOK, "ok")
 }
 
 func TestReady(t *testing.T) {
-	h, _ := newTestHandler(ok)
+	h := newTestHandler(ok)
 	assertStatusBody(t, get(t, h, "/health/ready"), http.StatusOK, "ready")
 }
 
 func TestReadyDBDown(t *testing.T) {
-	h, _ := newTestHandler(func(context.Context) error { return errors.New("db down") })
+	h := newTestHandler(func(context.Context) error { return errors.New("db down") })
 	if rec := get(t, h, "/health/ready"); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
 }
 
-func TestReadyDuringShutdown(t *testing.T) {
-	h, ready := newTestHandler(ok)
-	srv := NewServer(h, DefaultTimeouts)
+func TestShutdownFinishesInFlightRequest(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /slow", func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := NewServer(mux, DefaultTimeouts)
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, srv, ready, 500*time.Millisecond, 5*time.Second, discard) }()
+	go func() { done <- Serve(ctx, ln, srv, 5*time.Second, discard) }()
 
-	url := "http://" + ln.Addr().String() + "/health/ready"
-	if code := status(t, url); code != http.StatusOK {
-		t.Fatalf("before shutdown: code = %d, want 200", code)
+	type result struct {
+		code int
+		err  error
 	}
+	got := make(chan result, 1)
+	go func() {
+		code, err := fetchStatus(t.Context(), "http://"+ln.Addr().String()+"/slow")
+		got <- result{code, err}
+	}()
+	<-started
 	cancel() // what signal.NotifyContext does on SIGTERM
-	deadline := time.Now().Add(400 * time.Millisecond)
-	for status(t, url) != http.StatusServiceUnavailable {
-		if time.Now().After(deadline) {
-			t.Fatal("readiness did not turn 503 during the drain delay")
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("Serve returned before the in-flight request finished: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if r := <-got; r.err != nil || r.code != http.StatusOK {
+		t.Fatalf("in-flight request: code = %d, err = %v, want 200", r.code, r.err)
 	}
 	select {
 	case err := <-done:
@@ -91,26 +104,25 @@ func TestReadyDuringShutdown(t *testing.T) {
 			t.Fatalf("Serve: %v", err)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Serve did not return after drain and shutdown")
+		t.Fatal("Serve did not return after shutdown")
 	}
 }
 
 // noKeepAlive dials a fresh connection per request. The default client's pool can leave a spare connection that
-// never sends a request; Shutdown treats such a StateNew connection as active for 5s, which made the test flaky.
+// never sends a request; Shutdown treats such a StateNew connection as active for 5s.
 var noKeepAlive = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 
-func status(t *testing.T, url string) int {
-	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+func fetchStatus(ctx context.Context, url string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		t.Fatal(err)
+		return 0, err
 	}
 	resp, err := noKeepAlive.Do(req)
 	if err != nil {
-		t.Fatalf("GET %s: %v", url, err)
+		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode
+	return resp.StatusCode, nil
 }
 
 // readsBody stands in for a handler that reads the body; it answers 413 when the body exceeds the limit.
@@ -169,7 +181,7 @@ func TestCrossOriginPostRejected(t *testing.T) {
 }
 
 func TestSlowHeaderClosed(t *testing.T) {
-	h, _ := newTestHandler(ok)
+	h := newTestHandler(ok)
 	timeouts := DefaultTimeouts
 	timeouts.ReadHeader = 100 * time.Millisecond
 	srv := NewServer(h, timeouts)
@@ -201,7 +213,7 @@ func TestSlowHeaderClosed(t *testing.T) {
 }
 
 func TestUnknownPathNotFound(t *testing.T) {
-	h, _ := newTestHandler(ok)
+	h := newTestHandler(ok)
 	if rec := get(t, h, "/nope"); rec.Code != http.StatusNotFound {
 		t.Fatalf("code = %d, want 404", rec.Code)
 	}

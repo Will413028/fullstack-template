@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"sync/atomic"
 	"time"
 )
 
@@ -43,42 +42,24 @@ func NewServer(h http.Handler, t Timeouts) *http.Server {
 	}
 }
 
-// Readiness reports whether this instance should receive new requests: not once shutdown starts, and not
-// while a dependency (the database) is unavailable.
-type Readiness struct {
-	ping     func(context.Context) error
-	draining atomic.Bool
-}
-
-// NewReadiness checks dependencies with ping.
-func NewReadiness(ping func(context.Context) error) *Readiness {
-	return &Readiness{ping: ping}
-}
-
-func (r *Readiness) check(ctx context.Context) error {
-	if r.draining.Load() {
-		return errors.New("shutting down")
-	}
-	return r.ping(ctx)
-}
-
 // Deps are the handler's dependencies, all supplied by the composition root (cmd/app).
 type Deps struct {
-	Ready  *Readiness
+	// Ready reports whether dependencies (the database) are available.
+	Ready  func(context.Context) error
 	Logger *slog.Logger
 }
 
 // NewHandler builds the public handler.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
-// 503 while a dependency is unavailable or shutdown is in progress.
+// 503 while a dependency is unavailable.
 func NewHandler(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
-		if err := deps.Ready.check(r.Context()); err != nil {
+		if err := deps.Ready(r.Context()); err != nil {
 			deps.Logger.WarnContext(r.Context(), "not ready", "error", err)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 			return
@@ -107,9 +88,13 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// Serve serves on ln until ctx ends, then shuts down gracefully: readiness turns 503 first and Serve waits
-// drain so the proxy takes this instance out of rotation, then closes within shutdownTimeout.
-func Serve(ctx context.Context, ln net.Listener, srv *http.Server, ready *Readiness, drain, shutdownTimeout time.Duration, logger *slog.Logger) error {
+// Serve serves on ln until ctx ends, then shuts down gracefully: Shutdown stops accepting connections and waits up
+// to shutdownTimeout for in-flight requests.
+//
+// There is no readiness drain before Shutdown: with one backend behind Caddy no load balancer reads readiness to
+// move traffic, and Caddy's lb_try_duration holds requests while the backend restarts. Add a drain together with
+// zero-downtime deploys, when the backend runs more than one replica (docs/adr/2026-10-18-api-and-auth-baseline.md).
+func Serve(ctx context.Context, ln net.Listener, srv *http.Server, shutdownTimeout time.Duration, logger *slog.Logger) error {
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
 	select {
@@ -117,9 +102,7 @@ func Serve(ctx context.Context, ln net.Listener, srv *http.Server, ready *Readin
 		return err
 	case <-ctx.Done():
 	}
-	ready.draining.Store(true)
-	logger.Info("shutting down", "drain", drain)
-	time.Sleep(drain)
+	logger.Info("shutting down", "timeout", shutdownTimeout)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

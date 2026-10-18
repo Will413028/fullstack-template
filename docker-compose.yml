@@ -29,8 +29,8 @@ services:
     build: ./backend
     image: fullstack-template-backend
     restart: unless-stopped
-    # covers the 5s readiness drain plus up to 20s of graceful shutdown
-    stop_grace_period: 30s
+    # longer than the 30s graceful shutdown, so in-flight requests finish before SIGKILL
+    stop_grace_period: 35s
     env_file: .env
     # loopback only: ports published by Docker bypass ufw
     ports:
