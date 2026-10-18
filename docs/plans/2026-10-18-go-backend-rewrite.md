@@ -68,8 +68,8 @@
 - **P9　開發熱重載**：用 `docker compose watch`（`develop.watch` 的 `rebuild`），不加 air（預設，可推翻）。
 - **P10　部署拓樸**：同源。
   - 正式環境：Caddy 跑在 compose 內（`deploy/Caddyfile`、`caddy` service），`/api/*` 轉給 backend，其餘轉給 Next。只有 Caddy 發佈 80/443，HSTS 也在 Caddy 設定。`SITE_ADDRESS` 決定站點位址，本機 `make up` 用 `:80`，搭配 `COOKIE_SECURE=false`。
-  - compose network 固定 subnet `172.30.0.0/24`，`TRUSTED_PROXIES` 設為這個 subnet。backend 不發佈 port，所以能連進 backend 的只有同 subnet 的 Caddy 與 Next。
-  - dev：`next dev` 的 `rewrites`（只在 `NODE_ENV=development` 生效）轉發 `/api`；dev compose 的 port 綁 `127.0.0.1`。
+  - compose network 固定 subnet `172.30.0.0/24`，動態配發限在 `172.30.0.128/25`；Caddy 固定 `172.30.0.2`，`TRUSTED_PROXIES` 只列 `172.30.0.2/32`（D18 修訂，原為整個 subnet）。backend 不發佈 port；Next 的 server 端呼叫不受信任，送什麼 `X-Forwarded-For` 都不影響 client IP。
+  - dev：`make dev` 也走 Caddy（D18），Caddy 的 port 綁 `127.0.0.1`，其餘 service 不發佈 port。`next dev` 的 `rewrites`（只在 `NODE_ENV=development` 生效）只用於在 host 上直接跑 `pnpm dev`。
   - 改用 compose 外的 proxy 時，要自行設定 `TRUSTED_PROXIES`，寫進 `docs/deploy-vps.md`。
 - **P11　repo 工具維持 Python**：`scripts/*.py`（rename、init_env）是 repo 工具，不是後端（預設，可推翻）。
 - **P12　本機 `.env` 由 Will 更新**（需要人做，見步驟 1）。agent 不讀 `.env`。新變數依 `.env-example`：
@@ -434,39 +434,48 @@
 - [ ] **5. 前端切換與同源部署**（被擋於：步驟 4b）
   - 範圍：
     - 盤點 F16–F22、F25–F27，以及 F6 的前端部分。
-    - 同源部署：`deploy/Caddyfile`，以及正式 compose 的 `caddy` service、固定 subnet、`TRUSTED_PROXIES`（P10、F5 的正式環境部分）。Caddyfile 的 `reverse_proxy backend` 設 `lb_try_duration 10s`，backend 重建期間把請求留住；不設 `health_uri`（單一 upstream，D14）。部署文件（F10）在步驟 6 改寫。
+    - 同源部署：`deploy/Caddyfile`，以及 compose 的 `caddy` service、固定 subnet 與 Caddy 的固定 IP、`TRUSTED_PROXIES`（P10、D18、F5）。Caddyfile 的 `reverse_proxy backend` 設 `lb_try_duration 10s`，backend 重建期間把請求留住；不設 `health_uri`（單一 upstream，D14）。轉給 backend 時以 `header_up` 覆寫 `X-Request-ID`：backend 信任 Caddy 送的 request id，Caddy 原樣轉送就等於信任 client（E5）。部署文件（F10）在步驟 6 改寫。
+    - `make dev` 走 Caddy（D18）；`make up`、`make dev` 印出的網址與 CI stack job 不再打 `127.0.0.1:8000`。
     - 用 `pnpm gen:api` 從 `../backend/api/openapi.yaml` 生成 `src/lib/api/schema.d.ts`。
-    - `src/lib/api/client.ts`：openapi-fetch，browser 端 baseUrl 是 `/api`，server 端是 `API_URL` 加上 `/api`。
+    - `src/lib/api/client.ts`：openapi-fetch，browser 端 baseUrl 是頁面 origin 加 `/api`，server 端是 `API_URL` 加上 `/api`。
     - `src/lib/api/errors.ts`：把 problem 轉成 next-intl 的訊息鍵。
+    - 契約把 `Problem.type`、`Problem.code`、`FieldError.code` 宣告成 enum（D18）；前端以型別檢查翻譯檔涵蓋每個值，後端測試檢查送出的 problem 都在 enum 內。
     - 登入的回應是 `Session`（D16），前端從 `.user` 取得使用者。
-    - `next.config.ts` 的 `rewrites`。
-    - `proxy.ts` 的 CSP 改成 `connect-src 'self'`。
+    - `next.config.ts` 的 `rewrites`（只給 host 上的 `pnpm dev`）。
+    - `proxy.ts`：只在完全沒有 session cookie 時把受保護頁導向 login；有 cookie 時不把 login 頁導走（cookie 可能已失效，見 wiki `tech/login-death-loop-stale-cookie`）；CSP 改成 `connect-src 'self'`。
+    - `getServerUser()`：只有 401 代表未登入；backend 連不上或 5xx 時拋出，交給 `error.tsx`，不當成登出。
+    - 註冊頁 `/register` 與 dashboard 的登出按鈕：端到端驗收要走註冊與登出，HEAD 的前端兩者都沒有（開工設計審查 2026-10-18）。
   - 消費端：
     - `rg -n "refresh|access_token|refresh_token|URLSearchParams|\.data\b|/auth/" frontend/src frontend/AGENTS.md frontend/README.md`
     - `rg -n NEXT_PUBLIC_API_URL . -g '!docs/adr/**' -g '!docs/plans/**' -g '!frontend/node_modules/**'`：步驟 5 完成時必須沒有結果
+    - `rg -n "8000" .github Makefile docker-compose*.yml`：只剩 backend 自己的 listen 與 healthcheck
   - 不能動：
     - I1–I3；
     - `getServerUser()` 仍然是真正的認證關卡（`frontend/AGENTS.md`）。
   - 驗收：
-    - `pnpm lint`、`pnpm test`、`pnpm build` 都綠燈。
+    - `pnpm lint`、`pnpm test`、`pnpm build` 都綠燈；`make -C backend check` 綠燈。
     - CI 新增一項：重新生成 `schema.d.ts` 後 diff 必須為空。
       - mutation：在 `openapi.yaml` 改一個欄位但不重新生成，CI 要失敗。
     - 新測試：
-      - 收到 401 時直接導向 login，不呼叫 `/auth/refresh`；
+      - 收到 401 時直接導向 login，不呼叫 `/auth/refresh`；登入的 401 留給表單；
       - problem 的 `code` 會轉成翻譯後的訊息；
-      - `proxy.ts` 只在有 session cookie 時放行受保護的路徑。
-      - mutation：在 `errors.ts` 改用 `detail` 顯示，翻譯測試要失敗。
-    - 正式 stack：`make build && make up`（`SITE_ADDRESS=:80`、`COOKIE_SECURE=false`）後：
+      - `proxy.ts` 只在有 session cookie 時放行受保護的路徑，有 cookie 時 login 頁照常顯示；
+      - `getServerUser()` 只在 401 回 null，backend 連不上時拋出；
+      - 翻譯檔缺少契約 enum 的任一值時 `pnpm lint` 失敗；後端送出 enum 外的 code 時測試失敗。
+      - mutation：在 `errors.ts` 改用 `detail` 顯示，翻譯測試要失敗；proxy 恢復「有 cookie 就把 login 導去 overview」，測試要失敗；`getServerUser` 改回連不上就回 null，測試要失敗；翻譯檔刪一個 code，`pnpm lint` 要失敗；後端送一個 enum 外的 code，測試要失敗。
+    - 正式 stack：`make build && make up`（`SITE_ADDRESS=:80`）後：
       - `curl -s -o /dev/null -w '%{http_code}' http://localhost/api/users/me` 回 `401`；
-      - 打一次 `POST http://localhost/api/sessions`，backend access log 的 `client_ip` 是 Caddy access log 的 `remote_ip`，不是 Caddy 容器自己的 IP（證明 `TRUSTED_PROXIES` 生效，E3 不會回來）；
-      - 同一個請求加上偽造的 `X-Forwarded-For: 192.0.2.1`，`client_ip` 仍是 `remote_ip`。Next 也在受信任的 subnet 內，所以 `client.ts` 的 server 端呼叫不得轉送收到的 `X-Forwarded-For`；轉送了，client 就能自選 per-IP 限流的 key（2d code review 2026-10-18）；
+      - 打一次 `POST http://localhost/api/sessions`，backend access log 的 `client_ip` 是 Caddy access log 的 `remote_ip`，不是 Caddy 的 IP（證明 `TRUSTED_PROXIES` 生效，E3 不會回來）；
+      - 同一個請求加上偽造的 `X-Forwarded-For: 192.0.2.1`，`client_ip` 仍是 `remote_ip`；
+      - 送 `X-Request-ID: client-chosen`，回應的 `X-Request-ID` 不是它（E5）；
       - `docker compose ps` 顯示只有 caddy 發佈 port。
-    - 端到端：在上述正式 stack 上用瀏覽器（Claude in Chrome）錄 GIF，走完：
+    - 端到端：在上述正式 stack、`COOKIE_SECURE=true`（cookie 是 `__Host-session`，D18；Chrome 把 `http://localhost` 當安全來源，開跑前先實測，不成立就改用 Caddy `tls internal`）上，用瀏覽器（Claude in Chrome）錄 GIF，走完：
       1. 註冊；
       2. 進入 overview；
       3. 重新整理後仍是登入狀態，證明 SSR 讀得到 cookie（E11）；
       4. 登出；
       5. 被導回 login。
+    - `make dev` 起得來，經 Caddy 的 `http://localhost/api/users/me` 回 401、首頁 200。
     - PR CI 綠燈。
 - [ ] **6. 外圍與文件**（被擋於：步驟 4、5）
   - 範圍：
@@ -593,7 +602,15 @@
     - (b) 合併後要對既有表做 expand 時，純資料的 backfill 用 `atlas migrate new` 手寫，DDL 仍只由 diff 產生。
   - ADR：`docs/adr/2026-10-18-go-backend.md`（D2 修訂）。
 
-拍板順序：全部已決（D16、D17 於 2026-10-18 拍板）。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
+- **D18 步驟 5 的信任範圍、dev 路徑、驗收組態與錯誤碼**（已決 2026-10-18，Will 四題都照建議；擋住：5）
+  - 來源：步驟 5 開工的設計審查（獨立 subagent，2026-10-18）。
+  - (a) `TRUSTED_PROXIES` 只信任 Caddy 的固定 IP，不信任整個 subnet。基準：MDN「X-Forwarded-For」只信任已知 proxy；Caddy `trusted_proxies` 逐一列出。原寫法讓 Next、postgres、migrate 也成了可信 proxy，只能靠「Next 不轉送 XFF」這條人為規則守住。
+  - (b) 正式 stack 的端到端驗收用 `COOKIE_SECURE=true`，驗正式的 `__Host-session`（E11 的回歸驗收要驗正式組態）。`make up` 的預設仍是 `COOKIE_SECURE=false`（Safari，P13）。
+  - (c) `make dev` 也走 Caddy（The Twelve-Factor App「Dev/prod parity」）；`rewrites` 只給 host 上的 `pnpm dev`。
+  - (d) 契約把 problem 的 `type`、`code` 與 `FieldError.code` 宣告成 enum，前後端都由測試對照。`FieldError` 帶參數（例如最短長度）延後，觸發：第一個需要在訊息裡顯示限制數字的表單。
+  - ADR：`docs/adr/2026-10-18-api-and-auth-baseline.md`（D1、D3 修訂）。
+
+拍板順序：全部已決（D16、D17 於 2026-10-18 拍板，D18 同日）。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
 
