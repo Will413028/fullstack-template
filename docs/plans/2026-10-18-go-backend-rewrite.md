@@ -223,7 +223,7 @@
     - Atlas CLI 無法在 distroless 執行 → 回報；改用 Debian slim 之前先問。
   - 需要人做的事：Will 依 P12 更新本機 `.env`。
   - 完成後的狀態：前端登入暫時不能用。步驟 1–5 全部完成才合併。
-- [ ] **2. 共用平台**（被擋於：步驟 1）
+- [x] **2. 共用平台**（被擋於：步驟 1）
   - 步驟 2 拆成 2a–2e，各自有驗收，一個 session 不跨子步驟（2026-10-18 拆）。順序依相依：2a 的 harness 給 2b 的漂移檢查與之後的模組測試用；2d 的 429 與 request id 要用 2c 的 problem。步驟 2 完成 = 2a–2e 都完成。
   - 消費端（整個步驟 2）：無外部消費端，模組在步驟 3、4 才接上。各子步驟另列會受影響的既有檔案。
   - 不能動（整個步驟 2）：I2 的欄位名；步驟 1 的 timeout、body 上限、shutdown 行為與其測試。
@@ -301,7 +301,7 @@
       - access log 有 `duration_ms` 與 `client_ip`。
       - cursor：編碼後解碼得回同一個 id；竄改過的 cursor 回 422。mutation：解碼不檢查長度，測試要失敗。
       - `make -C backend check` 綠燈、PR CI 綠燈。
-  - [ ] **2e. CI 報表**（被擋於：2c）
+  - [x] **2e. CI 報表**（被擋於：2c）
     - 範圍：
       - oasdiff v1.33.0：比對 `origin/main` 的 `backend/api/openapi.yaml`，有 breaking change 就失敗；`main` 上沒有這個檔時印出跳過的原因並通過。
       - coverage：`go test -coverprofile`，gocover-cobertura v1.5.0 轉 Cobertura，PR 上用 diff-cover 10.5.1 算 changed-line coverage；兩個數字寫進 job summary，不設門檻（`AGENTS.md` Verification）。
@@ -323,6 +323,7 @@
     - `internal/httpapi`：
       - `auth.go`、`users.go`：盤點 A3、A4、A6、A7、A12。
       - `authz.go`：`requireRole`，對應 I6。
+      - per-IP limiter（2d）：把 `createUser`、`createSession` 加進 `server.go` 的 `limitOperations(limiter, …)`（目前沒有傳 operation id，所以 limiter 不套用到任何 operation）。驗收：兩個 operation 超限時回 429 帶 `Retry-After`；mutation：從清單拿掉 `createSession`，測試要失敗。
     - `internal/platform/authctx`。
     - 若在 `openapi.yaml` 宣告 `securitySchemes`／`security`，validator 的 `openapi3filter.Options` 要設 `AuthenticationFunc`；不設時每個帶 `security` 的請求都會因 `ErrAuthenticationServiceMissing` 回 422 `invalid`（kin-openapi `validate_request.go:439`；2c code review 2026-10-18）。
     - 用 `atlas migrate diff baseline` 產生 baseline migration。產生前把 `atlas.hcl` 的 dev URL 改成 schema scope（`docker://postgres/18/dev?search_path=public`），因為所有表都在 `public`；重新評估：某個模組需要自己的 PG schema 時（設計審查 2026-10-18）。產生後用 community 版對全新 DB 套用一次，確認 revision 表位置。
@@ -527,7 +528,7 @@
 | 2b 資料層工具與模組邊界 | 完成 | `make -C backend check` 綠燈（本機）；mutation（scratchpad 隔離 worktree）：只加 `zz/schema.sql` → drift 失敗且不寫進 repo，產生 migration 後通過；改 base 的 migration（含重算 `atlas.sum`）與刪除 → immutable 失敗；改檔不重算 → drift 失敗（checksum mismatch）；手寫無 `CONCURRENTLY` 的 `CREATE INDEX` → squawk 失敗，txmode none 檔內同樣寫法也失敗；Atlas 產生的 `CREATE TABLE`、單獨與混合的 `CONCURRENTLY` 檔 → squawk 通過，混合檔拿掉分組 → 失敗；query 改了不重生 → sqlc-diff 失敗；`bb` import `aa` → archtest 失敗；`aa` import `net/http` → archtest 與 depguard 都失敗；`Check` 不判模組間 → fixture 測試失敗；有 migration 沒有 schema.sql → drift 失敗；code review（獨立 subagent）：squawk 誤報混合檔（實測）已修、`main` 取消 run 讓 immutable 失效已修（不再 cancel）、測試檔跨模組 import 寫明為允許、drift 兩個邊界已修；`sqlc.yml` 等其他檔名不支援（慣例只用 `sqlc.yaml`）、squawk 也掃舊 migration（版本鎖死，升版時再處理）駁回；PR #12 在 `6d5b80b` 的 `gh pr checks` 6 項全綠 | 無 | `d2e067a`、`a09d553`、`6d5b80b` |
 | 2c 契約、problem、validator | 完成 | `make -C backend check` 綠燈（本機，含新加的 gen-check）；mutation（scratchpad 隔離 worktree）21 項都讓指定測試失敗：第一輪 13 項（minLength 改 `invalid`、拿掉 recover、拿掉 deny handler、500 帶錯誤字串、拿掉 uuid format、拿掉 415、prod 也掛文件、validator 內不轉 413、壞 JSON 改 422、unknown property 不拆、ready 503 改回非 problem，以及改 spec 不重生 → `make gen-check` 失敗）、review 修正後 8 項（已開始回應後 panic／error 仍附加 problem、接受 JSON 後的尾巴、415 回顯 header、空值回 `required`、body 讀取失敗回 422、binder 錯誤回 400 並回顯、decode 型別錯誤回 400）；code review（獨立 subagent）0 HIGH、2 MED、6 LOW：D1（binder 與 kin-openapi 解析不一致時回 400 並回顯）、D2（已開始回應後的 panic）、D3、D4、D6、D7、D8（prod compose 預設 `MODE=prod`）已修，D5（405 缺 `Allow`）駁回：kin-openapi 的 router 不回報該路徑允許的方法，要自己重做一次路由比對，契約也沒有要求 405；後續步驟會踩到的三點寫進 2d、3、4。實作與計畫字面不同處：dev 文件路由用 mux 在 validator 前攔下，取代 `Options.Skipper`（效果相同，且 POST 等其他方法仍經 validator 回 problem，reviewer 實測）；`/health/ready` 的 503 與 `/api` 外未定義路徑也回 problem（I2）；uuid format 全域註冊（kin-openapi 的 document 範圍 format 不套用到參數）。swagger-ui-dist 5.33.0 發布於 2026-09-16（npm registry），SRI 由 jsDelivr 下載的檔案以 `openssl dgst -sha384` 算出；PR #12 在 `bdb9ba5` 與 `4c12ebb` 的 `gh pr checks` 都是 6 項全綠 | 無；不在本步驟範圍：D1 的修正走過生成碼的端到端驗證，要等有真正的 operation（列為步驟 4 的驗收） | `bdb9ba5`、`4c12ebb` |
 | 2d middleware 與分頁 | 完成 | `make -C backend check` 綠燈（本機，含 `go test -race`）；mutation（scratchpad 副本）13 項都讓指定測試失敗：拿掉 request id 格式檢查、不受信任來源的 request id 也採用、request id 移到 `recoverPanics` 內層（panic log 沒有 `request_id`）、problem 不帶 `request_id`、拿掉 `no-store`、一律採用 XFF（`TestClientIP` 與 `TestRateLimitIgnoresXFFFromUntrustedPeer`）、limiter 套到所有 operation、sweep 刪掉未閒置的 bucket、sweep 不刪除、access log 的 path 帶 query、cursor 解碼不檢查長度，以及 review 修正後的 IPv6 不以 /64 為 key、abort 時記 implicit 200、`statusWriter` 拿掉 `Unwrap`；code review（獨立 subagent）0 HIGH、1 MED、3 LOW：D1（IPv6 每個位址各一個 bucket，改以 /64 為 key）、D2（abort 前沒寫出東西時 access log 記成 200）、D4（`Unwrap` 沒有測試，補 `ResponseController` 的 Flush 測試）已修；D3（RemoteAddr 解析不出來時大家共用一個 bucket）駁回：`http.Server` 走 TCP 時 RemoteAddr 一定是 `ip:port`。reviewer 指出 Next 也在受信任的 subnet，已寫進步驟 5 的驗收。實作與計畫字面不同處：安全標頭套到所有回應，不只 `/api`，因為 COP 的 403、413 與 panic 的 500 都在 mux 外層產生，而且對 `/health` 與 dev 文件無害（reviewer 確認）；限流做成 strict middleware 並以 operationID 指定，在 validator 之後執行，被契約擋下的請求不扣額度；`/health` 的 access log 用 debug 等級（容器探針每幾秒呼叫一次）；problem 的 `request_id` 寫進 `openapi.yaml`（I1）。PR #12 在 `65d4924` 的 `gh pr checks` 6 項全綠 | 無 | `65d4924` |
-| 2e CI 報表 | 未開始 | | | |
+| 2e CI 報表 | 完成 | `make -C backend check` 綠燈（本機，`api-breaking` 已加入 `check`）；oasdiff：PR #12 的 backend job log 印出 `the base has no api/openapi.yaml, skipping the breaking-change check`；scratchpad 隔離 worktree 以帶 operation 的 spec 為 base commit（分支上的 `openapi.yaml` 是 `paths: {}`，oasdiff 只比 operation），刪掉 response 的 required 欄位 → `response-required-property-removed`、exit 1，未改 → exit 0；mutation：拿掉 `--fail-on ERR` → 同一個 breaking change exit 0（所以這個旗標是必要的）；coverage：`go test -coverpkg=./... -coverprofile`，gocover-cobertura `-ignore-gen-files`，PR #12 的 backend job summary 有 total（80.8%，760/941 行）與 diff-cover（對 `origin/main`，80%）；shellcheck、actionlint 通過；code review（獨立 subagent）NO DEFECTS FOUND；PR #12 在 `71f2b30` 的 `gh pr checks` 6 項全綠 | 無 | `71f2b30` |
 | 3 auth | 未開始 | | | |
 | 4 items | 未開始 | | | |
 | 5 前端切換 | 未開始 | | | |
