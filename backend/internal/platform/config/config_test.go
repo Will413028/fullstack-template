@@ -25,7 +25,7 @@ func TestConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Mode != "dev" || cfg.HTTPAddr != ":8000" || !cfg.CookieSecure {
+	if cfg.Mode != "prod" || cfg.HTTPAddr != ":8000" || !cfg.CookieSecure {
 		t.Errorf("mode=%q addr=%q secure=%v", cfg.Mode, cfg.HTTPAddr, cfg.CookieSecure)
 	}
 	if cfg.SessionAbsolute != 168*time.Hour || cfg.SessionIdle != 24*time.Hour {

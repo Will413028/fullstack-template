@@ -88,14 +88,18 @@ func withRequestInfo(t trust, h http.Handler) http.Handler {
 	})
 }
 
-// securityHeaders sets the headers OWASP's HTTP Headers Cheat Sheet recommends for a JSON API. X-Frame-Options,
-// Permissions-Policy and X-XSS-Protection do nothing for JSON (the last one enables an XS-Leak); HSTS is Caddy's.
+// securityHeaders sets the headers OWASP's REST Security Cheat Sheet recommends for API responses a browser reads:
+// the API is same-origin with cookies, so a browser does read them. frame-ancestors 'none' stops drag-and-drop
+// clickjacking, and X-Frame-Options: DENY does the same for browsers without CSP Level 2. Permissions-Policy and
+// X-XSS-Protection do nothing for JSON (the last one enables an XS-Leak); HSTS is Caddy's.
 func securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hdr := w.Header()
 		hdr.Set("X-Content-Type-Options", "nosniff")
 		hdr.Set("Cache-Control", "no-store")
 		hdr.Set("Referrer-Policy", "no-referrer")
+		hdr.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		hdr.Set("X-Frame-Options", "DENY")
 		h.ServeHTTP(w, r)
 	})
 }

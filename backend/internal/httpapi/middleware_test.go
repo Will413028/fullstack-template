@@ -164,12 +164,13 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for k, v := range map[string]string{
 				"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+				"Content-Security-Policy": "frame-ancestors 'none'", "X-Frame-Options": "DENY",
 			} {
 				if got := rec.Header().Get(k); got != v {
 					t.Errorf("%s = %q, want %q", k, got, v)
 				}
 			}
-			for _, k := range []string{"X-XSS-Protection", "X-Frame-Options", "Permissions-Policy"} {
+			for _, k := range []string{"X-XSS-Protection", "Permissions-Policy"} {
 				if got := rec.Header().Get(k); got != "" {
 					t.Errorf("%s = %q, want absent", k, got)
 				}

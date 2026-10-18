@@ -87,6 +87,8 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 
 - 2026-10-18（Will 照建議，計畫 D17）：給既有的 sessions 表加 `id … DEFAULT uuidv7()` 被 squawk 擋下（volatile default 會重寫表）。D2 的不可變規則原本寫「baseline 之後」，但它要保護的是已經套用過這些 migration 的資料庫，而合併前不存在這樣的資料庫：`origin/main` 沒有 migration、範本沒有部署。所以把 PR #12 上未發布的 migration 重新產生成一支 baseline，規則改以「合併進 `main`」為界，由 `migrations-immutable` 以 `main` 為基準守住。合併後對既有表加 volatile default 或 NOT NULL 時要走 expand 步驟，其中的資料 backfill 是 diff 產生不了的，所以「不手寫」改為只限 DDL。
 
+- 2026-10-19（Will 照建議，收尾的設計審查）：HTTP 層用 oapi-codegen strict server 加 kin-openapi validator，每個 request 會被解析兩次，兩邊對同一份輸入的判斷不完全相同（例如 binder 拒收 kin-openapi 放行的 `0x10`）。`internal/httpapi` 的 `validate.go` 與 `bind.go` 合計 353 行（含 validator 本身的掛載），大半是把兩邊的錯誤統一成同一種 422 problem 的轉接碼。只解析一次的替代做法是 [ogen](https://github.com/ogen-go/ogen)，沒有實測。決定保留現狀：和 FathomPod、dailyfresh 用同一套 stack，換來的是跨專案共用知識與修正。代價是這層轉接碼要跟著兩個套件的行為維護。重新評估的觸發：轉接層要再加一類新的特例，或 FathomPod 換掉 oapi-codegen。
+
 ## Related
 
 - 來源：repo 擁有者於 2026-10-18 與 coding agent 討論後當場拍板（D6 第二次拍板「照業界基準」）。本 ADR 即原始紀錄，沒有外部來源文件。

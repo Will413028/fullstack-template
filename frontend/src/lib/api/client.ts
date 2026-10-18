@@ -6,9 +6,9 @@ import type { paths } from "./schema";
 // without CORS. Server-side code has no page origin and calls the backend
 // directly at API_URL.
 //
-// Only the headers a caller passes are sent. In particular a server-side call
-// never forwards the incoming X-Forwarded-For: Next is a trusted proxy, so the
-// client could otherwise choose its own rate-limit key.
+// Only the headers a caller passes are sent. The backend trusts only Caddy
+// (TRUSTED_PROXIES), so a server-side call is rate-limited as Next's own
+// address whatever X-Forwarded-For it carries.
 function baseUrl(): string {
   if (typeof window !== "undefined") return `${window.location.origin}/api`;
   return `${process.env.API_URL || "http://localhost:8000"}/api`;
