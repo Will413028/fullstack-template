@@ -79,7 +79,7 @@
   - **`http.Server` timeout 與 gosec G112：已確認。** 欄位有 `ReadTimeout`、`ReadHeaderTimeout`、`WriteTimeout`、`IdleTimeout`、`MaxHeaderBytes`。`ReadHeaderTimeout` 為 0 時沿用 `ReadTimeout`，兩者都是 0 就沒有 timeout；`IdleTimeout` 同理（[go1.27.2 `src/net/http/server.go:3089-3118`](https://raw.githubusercontent.com/golang/go/go1.27.2/src/net/http/server.go)）。G112 只檢查 `http.Server{...}` literal 裡有沒有寫 `ReadHeaderTimeout` 或 `ReadTimeout` 這個 key，不看值，事後賦值（`srv.ReadHeaderTimeout = …`）也不算（[gosec `rules/slowloris.go`](https://github.com/securego/gosec/blob/master/rules/slowloris.go)）。所以 G112 擋不住設成 0；B19 的 timeout 要靠 `TestSlowHeaderClosed` 守住，不能靠 lint。
   - **Docker 發佈的 port 繞過 ufw：已確認。** Docker 文件：發佈 port 後，封包「are routed before the firewall rules can be applied, effectively ignoring your firewall configuration」（[Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)）。P10 的設計因此不變：只有 Caddy 發佈 port，dev compose 綁 `127.0.0.1`。
   - **Atlas community 版：不成立，已由 D12 處理。** 下載 URL `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-<ver>` 確認是 community 版。但 FathomPod 在 v1.1.3 實測過：community 版不接受多個 schema 檔的 `src`，`concurrent_index` 產的檔也不加 `-- atlas:txmode none`（wiki `tech/atlas-migrate-ci-gate` Gotcha 6、Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`）。所以 FathomPod 改成產生 migration 與漂移檢查用 standard 版、image 內套用用 community 版（`backend/Dockerfile:15-27`、`.github/workflows/ci.yml:93-97`）。這和 I5 的「各模組一份 `schema.sql`」直接衝突，觸發步驟 0 的停止條件；Will 選擇照 FathomPod 分兩個版本別（D12）。
-  - **Atlas 與 pgx 的 `sslmode` 預設：不同。** Atlas v1.3.0 用 `lib/pq` v1.12.0（`cmd/atlas/go.mod:20`），它的預設是 `require`（`connector.go:61`）；pgx v5.11.0 照 libpq 預設 `prefer`（`pgconn/config.go:296-302`）。compose 內的 PostgreSQL 沒開 TLS，所以 Atlas 不帶參數會連不上。改法：`.env-example` 的 `DATABASE_URL` 直接寫 `?sslmode=disable`（FathomPod `backend/deploy/compose.yaml:102,117` 也帶這個參數）。步驟 1 實測：community v1.1.3 不帶參數時回 `pq: SSL is not enabled on the server`。FathomPod 的 migrate 與 serve 用不同的 DB 角色，本範本目前共用一個，見 D15。
+  - **Atlas 與 pgx 的 `sslmode` 預設：不同。** Atlas v1.3.0 用 `lib/pq` v1.12.0（`cmd/atlas/go.mod:20`），它的預設是 `require`（`connector.go:61`）；pgx v5.11.0 照 libpq 預設 `prefer`（`pgconn/config.go:296-302`）。compose 內的 PostgreSQL 沒開 TLS，所以 Atlas 不帶參數會連不上。改法：`.env-example` 的 `DATABASE_URL` 直接寫 `?sslmode=disable`（FathomPod `backend/deploy/compose.yaml:102,117` 也帶這個參數）。步驟 1 實測：community v1.1.3 不帶參數時回 `pq: SSL is not enabled on the server`。FathomPod 的 migrate 與 serve 用不同的 DB 角色；本範本照 D15 分成 owner 與 app，密碼改由 `*_FILE` 傳入，不在 URL 裡。
   - **`http://localhost` 上的 `Secure` cookie：已確認，不影響設計。** Chrome 與 Firefox 接受；Safari 拒收 `Secure`、`__Host-`、`__Secure-`（[WebKit bug 231035](https://bugs.webkit.org/show_bug.cgi?id=231035)、[httpwg issue 2605](https://github.com/httpwg/http-extensions/issues/2605)，屬推論：bug 報告是 2021–2024 年的，沒有在當前 Safari 實測）。`COOKIE_SECURE=false` 時 cookie 改名為 `session`、不帶 `Secure`，三家都能用。
 
 - **P14　核准的依賴**（Will 2026-10-18 核准；查證日 2026-10-18，冷卻期截止 2026-09-18；OSV 查過，只有 x/crypto 的 GO-2026-5932，影響 `openpgp`，本專案不用）。清單外的套件或換版本仍照全域約束「依賴」：
@@ -135,7 +135,9 @@
   - MFA，或改用代管認證。觸發：需要 MFA、SSO 或第三方登入。
   - OpenTelemetry tracing。觸發：第一個接上 tracing 後端的部署。
   - 背景工作（River）。觸發：出現第一個非同步工作。
-  - 多實例的 rate limit 改用 DB 或 proxy 層。觸發：backend 跑超過一個 replica。
+  - 多實例：rate limit 改用 DB 或 proxy 層；零停機部署（docker-rollout 模式：Caddy 動態 upstream 加 `health_uri`、backend 不設 `ports`、shutdown 前加回 readiness drain）。觸發（任一）：backend 跑超過一個 replica、某個下游要求部署不能停機、改用 Kamal 或 Swarm（D14）。
+  - managed Postgres（RDS 之類，`docker-entrypoint-initdb.d` 不會執行）：角色改由 runbook 以 superuser 建立，寫進 `docs/deploy-vps.md`。觸發：第一個用 managed DB 的下游（D15）。
+  - `pg_hba` 只允許 superuser 從容器內的 socket 連線。觸發：D15 完成後的加固，或第一個正式部署（D15）。
   - OpenAPI 3.1。觸發：oapi-codegen 宣布 3.1 支援穩定。
 
 ## 步驟
@@ -176,12 +178,12 @@
     - 建立 Go 骨架：
       - `go.mod`；`cmd/app`，子指令 `serve` 與 `healthcheck`（盤點 B22，設計審查補列）。
       - `internal/platform/config`（盤點 D 段、E10）、`internal/platform/logx`（slog）。
-      - `internal/httpapi/server.go`：盤點 B19 的 timeout、body 上限、graceful shutdown；`CrossOriginProtection`（B21）。
+      - `internal/httpapi/server.go`：盤點 B19 的 timeout、body 上限、graceful shutdown（SIGTERM 後直接 `Shutdown`，上限 30s，D14）；`CrossOriginProtection`（B21）。
       - `GET /health`、`GET /health/ready`（E7）。
     - 建立 Atlas 設定：`atlas.hcl`、空的 `migrations/`。
     - 建置與部署：
       - `backend/Dockerfile`：multi-stage，內附 Atlas community CLI（P14 的 URL 與 checksum，`sha256sum -c` 驗證）。
-      - `docker-compose*.yml`（F5）：migrate 與 backend 共用同一個 image（只 build 一次）；backend 的 `healthcheck`；PG 18 的 volume 掛在 `/var/lib/postgresql`（既有缺陷：掛在 `.../data` 時 `postgres:18` 拒絕啟動）；backend `stop_grace_period: 30s`。
+      - `docker-compose*.yml`（F5）：migrate 與 backend 共用同一個 image（只 build 一次）；backend 的 `healthcheck`；PG 18 的 volume 掛在 `/var/lib/postgresql`（既有缺陷：掛在 `.../data` 時 `postgres:18` 拒絕啟動）；backend `stop_grace_period: 35s`（大於 30s 的 shutdown 上限，D14）。
       - `backend/Makefile`：`check` 先包含 gofmt、golangci-lint、`go test -race`、govulncheck。
       - root `Makefile` 的 `migration`、`generate-migration`、`dev`（F4 前半）。
     - 在 root `AGENTS.md`、`backend/AGENTS.md`、`docs/rules/*` 開頭加上改寫期間的提示行（見全域約束）。
@@ -204,7 +206,9 @@
     - `docker compose stop postgres` 後，`/health/ready` 回 503。這一步只斷言 status code，problem 格式在步驟 2 驗收。
       - `TestReadyDBDown` 用注入的 fake pinger，不需要 DB。
       - mutation：把 503 改回 500，`TestReadyDBDown` 要失敗。
-    - 送出 SIGTERM 後，`/health/ready` 在 shutdown 期間回 503（`TestReadyDuringShutdown`）。
+    - 送出 SIGTERM 後，進行中的請求做完才結束（`TestShutdownFinishesInFlightRequest`）。
+      - mutation：`Shutdown` 換成 `Close`，測試要失敗。
+    - `docker compose stop backend` 以 exit 0 結束（不被 SIGKILL）。
     - `TestBodyTooLarge` 回 413。
       - mutation：拿掉 `MaxBytesReader`，測試要失敗。
     - `TestSlowHeaderClosed`：測試把 `ReadHeaderTimeout` 設成 100ms，慢慢送 header，連線要被關閉。
@@ -221,6 +225,11 @@
   - 完成後的狀態：前端登入暫時不能用。步驟 1–5 全部完成才合併。
 - [ ] **2. 共用平台**（被擋於：步驟 1）
   - 範圍：
+    - DB 角色與憑證（D15）：
+      - `deploy/postgres/initdb/10-roles.sh`（`docker-entrypoint-initdb.d`）：建 `<app>_owner`（擁有 database 與 `public` schema，非 superuser、無 CREATEROLE）與 `<app>_app`（只有 CONNECT）；`REVOKE ALL ON DATABASE … FROM PUBLIC`。`POSTGRES_USER` 只用於初始化與容器內維運。
+      - `cmd/app migrate`：以 owner 身分執行 `atlas migrate apply`（URL 經環境變數傳給 Atlas，不上命令列；連線帶 `lock_timeout=5s`，盤點 B7），接著冪等授權：`GRANT USAGE ON SCHEMA public`、`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES` 與 sequences 權限、`ALTER DEFAULT PRIVILEGES IN SCHEMA public`。compose 的 migrate service 改跑 `app migrate`。
+      - 憑證：compose `secrets` 掛檔，搭配 `*_FILE`：postgres 用 `POSTGRES_PASSWORD_FILE`；config 支援 `<KEY>_FILE`（同時設定 KEY 與 KEY_FILE 是錯誤）；`DATABASE_URL` 不含密碼，另讀 `DATABASE_PASSWORD_FILE`，migrate 讀 owner 的 URL 與密碼檔。每個 service 只拿自己的變數與 secret，不再共用 `env_file: .env`。
+      - `.env-example`、`make init-env`（`scripts/init_env.py` 產生 secret 檔）、`.gitignore` 跟著改。
     - 契約與生成：
       - `api/openapi.yaml` 骨架，含共用 schema `Problem`、`ValidationProblem`，以及 cursor 分頁參數。
       - oapi-codegen 生成到 `internal/httpapi/gen`。
@@ -235,8 +244,7 @@
       - per-IP rate limiter（B6、E3）。
     - 分頁：`internal/platform/httpx` 的 cursor 編碼與解碼（B9）。
     - 資料層工具：sqlc、squawk、兩支 schema 腳本（I5）、`concurrent_index` policy。
-    - 測試 harness：testcontainers 起 PG 18，用 community 版 Atlas（與 image 相同的版本與 checksum）套用 `migrations/`；附一支帶 `-- atlas:txmode none` 的 testdata migration，確認套用端遵守 directive（設計審查 2026-10-18）。
-    - migrate 連線的 `lock_timeout`（盤點 B7）：`DATABASE_URL` 之外另傳帶 `options=-c lock_timeout=5s` 的 URL，或比照 FathomPod 包一層 `app migrate`，與 squawk 一起決定寫法。
+    - 測試 harness：testcontainers 起 PG 18，以同一支 `10-roles.sh` 初始化（`postgres.WithInitScripts`），用 `app migrate` 的同一段程式以 owner 身分、community 版 Atlas（與 image 相同的版本與 checksum）套用 `migrations/` 並授權，測試以 app 角色連線；附一支帶 `-- atlas:txmode none` 的 testdata migration，確認套用端遵守 directive（設計審查 2026-10-18）。
     - 架構測試：用 `go list -deps` 斷言 `internal/modules/<x>` 不 import 其他模組、不 import `net/http`，取代「新增模組時手動補 depguard 規則」。mutation：在暫時的兩個模組間加 import，測試要失敗。
     - problem 轉換也涵蓋 `*http.MaxBytesError` → 413 與 `CrossOriginProtection` 的拒絕（`SetDenyHandler`）→ 403 problem。
     - dev 文件：`GET /api/openapi.yaml` 與 Swagger UI。
@@ -252,6 +260,10 @@
   - 消費端：無外部消費端（模組在步驟 3、4 才接上）。
   - 不能動：I2 的欄位名。
   - 驗收（各條測試對應 `test-map.md` 的新增列；每個 mutation 都必須讓測試失敗）：
+    - `TestAppRoleCannotDDL`：app 角色執行 `CREATE TABLE`、`DROP TABLE` 都失敗，`SELECT`／`INSERT` 成功。mutation：harness 改用 owner 連線，測試要失敗。
+    - `TestMigrateGrantsIdempotent`：`app migrate` 連跑兩次都成功；先建表再跑一次，app 角色對新表有 DML 權限。mutation：拿掉 `ALTER DEFAULT PRIVILEGES` 與 `GRANT … ON ALL TABLES`，測試要失敗。
+    - config：同時設定 `DATABASE_PASSWORD` 與 `DATABASE_PASSWORD_FILE` 時啟動失敗；`_FILE` 讀檔去掉結尾換行。
+    - compose：`docker compose config` 中 backend 與 frontend 看不到 `POSTGRES_PASSWORD`；CI 的 stack job 仍綠燈。
     - 測試方式：validator、rate limiter 與 problem 都用 `internal/httpapi/testdata/test-openapi.yaml` 加 stub handler 驗收，因為真正的 operation 要到步驟 3、4 才有。
     - 違反 `minLength` 的 request 回 422，且 `errors[0]` 有 `pointer` 與 `code: too_short`。
       - mutation：把 code 對照表的 `minLength` 改成回 fallback `invalid`，測試要失敗。
@@ -338,7 +350,7 @@
 - [ ] **5. 前端切換與同源部署**（被擋於：步驟 4）
   - 範圍：
     - 盤點 F16–F22、F25–F27，以及 F6 的前端部分。
-    - 同源部署：`deploy/Caddyfile`，以及正式 compose 的 `caddy` service、固定 subnet、`TRUSTED_PROXIES`（P10、F5 的正式環境部分）。部署文件（F10）在步驟 6 改寫。
+    - 同源部署：`deploy/Caddyfile`，以及正式 compose 的 `caddy` service、固定 subnet、`TRUSTED_PROXIES`（P10、F5 的正式環境部分）。Caddyfile 的 `reverse_proxy backend` 設 `lb_try_duration 10s`，backend 重建期間把請求留住；不設 `health_uri`（單一 upstream，D14）。部署文件（F10）在步驟 6 改寫。
     - 用 `pnpm gen:api` 從 `../backend/api/openapi.yaml` 生成 `src/lib/api/schema.d.ts`。
     - `src/lib/api/client.ts`：openapi-fetch，browser 端 baseUrl 是 `/api`，server 端是 `API_URL` 加上 `/api`。
     - `src/lib/api/errors.ts`：把 problem 轉成 next-intl 的訊息鍵。
@@ -460,16 +472,18 @@
 - **D13 冷卻期的安全修補例外**（已決 2026-10-18，Will 照建議）
   - 寫在全域約束「依賴」。依據：Dependabot 的 cooldown 不擋安全更新；Go 1.27.2 修 `net/http`、`crypto/tls`，Caddy 2.11.4 有 GHSA-8qx7-j2v2-x6q5（≥2.11.5 修掉）。
 
-- **D14 shutdown 的 readiness drain**（未決，等 Will；擋住：步驟 1 收尾）
-  - 問題：B19 規定 SIGTERM 後 readiness 先回 503、等 5s 再 `Shutdown`。設計審查指出這是多 replica 加 load balancer 的模式；本範本是單一 backend（ADR api-and-auth D1），Caddy 也沒設 `health_uri`，等這 5s 不會讓任何流量轉走。
-  - 選項：(a) 拿掉 drain，SIGTERM 後直接 `Shutdown`（shutdown 期間 readiness 仍回 503）；觸發重新加回：backend 超過一個 replica 或前面有依 readiness 摘流量的 LB。(b) 保留 drain，步驟 5 在 Caddyfile 設 `health_uri /health/ready`，並寫明單一 upstream 下只是讓 Caddy 提早回 502/503。
-  - 建議：(a)。來源：Kubernetes「Termination of Pods」的 endpoint 摘除前提；FathomPod `serve` 也是直接 `Shutdown`。
-- **D15 DB 角色**（未決，等 Will；擋住：步驟 3 的 baseline）
-  - 問題：app、migrate 共用 `POSTGRES_USER`（superuser），沿用舊系統；舊系統這樣是因為 Alembic 跑在 app 容器內，這個前提已不成立。
-  - 選項：(a) 分成 owner（migrate，擁有 schema）與 app（只有 DML）兩個角色：postgres 容器加一支 `docker-entrypoint-initdb.d` 腳本、`.env-example` 多一組變數，加一條測試斷言 app 角色不能 DDL（FathomPod 的做法）。(b) 維持單一角色並在 `docs/deploy-vps.md` 寫明理由。
-  - 建議：(a)。來源：OWASP Database Security Cheat Sheet（應用程式用最小權限的專用帳號）。
+- **D14 shutdown、health 與 proxy**（已決 2026-10-18，Will 照建議；擋住：1、5）
+  - SIGTERM 後直接 `Shutdown`，上限 30s（不小於 `WriteTimeout`）；`stop_grace_period` 35s；不做 readiness drain。Docker healthcheck 打 `/health/ready`（compose 裡只用於 `depends_on` 與 `up --wait`，語意是 readiness）。步驟 5 的 Caddy 用 `lb_try_duration` 而非 `health_uri`。
+  - 依據：Kubernetes「Termination of Pods」的 drain 前提是 LB 依 endpoint 分流；Kamal 與 docker-rollout 的零停機都在 proxy 層；Caddy 的 `lb_try_duration` 對單一 upstream 也有效。原 B19 的 drain 沒有來源，是照搬多 replica 的模式。
+  - 零停機與多 replica 的終點與觸發見「範圍」的延後項，和 ADR api-and-auth 的「超過一個 replica」合併。
+  - ADR：`docs/adr/2026-10-18-api-and-auth-baseline.md`（D8）。
+- **D15 DB 角色與憑證**（已決 2026-10-18，Will 照建議；擋住：2）
+  - superuser 只用於初始化與容器內維運；`<app>_owner` 給 migrate；`<app>_app` 只有 DML。角色由 initdb 腳本建立，授權由 `app migrate` 每次冪等執行；密碼用 compose secrets 加 `*_FILE`；測試用同一套角色。細節見步驟 2。
+  - 舊系統共用 superuser 不是技術前提：舊 compose 本來就有獨立的 migrate service，只是共用 postgres image 的預設帳號與一份 `.env`（`git show archive/pre-go-rewrite:docker-compose.yml`）。
+  - 依據：OWASP Database Security Cheat Sheet（最小權限；「should not be the owner of the database」）；PostgreSQL `ALTER DEFAULT PRIVILEGES` 只影響之後由該角色建立的物件；postgres image 的 initdb 只在空 volume 執行、支援 `_FILE`；Docker Compose secrets 文件。
+  - ADR：`docs/adr/2026-10-18-go-backend.md`（D5）。
 
-拍板順序：D14、D15 未決，互不相依，可以一次拍板。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
+拍板順序：全部已決。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
 
@@ -478,7 +492,7 @@
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
-| 1 Walking skeleton | 進行中 | `make -C backend check` 綠燈；6 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`docker compose stop` exit 0；`up --wait` 與 backend healthy；設計審查 11 項已分流 ；draft PR #12 的 `gh pr checks` 6 項全綠（含 stack job） | D14 待 Will（決定後才收尾步驟 1）；D15 擋步驟 3 | `9f014ed`…`437e79c` |
+| 1 Walking skeleton | 進行中 | `make -C backend check` 綠燈；6 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`docker compose stop` exit 0；`up --wait` 與 backend healthy；設計審查 11 項已分流 ；draft PR #12 的 `gh pr checks` 6 項全綠（含 stack job） | 無 | `9f014ed`…`437e79c` |
 | 2 共用平台 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
 | 4 items | 未開始 | | | |

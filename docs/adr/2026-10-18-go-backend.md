@@ -50,12 +50,16 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 - **D3**：主鍵用 `uuid DEFAULT uuidv7()`，JSON 裡是字串。文字欄用 `text`，有長度限制時加 CHECK；狀態與 role 欄用 `text` 加 `CHECK (x IN (...))`；時間一律用 `timestamptz`。`updated_at` 由每一個 UPDATE 查詢明寫 `= now()`，並有測試覆蓋。
 - **D4**：`make rename` 先執行 `go mod edit -module`，再改寫所有 import 前綴，預設路徑是 `github.com/Will413028/<NAME>/backend`，也可以用 `MODULE=` 覆寫。作法同 [`gonew`](https://pkg.go.dev/golang.org/x/tools/cmd/gonew)。
 
+- **D5 DB 角色與憑證**（2026-10-18 追加）：`POSTGRES_USER`（superuser）只用於初始化與容器內維運；migrate 用 `<app>_owner`（擁有 database 與 `public` schema，非 superuser）；`serve` 與 `seed-admin` 用 `<app>_app`（只有 DML）。角色由 `docker-entrypoint-initdb.d` 腳本建立，授權由 `app migrate` 在每次套用後冪等執行（含 `ALTER DEFAULT PRIVILEGES`）。密碼以 compose secrets 掛檔，經 `*_FILE` 讀取，不放在 URL 或環境變數。整合測試使用同一套角色。
+
 ## Rationale
 
 - **D1**：範本的價值在於 clone 下來就是作者實際在用的 stack。兩套後端並存，維護與測試成本都會加倍。代價：想用 Python 的新專案，要從 tag 起步。
 - **D2**：選 Atlas 而不選基準的 goose，因為 repo 擁有者偏好不手寫 SQL migration，讓 `schema.sql` 成為 schema 唯一的真相。代價有兩個：產生 diff 需要一個 dev 資料庫（Docker）；Atlas 的 migration lint 屬於付費功能，所以改用 squawk。community 版（Apache-2.0）不接受多個 `schema.sql` 當 `src`，`concurrent_index` 也不加 `-- atlas:txmode none`（FathomPod v1.1.3 實測），所以產生端用 standard 版：免費、不需登入，但授權是 EULA，不是開源；從範本 clone 出去的專案，開發時也會用到它。套用端兩版都遵守 txmode directive，正式 image 用開源的 community 版。不選「全用 community 版、自寫合併 schema 與補 directive 的腳本」，因為那兩支腳本要長期維護，且與 FathomPod 的做法分岔。sqlc 取代原本的 `BaseRepository[T]` 泛型 CRUD；在 Go 裡，泛型 repository 是反模式。
 - **D3**：選 UUIDv7 而不選 bigint，因為範本會被拿去做對外服務。連號 ID 會洩漏資料量，也讓人可以猜 ID；UUIDv7 依時間排序，對 B-tree 索引友善，而且 PG18 與 Go 1.27 都原生支援。代價：每個 ID 16 bytes，而且會透露建立時間到毫秒。狀態欄加 CHECK，推翻了舊規則的理由「只有這個 app 寫 DB」。資料完整性應該由資料庫保證，在 Atlas 宣告式 schema 下改 CHECK 只是一行 schema 的修改，舊規則擔心的「兩處要同步」成本很低。
 - **D4**：選擇改寫 import，而不固定用一個中性的 path（例如 `example.com/app`），因為下游專案的 module path 應該是它自己的 repo：`GOPRIVATE`、`go install <path>@latest`、工具輸出的套件路徑都以它為準。代價：`rename.py` 要改寫所有 `.go` 檔，並用 `go build` 驗證。
+
+- **D5**：OWASP Database Security Cheat Sheet 要求應用程式帳號只有最小權限，而且「should not be the owner of the database」。舊系統共用 superuser 不是技術前提：它本來就有獨立的 migrate service，只是沿用 postgres image 的預設帳號與一份共用的 `.env`。授權放在每次 migrate，而不是只寫在 initdb，因為 initdb 只在空 volume 執行，`ALTER DEFAULT PRIVILEGES` 也只影響之後由該角色建立的物件（PostgreSQL 文件）；這樣權限不依賴 volume 是用哪一版腳本初始化的。`*_FILE` 是 Docker Official Images 的慣例，Docker 文件指出用環境變數傳密碼有外洩風險。不選「維持單一 superuser 並寫進文件」：app 被打穿時等於整個 DB 被拿下，而且每個下游專案都會繼承。代價：多一個 `app migrate` 子指令、config 要支援 `_FILE`、`.env-example` 多幾個變數。
 
 ## Expected Outcome
 
@@ -72,6 +76,7 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 ## Revocation Triggers
 
 - Atlas 的 standard 版改成需要登入或付費、或下架週期短到每次升版都來不及重測，或 community 版的 `migrate apply` 不再遵守 txmode directive → 重新評估 D2（改用 goose，或全用 community 版加合併腳本）。
+- 某個下游專案用 managed Postgres（initdb 不會執行）→ D5 的角色改由 runbook 以 superuser 建立，授權仍由 `app migrate` 執行。
 - 某個下游專案需要可排序、且不洩漏時間的 ID → 重新評估 D3（改用 UUIDv4 或 bigint）。
 
 ## Review Notes
