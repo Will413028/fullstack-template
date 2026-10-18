@@ -29,10 +29,12 @@ RESIDUE_GLOBS = ["!frontend/node_modules/**", "!**/pnpm-lock.yaml", "!docs/plans
 ALLOWED_LINES = [
     (r"^scripts/[^/]+\.py$", r"python"),  # repo tooling stays Python (plan P11)
     (r"^docs/adr/", r"."),  # decision records keep history
-    (r"^docs/deploy-vps\.md$", r"python3-certbot-nginx"),  # Nginx option's apt package
+    (r"^docs/deploy-vps\.md$", r"Python 3（`make init-env`"),  # host requirement for scripts/
     (r"^\.github/workflows/ci\.yml$", r"actions/setup-python|pipx run diff-cover"),
     (r"^Makefile$", r"python3? scripts/"),  # rename / init_env targets
-    (r"^README\.md$", r"python3? scripts/"),  # host requirement for scripts/
+    (r"^README\.md$", r"python3? scripts/|^- Python 3 "),  # host requirement for scripts/
+    # standard-library one-liners in backend tooling (Atlas pin age, coverage summary), not a Python backend
+    (r"^backend/(Makefile|scripts/coverage-report\.sh)$", r"python3 -I "),
 ]
 
 

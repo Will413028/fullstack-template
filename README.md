@@ -2,15 +2,16 @@
 
 Production-ready fullstack monorepo for new web projects.
 
-**Backend:** FastAPI (Pragmatic DDD, async SQLAlchemy, httpOnly-cookie JWT + refresh tokens)
-**Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n)
-**Infra:** Docker Compose
+**Backend:** Go (modular monolith, OpenAPI contract-first, pgx + sqlc, Atlas migrations, opaque session cookies)
+**Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n, generated API client)
+**Infra:** Docker Compose behind Caddy, frontend and API on one origin (`/api`)
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) (with Compose v2)
-- [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [Docker](https://docs.docker.com/get-docker/) (Compose v2.24.7+ for `make dev`, which runs `docker compose up --watch`)
+- [Go](https://go.dev/dl/) — version in `backend/go.mod`; for backend development, tests and `make rename`
 - [pnpm](https://pnpm.io/) — `npm install -g pnpm`
+- Python 3 — for the repo scripts (`make rename`, `make init-env`)
 
 ## Quick Start
 
@@ -18,30 +19,34 @@ Production-ready fullstack monorepo for new web projects.
 # 1. Clone and rename for your project
 git clone <this-repo> my-project
 cd my-project
-make rename NAME=my-project
+make rename NAME=my-project          # optional: MODULE=example.com/me/my-project/backend
 
-# 2. Setup environment
+# 2. Setup environment: .env from .env-example, database passwords in .secrets/
 make init-env
-# Edit .env to adjust CORS_ORIGINS or other configurations if needed
 
-# 3. Start dev stack (hot reload)
+# 3. Start dev stack (rebuilds the backend on change, Next.js dev server)
 make dev
 
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
-# API docs: http://localhost:8000/docs
+# App:      http://localhost:3000
+# API:      http://localhost:3000/api
+# API docs: http://localhost:3000/api/docs (MODE=dev)
+
+# 4. Create an admin account (in another terminal)
+make seed ADMIN_ACCOUNT=admin
 ```
 
 ## Project Structure
 
 ```
-├── backend/                FastAPI (Python 3.13, async SQLAlchemy, JWT)
+├── backend/                Go API (contract in backend/api/openapi.yaml)
 ├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
+├── deploy/                 Caddyfile, PostgreSQL initdb scripts
 ├── docker-compose.yml      Production stack
-├── docker-compose.dev.yml  Dev overrides (hot reload)
+├── docker-compose.dev.yml  Dev overrides
 ├── Makefile                Docker Compose shortcuts
+├── scripts/                rename and init_env
 ├── .env-example            Environment variable template
-└── docs/                   Design rules and architecture notes
+└── docs/                   Design rules, decisions (adr/), deployment guide
 ```
 
 ## Development
@@ -49,27 +54,28 @@ make dev
 ### Docker Compose (from root)
 
 ```bash
-make dev                  # Start dev stack (hot reload)
-make up                   # Start production stack (detached)
-make down                 # Stop stack
-make down-v               # Stop stack + remove volumes
-make build                # Build Docker images
-make status               # Show running containers
-make logs                 # Tail all logs
-make logs-backend         # Tail backend logs only
-make migration            # Run Alembic migrations
-make seed                 # Create admin user
-make reset-db             # Reset DB (clear volumes + run migrations + seed)
+make dev                            # Start dev stack (http://localhost:3000)
+make up                             # Start production stack (detached, http://localhost)
+make down                           # Stop stack
+make down-v                         # Stop stack + remove volumes
+make build                          # Build Docker images
+make status                         # Show running containers
+make logs                           # Tail all logs
+make logs-backend                   # Tail backend logs only
+make migration                      # Apply migrations
+make generate-migration MSG=<name>  # Generate a migration from the modules' schema.sql
+make seed ADMIN_ACCOUNT=<name>      # Create the admin user
+make reset-db ADMIN_ACCOUNT=<name>  # Reset DB (clear volumes + migrate + seed)
 ```
 
 ### Backend (from `backend/`)
 
 ```bash
-make run                  # FastAPI dev server (port 8000)
-make test                 # pytest
-make lint                 # Ruff format + check
-make generate_migration   # Alembic auto-generate
-make migration            # Apply migrations
+make run                  # API server (port 8000) with backend/.env
+make test                 # Integration tests (Docker)
+make check                # Everything CI runs
+make gen                  # Regenerate the HTTP server from the contract
+make sqlc                 # Regenerate query code
 ```
 
 ### Frontend (from `frontend/`)
@@ -79,6 +85,7 @@ pnpm dev                  # Next.js dev server (port 3000, Turbopack)
 pnpm test                 # Vitest
 pnpm lint                 # TypeScript + Biome
 pnpm build                # Production build
+pnpm gen:api              # Regenerate API types from the contract
 ```
 
 ## Starting a New Project
@@ -87,26 +94,32 @@ pnpm build                # Production build
 make rename NAME=my-client-project
 ```
 
-This renames Docker images, package names, and branding throughout the project.
+This renames Docker images, package names, database and role names, branding, and the Go module path
+(default `github.com/Will413028/<NAME>/backend`, override with `MODULE=`), then checks that the backend builds.
 
 ## Architecture
 
-See `CLAUDE.md` for detailed architecture documentation, or:
+See `AGENTS.md` for the overview, or:
 
-- `backend/CLAUDE.md` — Backend DDD patterns, error handling, module structure
-- `frontend/CLAUDE.md` — Frontend feature modules, auth flow, conventions
+- `backend/AGENTS.md` — Backend layout, layering, errors, adding a module
+- `frontend/AGENTS.md` — Frontend feature modules, auth flow, conventions
+- `docs/rules/` — API and database design rules
+- `docs/adr/` — Decisions and their reasons
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.13, FastAPI, SQLAlchemy 2.0 (async), asyncpg, Alembic |
-| Auth | JWT (PyJWT) in httpOnly cookies + refresh tokens, argon2 (pwdlib), rate limiting (slowapi) |
+| Backend | Go, stdlib `net/http`, oapi-codegen (strict server) + kin-openapi validator, pgx, sqlc, `log/slog` |
+| Database | PostgreSQL 18, Atlas declarative schema (migrations generated from `schema.sql`), UUIDv7 keys |
+| API | OpenAPI 3.0.3 contract-first, RFC 9457 problems, keyset pagination, JSON Merge Patch |
+| Auth | Opaque DB sessions in a `__Host-` HttpOnly cookie, `CrossOriginProtection`, argon2id, per-account throttling, breached-password list |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
 | UI | shadcn/ui, Lucide icons |
 | State | Tanstack React Query |
-| Forms | React Hook Form + Zod validation |
+| Forms | React Hook Form + Zod |
+| API client | openapi-typescript + openapi-fetch |
 | i18n | next-intl (English, Traditional Chinese) |
-| Linting | Ruff (backend), Biome (frontend) |
-| Testing | pytest + pytest-asyncio (backend), Vitest + RTL (frontend) |
-| Infra | Docker Compose |
+| Linting | golangci-lint (backend), Biome (frontend) |
+| Testing | Go integration tests with testcontainers (backend), Vitest + RTL (frontend) |
+| Infra | Docker Compose, Caddy (automatic HTTPS) |

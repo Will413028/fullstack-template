@@ -7,19 +7,28 @@
 - [ ] Bundle size analysis — add webpack-bundle-analyzer
 
 ### Low Priority
-- [ ] Request timeout configuration in api-client
+- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`)
 
 ## Architecture Decisions
 
-### Token Storage: httpOnly Cookies (implemented)
-**Decision:** Auth tokens are httpOnly+Secure cookies set by the backend; JS never reads them.
-**Why:** httpOnly cookies are immune to XSS. localStorage/JS-readable cookies can be stolen via XSS.
-**Trade-off:** Requires backend to set cookies and `credentials:"include"` on the client.
-`SameSite=Lax` blocks cross-site POST cookie sending, covering CSRF for state-changing
-requests; add a CSRF token only if you later need cross-site flows (`SameSite=None`).
+### Session Storage: HttpOnly Cookie (implemented)
+**Decision:** The session is an opaque token in an HttpOnly cookie set by the backend
+(`__Host-session`, or `session` when `COOKIE_SECURE=false`); JS never reads it.
+**Why:** HttpOnly cookies cannot be read by XSS. localStorage or JS-readable cookies can be stolen.
+**Trade-off:** The frontend and the API must share one origin (Caddy routes `/api`), so the cookie
+needs no Domain and the client sends it without `credentials: "include"`.
+
+### CSRF: Fetch Metadata in the Backend (implemented)
+**Decision:** The backend wraps every route in Go's `http.CrossOriginProtection`, which rejects
+cross-origin state-changing requests (403) using `Sec-Fetch-Site` and `Origin`. No CSRF token.
+**Why:** `SameSite=Lax` alone is not a CSRF defense (OWASP CSRF Prevention Cheat Sheet): a sibling
+subdomain is the same site, and Lax still sends cookies on top-level cross-site GET navigations.
+Fetch Metadata checks are the OWASP-listed defense and need nothing from the frontend.
+**Trade-off:** State-changing requests from another origin are rejected; a future cross-origin
+client needs its origin allowed in the backend, not a frontend change.
 
 ### CSP Strategy
-**Decision:** Use nonce-based CSP where possible, allow `connect-src` for API URL.
+**Decision:** Use nonce-based CSP where possible; `connect-src 'self'`, since the API is on the same origin.
 **Why:** `unsafe-inline` defeats CSP. Nonce-based approach is more secure.
 **Trade-off:** Next.js with Tailwind requires `unsafe-inline` for styles (Tailwind injects styles). Scripts can use nonces.
 

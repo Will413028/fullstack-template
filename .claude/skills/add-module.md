@@ -1,173 +1,59 @@
 ---
 name: add-module
-description: Create a new module with all boilerplate files (models, schemas, repository, service, router)
+description: Create a new Go backend module as an empty but working user-owned resource (table with only the standard columns, sqlc queries, service, httpapi handlers, OpenAPI paths, migration, integration tests)
 user_invocable: true
 ---
 
 # /add-module <name>
 
-Create a complete new module following the project's Pragmatic DDD pattern.
+Create a new module under `backend/internal/modules/<name>/` that already works end to end: a table with only the
+standard columns (`id`, `owner_id`, `created_at`, `updated_at`), create, list, get and delete operations for the
+signed-in user's rows, a generated migration, integration tests, and regenerated frontend types. The user then adds
+domain columns. When the fields are already known, use `/add-crud <entity> --fields "..."` instead: it generates
+the same module with the fields and PATCH included.
 
 ## Instructions
 
-Given the module name from the user's argument:
+Read `.claude/skills/add-crud.md` and follow it from start to finish with an empty field list. Its rules, names
+(`<pkg>`, `<table>`, `<path>`, `<Entity>`, `<Entities>`), file layout, generate and verify steps all apply. With
+no fields, these parts change:
 
-1. **Create `backend/src/<name>/`** directory with these files:
+- **Arguments**: `<name>` is the module name; derive the placeholders from it as add-crud step 1 does (for
+  `widgets`: `<pkg>` `widgets`, `<table>` `widgets`, `<path>` `widgets`, `<Entity>` `Widget`).
+- **`schema.sql`**: the table has `id`, `owner_id`, `created_at`, `updated_at` and the
+  `<table>_owner_id_id_idx` index; nothing else.
+- **`queries/<table>.sql`**: `Create<Entity>` is
+  `INSERT INTO <table> (owner_id) VALUES (@owner_id) RETURNING id, owner_id, created_at, updated_at;`. With a single
+  parameter sqlc generates `Create<Entity>(ctx, ownerID uuid.UUID)` instead of a params struct. `Get<Entity>`,
+  `List<Entities>` and `Delete<Entity>` are as in add-crud. There is no `Update<Entity>`: with no fields there is
+  nothing to patch, and an UPDATE that only sets `updated_at` would be dead code. The file's header comment says
+  that deletes (not updates) report the rows they touched.
+- **`<pkg>.go`**: no `Patch` type and no `Update` method; `Create(ctx)` takes no field parameters.
+- **Contract**: `/<path>` has `post` and `get`, `/<path>/{id}` has `get` and `delete`, with the same responses as
+  the items operations of the same method. There is no `patch` and no `<Entity>Patch` schema.
+  `Create<Entity>Request` is `type: object` with `additionalProperties: false` and no properties, so clients send
+  `{}` and later optional fields can be added without a breaking change. `<Entity>` lists `id`, `owner_id`,
+  `created_at`, `updated_at` as required.
+- **Migration**: `make -C backend gen sqlc migration name=add_<table>`.
+- **Handlers**: no `Update<Entity>`. `Create<Entity>` calls `s.<pkg>.Create(ctx)` and names its request
+  parameter `_`, since it reads nothing from it (oapi-codegen generates `map[string]interface{}` for the empty
+  object). `to<Entity>` sets only `Id`, `OwnerId`,
+  `CreatedAt`, `UpdatedAt`. Wire `Deps`, `apiServer`, `cmd/app/main.go` and `newAuthAPI` exactly as add-crud step
+  6 says.
+- **Tests** (`backend/internal/httpapi/<pkg>_test.go`, following `items_test.go`): create returns 201 with
+  `Location` and the caller as `owner_id`, and 401 without a session; an unknown property (`{"name":"x"}`) is 422
+  `additional_property`; list returns only the caller's rows newest first and pages with `?limit=2` over 3 rows;
+  get returns 200, 404 for an unknown id and 404 for another user's row; delete returns 204 with an empty body, then
+  404, and another user's delete is 404 and leaves the row. Skip the add-crud cases about fields and PATCH.
 
-### `__init__.py`
-Empty file.
+Finish with add-crud steps 8 and 9 (`pnpm -C frontend gen:api`, `make -C backend fmt`, `make -C backend check`,
+`pnpm -C frontend lint`, `pnpm -C frontend test`) and report each result.
 
-### `models.py`
-```python
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
+## Tell the user what comes next
 
-from src.core.models.base import Base, TimestampMixin
-
-
-class <Name>(Base, TimestampMixin):
-    __tablename__ = "<name>s"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    # TODO: Add your fields here
-```
-
-### `schemas.py`
-```python
-from pydantic import BaseModel, ConfigDict
-
-
-class <Name>Create(BaseModel):
-    pass  # TODO: Add create fields
-
-
-class <Name>Update(BaseModel):
-    pass  # TODO: Add update fields
-
-
-class <Name>Response(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    # TODO: Add response fields
-```
-
-### `repository.py`
-```python
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.core.repository.base import BaseRepository
-from src.<name>.models import <Name>
-
-
-class <Name>Repository(BaseRepository[<Name>]):
-    def __init__(self, session: AsyncSession):
-        super().__init__(<Name>, session)
-```
-
-### `service.py`
-```python
-from src.core.exceptions import NotFoundException
-from src.<name>.models import <Name>
-from src.<name>.repository import <Name>Repository
-from src.<name>.schemas import <Name>Create, <Name>Update
-
-
-class <Name>Service:
-    def __init__(self, repo: <Name>Repository):
-        self.repo = repo
-
-    async def create(self, data: <Name>Create) -> <Name>:
-        obj = <Name>(**data.model_dump())
-        return await self.repo.create(obj)
-
-    async def get(self, id: int) -> <Name>:
-        obj = await self.repo.get_by_id(id)
-        if not obj:
-            raise NotFoundException(detail=f"<Name> {id} not found")
-        return obj
-
-    async def update(self, id: int, data: <Name>Update) -> <Name>:
-        obj = await self.get(id)
-        return await self.repo.update(obj, data.model_dump(exclude_unset=True))
-
-    async def delete(self, id: int) -> None:
-        obj = await self.get(id)
-        await self.repo.delete(obj)
-```
-
-### `router.py`
-```python
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.core.database import get_db
-from src.core.dependencies import PaginationParams
-from src.core.schemas.base import DataResponse, DetailResponse, PaginatedResponse
-from src.<name>.repository import <Name>Repository
-from src.<name>.schemas import <Name>Create, <Name>Response, <Name>Update
-from src.<name>.service import <Name>Service
-
-router = APIRouter(prefix="/<name>s", tags=["<name>s"])
-
-
-def get_service(db: AsyncSession = Depends(get_db)) -> <Name>Service:
-    return <Name>Service(<Name>Repository(db))
-
-
-@router.post("", response_model=DataResponse[<Name>Response])
-async def create(data: <Name>Create, service: <Name>Service = Depends(get_service)):
-    obj = await service.create(data)
-    return DataResponse(data=<Name>Response.model_validate(obj))
-
-
-@router.get("", response_model=PaginatedResponse[<Name>Response])
-async def list_all(
-    pagination: PaginationParams = Depends(),
-    service: <Name>Service = Depends(get_service),
-):
-    items, total, pages = await service.repo.get_paginated(page=pagination.page, size=pagination.size)
-    return PaginatedResponse(
-        data=[<Name>Response.model_validate(i) for i in items],
-        total=total, page=pagination.page, size=pagination.size, pages=pages,
-    )
-
-
-@router.get("/{id}", response_model=DataResponse[<Name>Response])
-async def get(id: int, service: <Name>Service = Depends(get_service)):
-    obj = await service.get(id)
-    return DataResponse(data=<Name>Response.model_validate(obj))
-
-
-@router.patch("/{id}", response_model=DataResponse[<Name>Response])
-async def update(id: int, data: <Name>Update, service: <Name>Service = Depends(get_service)):
-    obj = await service.update(id, data)
-    return DataResponse(data=<Name>Response.model_validate(obj))
-
-
-@router.delete("/{id}", response_model=DetailResponse)
-async def delete(id: int, service: <Name>Service = Depends(get_service)):
-    await service.delete(id)
-    return DetailResponse(detail="<Name> deleted")
-```
-
-2. **Register the router** in `backend/src/main.py`:
-   - Add import: `from src.<name>.router import router as <name>_router`
-   - Add to `create_app()`: `app.include_router(<name>_router)`
-   - Add tag to `openapi_tags`: `{"name": "<name>s", "description": "<Name> management"}`
-
-3. **Register model in Alembic** — add to `backend/alembic/env.py`:
-   ```python
-   from src.<name>.models import <Name>  # noqa: F401
-   ```
-
-4. **Create test stub** at `backend/tests/test_<name>.py`:
-   ```python
-   # TODO: Add tests for <name> module
-   ```
-
-5. **Remind the user:**
-   - Fill in model fields in `models.py`
-   - Fill in schema fields in `schemas.py`
-   - Run `make generate_migration` to create the migration
-   - Run `make migration` to apply it
+- Add columns in `schema.sql` using add-crud's field type mapping (OpenAPI schema, CHECK, Go types), extend the
+  queries, service, contract, handlers and tests to match, and add the PATCH operation following add-crud, then
+  generate a new migration with `make -C backend migration name=<x>`.
+- Until this migration is merged into `main`, it may be regenerated (delete the file, restore `atlas.sum`, run the
+  target again). After that it is immutable, and a new `NOT NULL` column on a table with rows needs a constant default
+  (a volatile one such as `uuidv7()` needs an expand step); squawk flags the unsafe forms.
