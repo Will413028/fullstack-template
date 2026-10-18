@@ -15,7 +15,7 @@
 | `test_config.py::test_samesite_none_with_secure_ok` | 刪除 | SameSite 固定為 Lax，沒有東西可以測 |
 | `test_config.py::test_rejects_placeholder_secret_in_prod` | `TestConfigRejectsDriverSuffixInDatabaseURL` | `SECRET_KEY` 已刪除。改測 `postgresql+asyncpg://` 時啟動失敗 |
 | `test_config.py::test_short_secret_rejected` | `TestConfigSessionIdleNotAboveAbsolute` | 改測 `SESSION_IDLE` > `SESSION_ABSOLUTE` 時啟動失敗 |
-| `test_api.py::test_health` | `TestHealth`、`TestReady`、`TestReadyDBDown`、`TestReadyDuringShutdown` | E7、B19 |
+| `test_api.py::test_health` | `TestHealth`、`TestReady`、`TestReadyDBDown`、`TestShutdownFinishesInFlightRequest` | E7、B19 |
 | `test_auth.py::test_register_sets_cookies` | `TestCreateUserSetsSessionCookie` | `POST /api/users` 回 201、帶 `Location`、只設一個 session cookie，屬性為 `HttpOnly`、`Path=/`、`SameSite=Lax`，沒有 `Domain` |
 | `test_auth.py::test_register_duplicate` | `TestCreateUserDuplicate` | 回 409 problem，`type` 為 `/problems/conflict`、code 為 `account_taken`；大小寫不同的同一個名稱也算重複 |
 | `test_auth.py::test_register_weak_password` | `TestCreateUserPasswordTooShort` | 14 字回 422，`errors[0].pointer` 為 `/password`、code 為 `too_short` |

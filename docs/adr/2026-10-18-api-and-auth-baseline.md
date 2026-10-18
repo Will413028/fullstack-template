@@ -68,6 +68,7 @@ tags: [fullstack-template, decision, rest, auth, security]
   - 登入名稱是 username：契約接受大小寫，存入前轉小寫，所以唯一性不分大小寫。密碼在雜湊前做 NFKC 正規化（NIST 寫的是 SHOULD）。
   - 長度與格式只寫在契約裡：HTTP 由 validator 執行，`seed-admin` 用同一份內嵌的 spec 驗證；前端不重複實作。
 - **D7 授權**：role 只有 `admin` 和 `user`，註冊預設 `user`，admin 只能用 seed 建立。查詢一律帶 owner 條件，非 owner 回 404。唯一需要 admin 的操作是停用使用者。
+- **D8 shutdown 與 proxy**（2026-10-18 追加）：SIGTERM 後直接 `http.Server.Shutdown`，上限 30s；compose `stop_grace_period` 35s；不做 readiness drain。Caddy 的 `reverse_proxy` 設 `lb_try_duration`，不設 `health_uri`。
 
 ## Rationale
 
@@ -78,6 +79,7 @@ tags: [fullstack-template, decision, rest, auth, security]
 - **D4–D5**：OWASP 說 SameSite「does not replace a proper CSRF defense」；`api.` 子網域和主網站屬於同一個 site，SameSite 擋不到。`CrossOriginProtection` 是標準庫內建，也是 OWASP 點名的做法。不接受 Bearer，因為目前沒有非瀏覽器的 client（YAGNI）。
 - **D6**：NIST 規定「SHALL NOT」強制組合規則，而且「SHALL」比對外洩清單。只用 per-IP 限流擋不住分散式的 credential stuffing，所以加上依帳號節流。內嵌清單可以離線運作，代價是 binary 會變大（約 1 MB）。選 username 而非 email，因為 email 需要寄信服務。代價：註冊時無法隱藏「這個名稱已被使用」，也沒有找回密碼的流程。
 - **D7**：範本要示範授權模型，所以保留一個有測試的 admin 操作，不把 role 整個拿掉。
+- **D8**：drain（readiness 先回 503、等幾秒再關）的前提是 load balancer 依 readiness 把流量轉給其他 instance（Kubernetes「Termination of Pods」）。單一 backend 時沒有可轉的 instance，drain 只會讓每次停機多等。Kamal 與 docker-rollout 把零停機做在 proxy 層（先等新容器 healthy 再切流量），不是在 app 裡 sleep。Caddy 的 `lb_try_duration` 在 backend 重建的空檔把請求留住，單一 upstream 也有效；`health_uri` 在單一 upstream 下只會讓 Caddy 提早回錯誤。代價：plain `docker compose up` 重建 backend 時仍有數秒空檔，超過 `lb_try_duration` 的請求會失敗。
 
 ## Expected Outcome
 
@@ -96,7 +98,7 @@ tags: [fullstack-template, decision, rest, auth, security]
 - 需要找回密碼或 email 通知 → 加 email 驗證，重新評估 D6 的登入識別。
 - 需要 MFA、SSO 或第三方登入 → 重新評估 D4（考慮代管認證）。
 - 出現原生 app 或第三方 API 消費者 → 重新評估 Bearer 與 API 版本策略。
-- backend 超過一個 replica → per-IP 限流改用 DB 或 proxy 層。
+- backend 超過一個 replica、某個下游要求部署不能停機，或改用 Kamal 或 Swarm → per-IP 限流改用 DB 或 proxy 層；零停機部署改用 docker-rollout 模式（Caddy 動態 upstream 加 `health_uri`、backend 不設 `ports`、shutdown 前加回 readiness drain）（D8）。
 - oapi-codegen 宣布 3.1 支援穩定 → 升級到 OpenAPI 3.1。
 
 ## Review Notes
