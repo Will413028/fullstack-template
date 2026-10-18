@@ -377,7 +377,7 @@
         3. `DELETE /api/sessions/current` 回 204；
         4. 再打 `GET /api/users/me` 回 401。
       - `make -C backend check` 綠燈、PR CI 綠燈。
-- [ ] **4. items 模組**（被擋於：步驟 3）
+- [x] **4. items 模組**（被擋於：步驟 3）
   - 範圍：
     - `internal/modules/items`：
       - `schema.sql`：盤點 C3。
@@ -385,7 +385,7 @@
       - queries 與 service：查詢一律帶 owner 條件（I6）。
     - `internal/httpapi/items.go`：盤點 A8–A11。
     - 用 `atlas migrate diff` 產生第二支 migration。
-    - 重新生成前端的 `frontend/src/lib/api/schema.d.ts`（`pnpm -C frontend gen:api`），讓前端 CI 的「重新生成後 diff 必須為空」保持綠燈。
+    - 原列「重新生成前端 `schema.d.ts`」不適用：`gen:api` 與前端的重生 diff 檢查都由步驟 5 建立，步驟 4 時兩者都不存在（`rg -n 'gen:api|openapi' frontend/package.json`、`rg -n 'schema.d.ts' .github/workflows/ci.yml` 皆無結果，2026-10-18）。
   - 消費端：`rg -n "/items" frontend/src`，預期只命中 `lib/__tests__/api-client.test.ts`。
   - 不能動：I1、I2、I6。
   - 驗收：
@@ -560,7 +560,7 @@
 | 3a 資料層 | 完成 | `make -C backend check` 綠燈（本機）；`TestBaselineAppliesWithCommunity`（revision 表在 `atlas_schema_revisions`、app 角色對三張表有 DML、對 revision schema 無權限）與 `TestSchemaChecks` 通過；mutation：拿掉 `account = lower(account)` 的 CHECK 並重產 migration → `TestSchemaChecks` 失敗；squawk 的 `prefer-bigint-over-int` 讓 `failures` 改 bigint（盤點 C4 已改）；盤點 F29 補上 `10-roles.sh`，`check_inventory.py` 通過；PR #12 在 `731bb4c` 的 `gh pr checks` 6 項全綠 | 無 | `45c8950`、`731bb4c` |
 | 3b service 與 HTTP | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 auth 16 列與新增列都有測試；mutation（scratchpad 副本）17 項都讓指定測試失敗：(a)–(h)、(j)、(k)（另加 Verify 次數必須為 5，因為「先驗證後計數」時 401／429 的比例不變，只有被驗證的密碼次數會變）、拿掉 `CreateSession` 的限流、`AuthenticationFunc` 一律放行、`requireRole` 名單為空、`operations` 不檢查名稱、無效 cookie 不清除、session 每分鐘才 touch（idle < 2 分鐘時使用中的 session 會失效）；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（短 idle 的 touch 間隔、`Retry-After` 依真實時鐘的硬編值）；GitGuardian 把 `hibp_test.go` 註解裡 "password" 的 SHA-1 判成 Generic Password（incident 38354498），fixture 改成執行時計算，Will 選擇改寫歷史：`filter-branch` 把該檔在 `731bb4c..` 每個 commit 換成最終版，最終 tree 與改寫前相同，force push；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `05bc4de`、`41b0530` |
 | 3c seed-admin 與 compose | 完成 | `make -C backend check` 綠燈（本機）；mutation：(i) 不驗證輸入 → `TestSeedAdminRejectsShortPassword` 失敗；`CreateUserIfAbsent` 改成覆寫 → `TestSeedAdminExistingAccountUnchanged` 失敗；隔離 worktree 的 compose（`make init-env`）：migrate exit 0、backend healthy；`make seed ADMIN_ACCOUNT=Admin`（stdin）建立 `admin`，再跑一次 exit 0 且不改變，短密碼 exit 非 0、訊息不含密碼，沒帶帳號時印 usage；curl：`POST /api/users` 201 → `GET /api/users/me` 200 → `DELETE /api/sessions/current` 204（`Set-Cookie: session=; Max-Age=0; HttpOnly; SameSite=Lax`）→ 舊 cookie `GET /api/users/me` 401；另測跨站 POST 403、admin 停用後該使用者 401；`make reset-db` 沒帶帳號時在 `down -v` 前就擋下，帶了則重建並 seed；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `f9091d3` |
-| 4 items | 未開始 | | | |
+| 4 items | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 items 8 列與 `TestCreateItemTitleTooLong`、`TestUpdatedAtChanges` 通過，另加 `TestListItemsLimitNotDecimal`、`TestCreateItemCrossSite`（E12）、`TestDefaultPageSizeMatchesContract`；mutation 4 項都讓指定測試失敗：(a) GetItem 拿掉 owner 條件 → `TestGetOtherUsersItem` 拿到 200、(b) PATCH 的 description 改成一般指標語意 → `TestUpdateItemMergePatch`、(c) cursor 改成 offset → `TestPaginationKeyset` 出現重複 id、(d) 拿掉 `updated_at = now()` → `TestUpdatedAtChanges`；`rg -n "users" backend/internal/modules/items/queries` 無結果；`GET /api/items?limit=0x10` 回 422 `{/limit, invalid_type}`（生成碼 binder 經 `writeParamError`，2c D1 的端到端驗證）；隔離 worktree 的 compose：migrate 套用 2 支 migration、curl 走過建立 201＋`Location`、列表 `next_cursor: null`、merge patch `description: null` 清空、刪除 204、刪除後 404、未登入 401；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（空字串 cursor 改回 422；handler 的預設頁大小以測試綁住契約的 `default`），各補一個 mutation 並讓測試失敗；reviewer 另做 UPDATE、DELETE 拿掉 owner 條件兩項 mutation，`TestUpdateOtherUsersItem` 都失敗。實作與計畫字面不同處：oapi-codegen 開 `nullable-type: true`，回應的 nullable 欄位一律明確設值（未設定的 `Nullable` 會 marshal 成 `""`）；items 查詢只寫 owner 條件、空 patch 回原值不更新 `updated_at`；前端 `schema.d.ts` 那一列不適用（見步驟 4 範圍）。PR #12 在 `fb58bfa` 的 `gh pr checks` 6 項全綠 | `e283c7c`（review 修正）的 PR CI 待跑 | `fb58bfa`、`e283c7c` |
 | 5 前端切換 | 未開始 | | | |
 | 6 外圍與文件 | 未開始 | | | |
 | 7 對照驗證 | 未開始 | | | |
