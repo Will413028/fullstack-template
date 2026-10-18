@@ -3,11 +3,15 @@
 ## Future Work
 
 ### Medium Priority
-- [ ] Image optimization — use Next.js Image component in shared components
-- [ ] Bundle size analysis — add webpack-bundle-analyzer
+- [ ] Image optimization — use Next.js Image component in shared components. Trigger: the first shared
+  component that renders an image.
+- [ ] Bundle size analysis — add a bundle analyzer. Trigger: a page's first-load JS grows noticeably in
+  `pnpm build` output, or a heavy client dependency is added.
 
 ### Low Priority
-- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`)
+- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`). Today a server-side call
+  is bounded only by the backend's 30s `WriteTimeout`. Trigger: an operation that may run for seconds, or a
+  backend that is reached over a network rather than inside the compose stack.
 
 ## Architecture Decisions
 
@@ -35,5 +39,7 @@ client needs its origin allowed in the backend, not a frontend change.
 ### Testing Strategy
 **Decision:** Vitest + React Testing Library for unit/integration tests.
 **Why:** Vitest is faster than Jest, native ESM support, good Next.js compatibility.
-**Trade-off:** No E2E tests in initial setup (deferred to future change).
+**Trade-off:** No E2E tests; the CI compose job only checks with curl that Caddy serves the API and the pages on one origin.
+Trigger for adding Playwright: the first user flow beyond sign-up, sign-in and sign-out, or a regression
+that unit tests and the compose job both missed.
 

@@ -65,7 +65,7 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	e := &env{lookup: lookup}
 	cfg := Config{
 		AppName:  e.str("APP_NAME", "fullstack-template"),
-		Mode:     e.str("MODE", "dev"),
+		Mode:     e.str("MODE", "prod"),
 		HTTPAddr: e.str("HTTP_ADDR", ":8000"),
 
 		DatabaseURL:        e.databaseURL("DATABASE_URL"),
@@ -120,7 +120,7 @@ func LoadSeed(lookup func(string) (string, bool)) (SeedConfig, error) {
 func LoadMigrate(lookup func(string) (string, bool)) (MigrateConfig, error) {
 	e := &env{lookup: lookup}
 	cfg := MigrateConfig{
-		Mode:             e.str("MODE", "dev"),
+		Mode:             e.str("MODE", "prod"),
 		DatabaseURL:      e.databaseURL("MIGRATE_DATABASE_URL"),
 		DatabasePassword: e.required("MIGRATE_DATABASE_PASSWORD"),
 		AppRole:          e.required("DB_APP_USER"),
