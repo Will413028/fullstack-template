@@ -9,7 +9,7 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
 )
 
-// The items operations (/items). The items service scopes every query to the signed-in user (plan I6).
+// The items operations (/items). The items service scopes every query to the signed-in user.
 
 // defaultPageSize is the Limit parameter's default in api/openapi.yaml; the validator does not fill defaults in.
 // TestDefaultPageSizeMatchesContract keeps the two equal.

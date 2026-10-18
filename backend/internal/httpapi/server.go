@@ -87,8 +87,8 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
 	}
 	routes := http.NewServeMux()
-	// Sign-up and sign-in are limited per client address (inventory B6); sign-in is also throttled per account in
-	// the auth module.
+	// Sign-up and sign-in are limited per client address (docs/adr/2026-10-18-api-and-auth-baseline.md D6); sign-in is
+	// also throttled per account in the auth module.
 	limited, err := operations("CreateUser", "CreateSession")
 	if err != nil {
 		return nil, err

@@ -62,7 +62,7 @@ func assertCheckViolation(t *testing.T, err error, what string) {
 	}
 }
 
-// The DB checks back the contract (plan I1: a second line of defense with the same values).
+// The DB checks back the contract (a second line of defense with the same values).
 func TestSchemaChecks(t *testing.T) {
 	db := pg.NewMigratedDB(t)
 	c := connect(t, db.AppURL)

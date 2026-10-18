@@ -1,5 +1,5 @@
 # items module: the schema includes auth's schema.sql only so sqlc resolves items.owner_id -> users.id; the queries
-# must not read users (plan I4). Generated code goes to internal/store (Go's internal keeps other modules out); never
+# must not read users. Generated code goes to internal/store (Go's internal keeps other modules out); never
 # edit it by hand. Run make sqlc from backend/.
 version: "2"
 sql:

@@ -1,5 +1,6 @@
--- Every query is scoped to the owner (plan I6): another user's item behaves as if it did not exist. Updates and
--- deletes report the rows they touched, so "not yours" is a 404 rather than a silent success.
+-- Every query is scoped to the owner (docs/adr/2026-10-18-api-and-auth-baseline.md D7): another user's item behaves
+-- as if it did not exist. Updates and deletes report the rows they touched, so "not yours" is a 404 rather than a
+-- silent success.
 
 -- name: CreateItem :one
 INSERT INTO items (title, description, owner_id)

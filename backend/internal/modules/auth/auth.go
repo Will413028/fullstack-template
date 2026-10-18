@@ -1,10 +1,10 @@
 // Package auth owns accounts, sessions and login throttling: the users, sessions and login_throttles tables
 // (schema.sql) and the queries over them (queries/, generated into internal/store by sqlc).
 //
-// Sessions are opaque (plan P6): the cookie holds 32 random bytes, the database only their SHA-256, and every
-// request reads the session and its user, so signing out, disabling an account or changing a role takes effect on
-// the next request. Passwords follow NIST SP 800-63B-4 (plan P7): normalized with NFKC, checked against a list,
-// stored as argon2id.
+// Sessions are opaque (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the cookie holds 32 random bytes, the
+// database only their SHA-256, and every request reads the session and its user, so signing out, disabling an account
+// or changing a role takes effect on the next request. Passwords follow NIST SP 800-63B-4: normalized with NFKC,
+// checked against a list, stored as argon2id.
 package auth
 
 import (
@@ -229,7 +229,7 @@ func caller(ctx context.Context) (authctx.User, error) {
 }
 
 // User returns the user with id to that user or to an admin. Anyone else gets not found, the same as for an id that
-// does not exist, so ids reveal nothing about other accounts (plan I6).
+// does not exist, so ids reveal nothing about other accounts (docs/adr/2026-10-18-api-and-auth-baseline.md D7).
 func (s *Service) User(ctx context.Context, id uuid.UUID) (User, error) {
 	c, err := caller(ctx)
 	if err != nil {

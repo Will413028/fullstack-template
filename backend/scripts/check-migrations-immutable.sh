@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Migrations that exist on the base must not be modified, deleted or renamed (plan invariant I5). The existing
-# migrations are the files listed in the base's migrations/atlas.sum, compared file by file. atlas.sum itself is not
-# compared because adding a migration always changes it; editing a file and then rehashing is still caught here.
+# Migrations that exist on the base must not be modified, deleted or renamed (docs/adr/2026-10-18-go-backend.md D2).
+# The existing migrations are the files listed in the base's migrations/atlas.sum, compared file by file. atlas.sum
+# itself is not compared because adding a migration always changes it; editing a file and then rehashing is still
+# caught here.
 #
 #   check-migrations-immutable.sh <base-ref>
 #

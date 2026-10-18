@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fails when api/openapi.yaml has a breaking change against the base's copy (plan invariant I1). The base is the
-# merge-base with the given ref, so commits that landed on the base after this branch started are not reported here.
+# Fails when api/openapi.yaml has a breaking change against the base's copy (the contract's clients rely on it). The
+# base is the merge-base with the given ref, so commits that landed on the base after this branch started are not
+# reported here.
 #
 #   check-openapi-breaking.sh <oasdiff command> <base-ref>
 #

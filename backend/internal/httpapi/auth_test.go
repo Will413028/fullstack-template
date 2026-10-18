@@ -112,7 +112,7 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 }
 
 // do sends a same-origin request, with the session cookie when token is not empty. Every 201 it gets back is
-// checked against plan I7 (followLocation).
+// checked by followLocation.
 func (a *authAPI) do(method, path, token, contentType, body string, headers ...string) *httptest.ResponseRecorder {
 	a.t.Helper()
 	req := httptest.NewRequestWithContext(a.t.Context(), method, "http://app.test"+path, strings.NewReader(body))
@@ -135,8 +135,9 @@ func (a *authAPI) do(method, path, token, contentType, body string, headers ...s
 	return rec
 }
 
-// followLocation checks plan I7 on a 201: it has a Location, and GET on it with the creator's cookie (the session the
-// response sets, else the one the request carried) is a 200. Errorf, not Fatalf: do runs in goroutines too.
+// followLocation checks a 201 (docs/adr/2026-10-18-api-and-auth-baseline.md D9): it has a Location, and GET on it
+// with the creator's cookie (the session the response sets, else the one the request carried) is a 200. Errorf, not
+// Fatalf: do runs in goroutines too.
 func (a *authAPI) followLocation(rec *httptest.ResponseRecorder, token string) {
 	a.t.Helper()
 	if rec.Code != http.StatusCreated {
@@ -144,7 +145,7 @@ func (a *authAPI) followLocation(rec *httptest.ResponseRecorder, token string) {
 	}
 	loc := rec.Header().Get("Location")
 	if loc == "" {
-		a.t.Errorf("201 without Location (plan I7): %s", rec.Body)
+		a.t.Errorf("201 without Location: %s", rec.Body)
 		return
 	}
 	for _, c := range rec.Result().Cookies() {
@@ -153,7 +154,7 @@ func (a *authAPI) followLocation(rec *httptest.ResponseRecorder, token string) {
 		}
 	}
 	if got := a.do(http.MethodGet, loc, token, "", ""); got.Code != http.StatusOK {
-		a.t.Errorf("GET %s, the Location of a 201, = %d, want 200 (plan I7): %s", loc, got.Code, got.Body)
+		a.t.Errorf("GET %s, the Location of a 201, = %d, want 200: %s", loc, got.Code, got.Body)
 	}
 }
 
@@ -405,7 +406,7 @@ func TestCreateSessionMixedCaseAccount(t *testing.T) {
 	a.mustSignIn("ALICE", goodPassword)
 }
 
-// The same password typed with full-width or half-width characters is the same password (NFKC, plan P7).
+// The same password typed with full-width or half-width characters is the same password (NFKC, NIST SP 800-63B-4).
 func TestPasswordNormalized(t *testing.T) {
 	a := newAuthAPI(t)
 	if rec := a.signUp("alice", "ｃｏｒｒｅｃｔ－ｈｏｒｓｅ－ｂａｔｔｅｒｙ"); rec.Code != http.StatusCreated {

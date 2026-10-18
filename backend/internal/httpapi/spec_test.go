@@ -21,8 +21,9 @@ func writableWithoutGet(spec *openapi3.T) []string {
 	return missing
 }
 
-// Plan I7: a resource a client can change or delete can also be read. The runtime half, every 201's Location
-// answering GET, is checked on every request the integration tests send (authAPI.followLocation).
+// docs/adr/2026-10-18-api-and-auth-baseline.md D9: a resource a client can change or delete can also be read. The
+// runtime half, every 201's Location answering GET, is checked on every request the integration tests send
+// (authAPI.followLocation).
 func TestEveryWritablePathHasGet(t *testing.T) {
 	spec, err := loadSpec(t.Context(), api.Spec)
 	if err != nil {

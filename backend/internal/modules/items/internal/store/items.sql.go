@@ -24,8 +24,9 @@ type CreateItemParams struct {
 	OwnerID     uuid.UUID
 }
 
-// Every query is scoped to the owner (plan I6): another user's item behaves as if it did not exist. Updates and
-// deletes report the rows they touched, so "not yours" is a 404 rather than a silent success.
+// Every query is scoped to the owner (docs/adr/2026-10-18-api-and-auth-baseline.md D7): another user's item behaves
+// as if it did not exist. Updates and deletes report the rows they touched, so "not yours" is a 404 rather than a
+// silent success.
 func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) (Item, error) {
 	row := q.db.QueryRow(ctx, createItem, arg.Title, arg.Description, arg.OwnerID)
 	var i Item

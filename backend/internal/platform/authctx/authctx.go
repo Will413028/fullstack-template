@@ -1,5 +1,6 @@
 // Package authctx carries the authenticated user through context.Context, so modules learn who is calling without
-// depending on the HTTP layer (plan I4). internal/httpapi puts the user in after resolving the session cookie.
+// depending on the HTTP layer (backend/AGENTS.md). internal/httpapi puts the user in after resolving the session
+// cookie.
 package authctx
 
 import (

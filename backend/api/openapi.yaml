@@ -1,6 +1,7 @@
-# The API contract and its single source (plan I1): shapes, length and format limits and enums are written only here.
-# The backend generates internal/httpapi/gen from it (make gen) and validates every /api request against it; the
-# frontend generates its types from it. OpenAPI 3.0.3: oapi-codegen v2.8.0 marks its 3.1 support as initial.
+# The API contract and its single source (docs/adr/2026-10-18-api-and-auth-baseline.md D2): shapes, length and format
+# limits and enums are written only here. The backend generates internal/httpapi/gen from it (make gen) and validates
+# every /api request against it; the frontend generates its types from it. OpenAPI 3.0.3: oapi-codegen v2.8.0 marks
+# its 3.1 support as initial.
 openapi: 3.0.3
 info:
   title: Fullstack Template API
