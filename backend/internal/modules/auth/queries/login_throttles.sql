@@ -1,8 +1,8 @@
 -- ReserveLoginAttempt counts an attempt as a failure before the password is checked, in one statement: the row lock
 -- serializes concurrent attempts, so they cannot all pass while the account is waiting. It returns no row while
 -- next_allowed_at is in the future. From the 5th consecutive failure on, the next attempt waits 2^(failures - 5)
--- minutes, at most an hour (the exponent is capped first so power() cannot overflow). Inventory B6; OWASP
--- Authentication Cheat Sheet.
+-- minutes, at most an hour (the exponent is capped first so power() cannot overflow).
+-- docs/adr/2026-10-18-api-and-auth-baseline.md D6; OWASP Authentication Cheat Sheet.
 -- name: ReserveLoginAttempt :one
 INSERT INTO login_throttles AS t (account_key, failures, next_allowed_at, updated_at)
 VALUES (sqlc.arg(account_key), 1, NULL, sqlc.arg(now))

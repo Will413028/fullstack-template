@@ -14,7 +14,7 @@ import (
 )
 
 // problemType is one kind of RFC 9457 problem. type and title are fixed per kind; clients choose messages by type
-// and code (plan I2), so changing a slug is a breaking change.
+// and code (docs/adr/2026-10-18-api-and-auth-baseline.md D3), so changing a slug is a breaking change.
 type problemType struct {
 	status int
 	slug   string

@@ -15,7 +15,8 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 )
 
-// The user and session resources (plan D16): reading users, and listing, reading and revoking one's sessions.
+// The user and session resources (docs/adr/2026-10-18-api-and-auth-baseline.md D9): reading users, and listing,
+// reading and revoking one's sessions.
 
 func decodeJSON[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	t.Helper()
@@ -104,7 +105,8 @@ func TestGetUser(t *testing.T) {
 	}
 }
 
-// Another user's account is reported exactly like one that does not exist (plan I6).
+// Another user's account is reported exactly like one that does not exist
+// (docs/adr/2026-10-18-api-and-auth-baseline.md D7).
 func TestGetOtherUserNotFound(t *testing.T) {
 	a := newAuthAPI(t)
 	alice, _ := a.mustSignUp("alice")
@@ -164,7 +166,8 @@ func TestNonAdminCannotListUsers(t *testing.T) {
 	assertProblem(t, a.do(http.MethodGet, "/api/users", "", "", ""), http.StatusUnauthorized, "/problems/unauthenticated")
 }
 
-// Signing in creates a session resource: the body is the session, Location its URL (plan D16).
+// Signing in creates a session resource: the body is the session, Location its URL
+// (docs/adr/2026-10-18-api-and-auth-baseline.md D9).
 func TestCreateSessionReturnsSession(t *testing.T) {
 	a := newAuthAPI(t)
 	created, _ := a.mustSignUp("alice")
@@ -291,7 +294,8 @@ func TestDeleteSession(t *testing.T) {
 	assertMe(t, a, first, http.StatusUnauthorized)
 }
 
-// Another user's session cannot be read or revoked, and is reported like a missing one (plan I6).
+// Another user's session cannot be read or revoked, and is reported like a missing one
+// (docs/adr/2026-10-18-api-and-auth-baseline.md D7).
 func TestDeleteOtherUsersSession(t *testing.T) {
 	a := newAuthAPI(t)
 	_, alice := a.mustSignUp("alice")

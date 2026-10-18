@@ -3,7 +3,7 @@ import type { components } from "./schema";
 type FieldError = components["schemas"]["FieldError"];
 type ContractProblem = components["schemas"]["Problem"];
 
-// The values the contract declares (plan D18); messages/*.json must translate
+// The values the contract declares as enums; messages/*.json must translate
 // each of them, which messages.test.ts checks at compile time.
 export type ProblemTypeSlug =
   ContractProblem["type"] extends `/problems/${infer Slug}` ? Slug : never;
@@ -60,7 +60,7 @@ type Translate = ((key: string) => string) & { has(key: string): boolean };
 
 const typePrefix = "/problems/";
 
-// Messages are chosen by code, then by type (plan I2); detail is for developers
+// Messages are chosen by code, then by type (RFC 9457); detail is for developers
 // and is never shown.
 export function problemMessage(t: Translate, problem: Problem): string {
   if (problem.code && t.has(`codes.${problem.code}`)) {

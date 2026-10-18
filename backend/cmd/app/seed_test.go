@@ -63,7 +63,7 @@ func TestSeedAdminCreatesAdmin(t *testing.T) {
 	}
 }
 
-// The input goes through the contract's CreateUserRequest, like POST /api/users (plan I1, inventory E8).
+// The input goes through the contract's CreateUserRequest, like POST /api/users; there is no built-in default password.
 func TestSeedAdminRejectsShortPassword(t *testing.T) {
 	svc, pool := newSeedService(t)
 	err := seedAdmin(t.Context(), svc, "root", "fourteen chars", &bytes.Buffer{})

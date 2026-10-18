@@ -194,7 +194,7 @@ func (s *Service) Sessions(ctx context.Context, limit int, cursor *string) (Sess
 }
 
 // Session returns the caller's live session with id. Another user's session is not found, the same as one that
-// does not exist or has expired (plan I6).
+// does not exist or has expired (docs/adr/2026-10-18-api-and-auth-baseline.md D7).
 func (s *Service) Session(ctx context.Context, id uuid.UUID) (SessionInfo, error) {
 	c, err := caller(ctx)
 	if err != nil {

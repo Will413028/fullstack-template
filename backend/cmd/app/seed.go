@@ -18,8 +18,8 @@ import (
 // The environment variable each CreateUserRequest property comes from, for error messages.
 var adminInputVars = map[string]string{"account": "ADMIN_ACCOUNT", "password": "ADMIN_PASSWORD"}
 
-// seedAdmin creates the admin account unless it exists (inventory E8, B17). The input is checked against the
-// contract's CreateUserRequest, the same rules POST /api/users applies (plan I1), and the password against the
+// seedAdmin creates the admin account unless it exists; it is the only way to create one. The input is checked
+// against the contract's CreateUserRequest, the same rules POST /api/users applies, and the password against the
 // list. An existing account is left exactly as it is: seed-admin never promotes or changes a user.
 func seedAdmin(ctx context.Context, svc *auth.Service, account, password string, out io.Writer) error {
 	if err := validateAdminInput(ctx, account, password); err != nil {

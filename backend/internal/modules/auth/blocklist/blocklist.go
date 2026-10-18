@@ -1,5 +1,5 @@
 // Package blocklist holds the common and breached passwords new passwords are checked against (NIST SP 800-63B-4,
-// inventory B20).
+// docs/adr/2026-10-18-api-and-auth-baseline.md D6).
 //
 // common-passwords.txt is SecLists Passwords/Common-Credentials/Pwdb_top-1000000.txt at commit
 // 12274c98fdebe98c7a7284914436a472ed469aed (sha256 e9a88f67aafe65496682dc374559ee714e978bee50314767494c3e37a18c9fc8,

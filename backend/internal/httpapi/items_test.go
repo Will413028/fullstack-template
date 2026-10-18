@@ -107,7 +107,8 @@ func TestCreateItemUnauthenticated(t *testing.T) {
 	assertProblem(t, a.createItem("", `{"title":"x"}`), http.StatusUnauthorized, "/problems/unauthenticated")
 }
 
-// Titles are 1 to 200 characters counted in code points, by the contract and again by the database (inventory E9).
+// Titles are 1 to 200 characters counted in code points, by the contract and again by the database: the old backend
+// let a long title reach the database and answered 500.
 func TestCreateItemTitleTooLong(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
@@ -153,7 +154,7 @@ func TestListMyItems(t *testing.T) {
 	assertProblem(t, a.do(http.MethodGet, "/api/items", "", "", ""), http.StatusUnauthorized, "/problems/unauthenticated")
 }
 
-// Keyset pagination (inventory E6): items created while a client pages through do not shift later pages, so nothing
+// Keyset pagination ordered by id: items created while a client pages through do not shift later pages, so nothing
 // is returned twice or skipped.
 func TestPaginationKeyset(t *testing.T) {
 	a := newAuthAPI(t)
@@ -215,7 +216,7 @@ func TestDefaultPageSizeMatchesContract(t *testing.T) {
 }
 
 // kin-openapi parses integers with base 0 and lets 0x10 through; the generated binder rejects it, and writeParamError
-// turns that into the same 422 a contract violation gets (the first end-to-end check of that path, plan step 4).
+// turns that into the same 422 a contract violation gets (this test is the end-to-end check of that path).
 func TestListItemsLimitNotDecimal(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
@@ -236,7 +237,8 @@ func TestGetItem(t *testing.T) {
 	assertFieldError(t, p, "/id", "format")
 }
 
-// Inventory E1: another user's item is a 404, exactly like one that does not exist.
+// Regression (the old backend let anyone read any item): another user's item is a 404, exactly like one that does not
+// exist.
 func TestGetOtherUsersItem(t *testing.T) {
 	a := newAuthAPI(t)
 	_, alice := a.mustSignUp("alice")
@@ -263,7 +265,7 @@ func TestUpdateItem(t *testing.T) {
 	assertProblem(t, a.patchItem(token, uuid.Must(uuid.NewV7()), `{"title":"x"}`), http.StatusNotFound, "/problems/not-found")
 }
 
-// JSON Merge Patch (inventory B14, E9): omitted fields stay, description: null clears, title: null is rejected, and
+// JSON Merge Patch (RFC 7396): omitted fields stay, description: null clears, title: null is rejected, and
 // only application/merge-patch+json is accepted.
 func TestUpdateItemMergePatch(t *testing.T) {
 	a := newAuthAPI(t)
@@ -323,7 +325,7 @@ func TestDeleteItem(t *testing.T) {
 	assertProblem(t, a.deleteItem(token, it.Id), http.StatusNotFound, "/problems/not-found")
 }
 
-// Changing or deleting another user's item is a 404 (inventory A11) and leaves it untouched.
+// Changing or deleting another user's item is a 404, not a 403, and leaves it untouched.
 func TestUpdateOtherUsersItem(t *testing.T) {
 	a := newAuthAPI(t)
 	_, alice := a.mustSignUp("alice")
@@ -336,7 +338,8 @@ func TestUpdateOtherUsersItem(t *testing.T) {
 	}
 }
 
-// Inventory E12: a cross-site state-changing request is rejected before it reaches the handler.
+// CSRF (docs/adr/2026-10-18-api-and-auth-baseline.md D5): a cross-site state-changing request is rejected before it
+// reaches the handler.
 func TestCreateItemCrossSite(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")

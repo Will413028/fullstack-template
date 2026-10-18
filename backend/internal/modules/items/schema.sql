@@ -1,7 +1,7 @@
 -- items module: desired state of its table. Atlas generates migrations from this file (make migration); never edit
 -- applied migrations. Type rules follow docs/adr/2026-10-18-go-backend.md (UUIDv7 keys, text with CHECK, timestamptz).
 
--- owner_id -> users.id is the only cross-module foreign key (plan I4); the items queries never read users. No
+-- owner_id -> users.id is the only cross-module foreign key (backend/AGENTS.md); the items queries never read users. No
 -- cascade: deleting a user who still owns items fails instead of silently removing them.
 CREATE TABLE items (
   id          uuid        PRIMARY KEY DEFAULT uuidv7(),

@@ -72,7 +72,7 @@ jobs:
           if jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'; then
             echo "frontend receives database settings"; exit 1
           fi
-      # Published ports bypass ufw: only caddy may have any (plan P10)
+      # Published ports bypass ufw: only caddy may have any (docs/adr/2026-10-18-api-and-auth-baseline.md D1)
       - name: Only caddy publishes ports
         run: test "$(jq -c '[.services | to_entries[] | select(.value.ports) | .key]' /tmp/compose.json)" = '["caddy"]'
       - run: docker compose up -d --build --wait
@@ -84,7 +84,8 @@ jobs:
         run: |
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/api/users/me)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/en/login)" = 200
-          # the backend believes caddy's request id, so caddy must not pass on the client's (E5)
+          # the backend believes caddy's request id, so caddy must not pass on the client's, or a client could write
+          # any string into the log
           id="$(curl -s -o /dev/null -D - -H 'X-Request-ID: client-chosen' http://localhost/api/users/me | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')"
           test -n "$id" && test "$id" != client-chosen
       - name: The app role cannot change the schema
@@ -117,7 +118,7 @@ jobs:
       - name: Check git hooks were installed
         run: test -x "$(git rev-parse --git-path hooks)/commit-msg"
       - run: pnpm audit --prod --audit-level high
-      # src/lib/api/schema.d.ts must match backend/api/openapi.yaml (plan I1)
+      # src/lib/api/schema.d.ts must match backend/api/openapi.yaml, the contract's single source
       - run: pnpm gen:api:check
       - run: pnpm lint
       - run: pnpm check:deps

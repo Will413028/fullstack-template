@@ -61,7 +61,7 @@ func loadSpec(ctx context.Context, data []byte) (*openapi3.T, error) {
 }
 
 // validateRequests checks every request against spec before next sees it, so length, format and enum rules live
-// only in the contract (plan I1). It is mounted on /api/ only; spec's servers entry (/api) is the path prefix.
+// only in the contract. It is mounted on /api/ only; spec's servers entry (/api) is the path prefix.
 // Failures become problems: an undefined route 404, a body over the limit 413, a missing session where the operation
 // declares security 401, a Content-Type the operation does not accept 415, a body that is not valid JSON 400, and
 // anything else 422 listing each invalid input.

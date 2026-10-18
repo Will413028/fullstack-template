@@ -11,8 +11,9 @@ import (
 )
 
 // Clients translate a problem by its type and codes, and the frontend's type check makes its messages cover the
-// contract's enums (plan D18). So every value the server sends must be in those enums: checkProblems checks each
-// problem the handler tests receive, and TestProblemValuesInContract covers the values no test triggers.
+// contract's enums (docs/adr/2026-10-18-api-and-auth-baseline.md D3). So every value the server sends must be in
+// those enums: checkProblems checks each problem the handler tests receive, and TestProblemValuesInContract covers
+// the values no test triggers.
 
 // problemTee passes a response through and keeps a copy of its body.
 type problemTee struct {

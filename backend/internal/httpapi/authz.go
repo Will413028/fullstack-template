@@ -11,8 +11,9 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
 )
 
-// Authorization (plan I6): resources a user owns are scoped in their queries (owner_id = the current user, 404 for
-// anyone else); operations reserved to a role are listed here and rejected with 403 before the handler runs.
+// Authorization (docs/adr/2026-10-18-api-and-auth-baseline.md D7): resources a user owns are scoped in their queries
+// (owner_id = the current user, 404 for anyone else); operations reserved to a role are listed here and rejected with
+// 403 before the handler runs.
 
 var errInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
 

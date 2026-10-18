@@ -1,8 +1,9 @@
 // Package items is the example CRUD module: items owned by a user, the items table (schema.sql) and the queries over
 // it (queries/, generated into internal/store by sqlc).
 //
-// The owner is always the caller from authctx, and every query is scoped to it (plan I6): another user's item is
-// reported as not found, never as forbidden, so ids reveal nothing about other users' data.
+// The owner is always the caller from authctx, and every query is scoped to it
+// (docs/adr/2026-10-18-api-and-auth-baseline.md D7): another user's item is reported as not found, never as
+// forbidden, so ids reveal nothing about other users' data.
 package items
 
 import (

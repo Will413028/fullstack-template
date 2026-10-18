@@ -1,4 +1,4 @@
-// Package archtest asserts the module boundaries (plan invariant I4) on the transitive dependencies that
+// Package archtest asserts the module boundaries (backend/AGENTS.md) on the transitive dependencies that
 // go list reports, so new modules are covered without editing a rule list. depguard in .golangci.yml checks the
 // direct imports of every file, including tests; this package catches what reaches a module through another package.
 package archtest

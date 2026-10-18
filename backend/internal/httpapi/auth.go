@@ -13,9 +13,10 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
 )
 
-// Authentication (plan I3): the session token lives only in an HttpOnly cookie. Which operations need a session is
-// declared once, in the contract's security (I1): the validator calls requireSession for those, before it checks
-// parameters and body, so an anonymous request gets 401 rather than a 422 about its body.
+// Authentication (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the session token lives only in an HttpOnly
+// cookie. Which operations need a session is declared once, in the contract's security: the validator calls
+// requireSession for those, before it checks parameters and body, so an anonymous request gets 401 rather than a 422
+// about its body.
 
 // Cookie names the session cookie. Secure is false only for local http development, where the name drops the
 // __Host- prefix (it requires Secure); config.Config.CookieName decides the name.
