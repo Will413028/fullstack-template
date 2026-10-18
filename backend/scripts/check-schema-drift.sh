@@ -16,6 +16,10 @@ if ((${#schemas[@]} + ${#migrations[@]} == 0)); then
   echo "no module schema.sql and no migrations, skipping the drift check"
   exit 0
 fi
+if ((${#schemas[@]} == 0)); then
+  echo "migrations/ has migrations but no module has a schema.sql" >&2
+  exit 1
+fi
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 cp -R migrations/. "$tmp/"
