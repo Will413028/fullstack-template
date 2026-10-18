@@ -12,6 +12,7 @@ import (
 // The items operations (/items). The items service scopes every query to the signed-in user (plan I6).
 
 // defaultPageSize is the Limit parameter's default in api/openapi.yaml; the validator does not fill defaults in.
+// TestDefaultPageSizeMatchesContract keeps the two equal.
 const defaultPageSize = 20
 
 // optional turns a pointer into a nullable value that is always set: Item and ItemPage declare these fields required,
@@ -49,14 +50,12 @@ func (s *apiServer) CreateItem(ctx context.Context, req gen.CreateItemRequestObj
 }
 
 func (s *apiServer) ListItems(ctx context.Context, req gen.ListItemsRequestObject) (gen.ListItemsResponseObject, error) {
-	limit, cursor := defaultPageSize, ""
+	limit := defaultPageSize
 	if req.Params.Limit != nil {
 		limit = *req.Params.Limit
 	}
-	if req.Params.Cursor != nil {
-		cursor = *req.Params.Cursor
-	}
-	page, err := s.items.List(ctx, limit, cursor)
+	// An empty cursor is not one this API returned: 422, not the first page.
+	page, err := s.items.List(ctx, limit, req.Params.Cursor)
 	if err != nil {
 		return nil, err
 	}

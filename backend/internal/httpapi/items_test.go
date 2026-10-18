@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Will413028/fullstack-template/backend/api"
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 )
 
@@ -197,6 +198,20 @@ func TestPaginationKeyset(t *testing.T) {
 	assertFieldError(t, p, "/limit", "out_of_range")
 	p = assertProblem(t, a.do(http.MethodGet, "/api/items?cursor=not-a-cursor", token, "", ""), http.StatusUnprocessableEntity, "/problems/validation")
 	assertFieldError(t, p, "/cursor", "invalid")
+	p = assertProblem(t, a.do(http.MethodGet, "/api/items?cursor=", token, "", ""), http.StatusUnprocessableEntity, "/problems/validation")
+	assertFieldError(t, p, "/cursor", "invalid")
+}
+
+// The handler applies the contract's default page size itself (the validator does not fill defaults in).
+func TestDefaultPageSizeMatchesContract(t *testing.T) {
+	spec, err := loadSpec(t.Context(), api.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := spec.Components.Parameters["Limit"].Value.Schema.Value.Default
+	if n, ok := def.(float64); !ok || int(n) != defaultPageSize {
+		t.Errorf("contract Limit default = %v, defaultPageSize = %d", def, defaultPageSize)
+	}
 }
 
 // kin-openapi parses integers with base 0 and lets 0x10 through; the generated binder rejects it, and writeParamError
