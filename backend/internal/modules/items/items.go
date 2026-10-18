@@ -98,16 +98,16 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Item, error) {
 	return Item(row), nil
 }
 
-// List returns up to limit of the caller's items after cursor (empty for the first page). It reads one row more
+// List returns up to limit of the caller's items after cursor (nil for the first page). It reads one row more
 // than limit to know whether another page follows, so the last page has no cursor and no extra round trip.
-func (s *Service) List(ctx context.Context, limit int, cursor string) (Page, error) {
+func (s *Service) List(ctx context.Context, limit int, cursor *string) (Page, error) {
 	ownerID, err := owner(ctx)
 	if err != nil {
 		return Page{}, err
 	}
 	params := store.ListItemsParams{OwnerID: ownerID, RowLimit: int32(limit) + 1} //nolint:gosec // limit is 1..100 (contract)
-	if cursor != "" {
-		after, err := httpx.DecodeCursor(cursor)
+	if cursor != nil {
+		after, err := httpx.DecodeCursor(*cursor)
 		if err != nil {
 			return Page{}, err
 		}
