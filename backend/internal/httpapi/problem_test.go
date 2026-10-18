@@ -123,3 +123,35 @@ func TestPanicAbortHandlerPropagates(t *testing.T) {
 	}()
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 }
+
+func TestPanicAfterResponseStartedAborts(t *testing.T) {
+	h := recoverPanics(discard, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"items":[`))
+		panic("boom")
+	}))
+	rec := httptest.NewRecorder()
+	defer func() {
+		if v := recover(); v != http.ErrAbortHandler { //nolint:errorlint // the exact sentinel value
+			t.Errorf("recovered %v, want http.ErrAbortHandler", v)
+		}
+		if strings.Contains(rec.Body.String(), "problems") {
+			t.Errorf("a problem was appended to the started response: %s", rec.Body)
+		}
+	}()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/x", nil))
+}
+
+func TestErrorAfterResponseStartedAborts(t *testing.T) {
+	h := recoverPanics(discard, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		writeError(w, r, discard, errors.New("encode failed"))
+	}))
+	rec := httptest.NewRecorder()
+	defer func() {
+		if v := recover(); v != http.ErrAbortHandler { //nolint:errorlint // the exact sentinel value
+			t.Errorf("recovered %v, want http.ErrAbortHandler", v)
+		}
+	}()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/x", nil))
+}

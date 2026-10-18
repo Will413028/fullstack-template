@@ -78,7 +78,14 @@ func writeProblemBody(w http.ResponseWriter, status int, body any) {
 
 // writeError turns err into a problem. Expected failures (*apperr.Error) and an oversized body map to their problem;
 // anything else is a 500 whose error is only logged, never sent: it can hold SQL, hostnames or user data.
+//
+// When the response has already started, a problem would be appended to it; the response is aborted instead.
 func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
+	if responseStarted(w) {
+		logger.ErrorContext(r.Context(), "error after the response started", "method", r.Method, "path", r.URL.Path,
+			"error", err)
+		panic(http.ErrAbortHandler)
+	}
 	if e, ok := apperr.As(err); ok {
 		p, known := kindProblems[e.Kind]
 		if !known {
@@ -108,9 +115,11 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 }
 
 // recoverPanics turns a panic in h into a logged 500 problem instead of a dropped connection. http.ErrAbortHandler
-// is re-raised: it is the documented way for a handler to abort the response.
+// is re-raised: it is the documented way for a handler to abort the response. A panic after the response started
+// aborts it too: appending a problem would turn a partial 200 into a 200 with corrupt JSON.
 func recoverPanics(logger *slog.Logger, h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		w := &startWriter{ResponseWriter: rw}
 		defer func() {
 			v := recover()
 			if v == nil {
@@ -121,8 +130,46 @@ func recoverPanics(logger *slog.Logger, h http.Handler) http.Handler {
 			}
 			logger.ErrorContext(r.Context(), "panic", "method", r.Method, "path", r.URL.Path, "panic", v,
 				"stack", string(debug.Stack()))
+			if w.started {
+				panic(http.ErrAbortHandler)
+			}
 			writeProblem(w, problemInternal, "", "")
 		}()
 		h.ServeHTTP(w, r)
 	})
+}
+
+// startWriter records whether the response has started (status or body written).
+type startWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *startWriter) WriteHeader(code int) {
+	if code >= 200 {
+		w.started = true
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *startWriter) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer (Flush, deadlines).
+func (w *startWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// responseStarted reports whether a startWriter in w's wrapping chain saw the response start.
+func responseStarted(w http.ResponseWriter) bool {
+	for {
+		switch v := w.(type) {
+		case *startWriter:
+			return v.started
+		case interface{ Unwrap() http.ResponseWriter }:
+			w = v.Unwrap()
+		default:
+			return false
+		}
+	}
 }
