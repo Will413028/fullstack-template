@@ -71,7 +71,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     "w-full px-4 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors";
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+    // method="post": should the page ever submit without JavaScript, the
+    // password must not end up in the URL (history, proxy logs).
+    <form
+      method="post"
+      onSubmit={handleSubmit(onSubmit)}
+      className="space-y-4"
+      noValidate
+    >
       <div>
         <label htmlFor="account" className="block text-sm text-zinc-400 mb-1.5">
           {t("account")}

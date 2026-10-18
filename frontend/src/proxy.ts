@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "@/i18n/routing";
 
@@ -14,16 +14,25 @@ const protectedPaths = ["/overview"];
 // COOKIE_SECURE=false for local http (the __Host- prefix requires Secure).
 const sessionCookies = ["__Host-session", "session"];
 
-const csp = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  // the API is same-origin under /api
-  "connect-src 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
+// Next.js renders inline scripts to boot the page, so script-src needs this
+// request's nonce: Next reads it from the request's CSP header and puts it on
+// its scripts (Next.js guide "Content Security Policy"). Without it no page
+// ever hydrates and forms fall back to a plain submit.
+function cspFor(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    // the API is same-origin under /api
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
 
 // Proxy (Next.js 16 Node-runtime convention, formerly "middleware"): bounces
 // requests for protected pages that carry no session cookie, for snappy UX,
@@ -47,12 +56,14 @@ export default function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const response = intlMiddleware(request);
+  // next dev needs eval and its own inline scripts; the policy is for builds.
+  if (process.env.NODE_ENV === "development") return intlMiddleware(request);
 
-  if (process.env.NODE_ENV !== "development") {
-    response.headers.set("Content-Security-Policy", csp);
-  }
-
+  const csp = cspFor(btoa(crypto.randomUUID()));
+  const headers = new Headers(request.headers);
+  headers.set("Content-Security-Policy", csp);
+  const response = intlMiddleware(new NextRequest(request, { headers }));
+  response.headers.set("Content-Security-Policy", csp);
   return response;
 }
 

@@ -53,4 +53,19 @@ describe("proxy", () => {
     const csp = get("/en").headers.get("content-security-policy") ?? "";
     expect(csp).toContain("connect-src 'self';");
   });
+
+  it("allows only scripts with a fresh nonce, which it passes on to rendering", () => {
+    const nonceOf = (response: Response) =>
+      /'nonce-([^']+)'/.exec(
+        response.headers.get("content-security-policy") ?? "",
+      )?.[1];
+    const response = get("/en");
+    const nonce = nonceOf(response);
+    expect(nonce).toBeTruthy();
+    expect(nonceOf(get("/en"))).not.toBe(nonce);
+    // Next reads the request's CSP header to put the nonce on its scripts
+    expect(
+      response.headers.get("x-middleware-request-content-security-policy"),
+    ).toContain(`'nonce-${nonce}'`);
+  });
 });
