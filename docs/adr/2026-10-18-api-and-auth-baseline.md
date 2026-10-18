@@ -48,7 +48,7 @@ tags: [fullstack-template, decision, rest, auth, security]
 - **D2 API 形狀**：
   - URL 是資源導向：`/api/users`、`/api/sessions`、`/api/sessions/current`、`/api/users/me`、`/api/items`。
   - 單一資源直接回傳；集合回傳 `{<資源複數>, next_cursor}`。
-  - 建立回 201 加 `Location`，刪除回 204。
+  - 建立回 201 加 `Location`，刪除回 204。`Location` 指向契約裡有 GET 的正式網址；有 PATCH、PUT 或 DELETE 的資源一定也有 GET（D9）。
   - 分頁用 keyset 的 `limit`/`cursor`，不提供總數。
   - PATCH 收 `application/merge-patch+json`。
   - URL 不帶版本。
@@ -67,7 +67,8 @@ tags: [fullstack-template, decision, rest, auth, security]
   - 依帳號節流：不論帳號是否存在都記錄失敗；連續失敗第 5 次之後，退避時間依指數成長，上限 1 小時。另有 per-IP 限流，IP 依 `TRUSTED_PROXIES` 解析。
   - 登入名稱是 username：契約接受大小寫，存入前轉小寫，所以唯一性不分大小寫。密碼在雜湊前做 NFKC 正規化（NIST 寫的是 SHOULD）。
   - 長度與格式只寫在契約裡：HTTP 由 validator 執行，`seed-admin` 用同一份內嵌的 spec 驗證；前端不重複實作。
-- **D7 授權**：role 只有 `admin` 和 `user`，註冊預設 `user`，admin 只能用 seed 建立。查詢一律帶 owner 條件，非 owner 回 404。唯一需要 admin 的操作是停用使用者。
+- **D7 授權**：role 只有 `admin` 和 `user`，註冊預設 `user`，admin 只能用 seed 建立。查詢一律帶 owner 條件，非 owner 回 404。admin 可列出、讀取、停用使用者（2026-10-18 由「只有停用」擴大，見 D9）；一般使用者只能讀自己。
+- **D9 資源都要有讀取端**（2026-10-18 追加）：新增 `GET /api/users/{id}`（本人或 admin）、`GET /api/users`（admin）；sessions 有公開 id，新增 `GET /api/sessions`、`GET` 與 `DELETE /api/sessions/{id}`（只限自己）、`GET /api/sessions/current`；`POST /api/sessions` 回 `Session`，`Location: /api/sessions/{id}`。測試以兩道機制守住：收到 201 就 GET `Location`、契約測試檢查可寫的 path 都有 GET。
 - **D8 shutdown 與 proxy**（2026-10-18 追加）：SIGTERM 後直接 `http.Server.Shutdown`，上限 30s；compose `stop_grace_period` 35s；不做 readiness drain。Caddy 的 `reverse_proxy` 設 `lb_try_duration`，不設 `health_uri`。
 
 ## Rationale
@@ -78,7 +79,8 @@ tags: [fullstack-template, decision, rest, auth, security]
 - **D3**：選擇帶 `code` 的陣列格式，而不沿用舊的 `{field: [msg]}` map，因為 RFC 9457 明說用戶端「SHOULD NOT parse detail」，而前端需要穩定的機器碼才能做 next-intl 翻譯。
 - **D4–D5**：OWASP 說 SameSite「does not replace a proper CSRF defense」；`api.` 子網域和主網站屬於同一個 site，SameSite 擋不到。`CrossOriginProtection` 是標準庫內建，也是 OWASP 點名的做法。不接受 Bearer，因為目前沒有非瀏覽器的 client（YAGNI）。
 - **D6**：NIST 規定「SHALL NOT」強制組合規則，而且「SHALL」比對外洩清單。只用 per-IP 限流擋不住分散式的 credential stuffing，所以加上依帳號節流。內嵌清單可以離線運作，代價是 binary 會變大（約 1 MB）。選 username 而非 email，因為 email 需要寄信服務。代價：註冊時無法隱藏「這個名稱已被使用」，也沒有找回密碼的流程。
-- **D7**：範本要示範授權模型，所以保留一個有測試的 admin 操作，不把 role 整個拿掉。
+- **D7**：範本要示範授權模型，所以保留有測試的 admin 操作，不把 role 整個拿掉。只有「停用」時 admin 拿不到使用者 id，PATCH 形同無法使用，所以補上列出與讀取（D9）。
+- **D9**：RFC 9110 §9.3.3 要求 201 的 `Location` 指向建立的資源，§15.3.2 規定沒有 `Location` 時建立的資源就是 target URI，所以不送 `Location` 會把 `/api/users` 誤指成新資源；Google AIP-121 寫「A resource must support at minimum Get」。原設計只開了寫入端：註冊與登入回傳的網址打不開。sessions 的列表與撤銷單一 session 成對提供，同 allauth headless 的 `/auth/sessions` 與 Better Auth 的 `listSessions`／`revokeSession`。不選「`Location` 改成 `/users/me`」：它是依 cookie 而定的別名，`/sessions/current` 與 `/users/{id}` 的問題仍在。代價：多 6 個 operation，sessions 表多一欄。
 - **D8**：drain（readiness 先回 503、等幾秒再關）的前提是 load balancer 依 readiness 把流量轉給其他 instance（Kubernetes「Termination of Pods」）。單一 backend 時沒有可轉的 instance，drain 只會讓每次停機多等。Kamal 與 docker-rollout 把零停機做在 proxy 層（先等新容器 healthy 再切流量），不是在 app 裡 sleep。Caddy 的 `lb_try_duration` 在 backend 重建的空檔把請求留住，單一 upstream 也有效；`health_uri` 在單一 upstream 下只會讓 Caddy 提早回錯誤。代價：plain `docker compose up` 重建 backend 時仍有數秒空檔，超過 `lb_try_duration` 的請求會失敗。
 
 ## Expected Outcome

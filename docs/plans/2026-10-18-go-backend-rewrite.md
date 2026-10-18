@@ -107,6 +107,7 @@
 | **I3　認證憑證只在 `HttpOnly` cookie，JS 讀不到。** 所有狀態變更請求都經過 `CrossOriginProtection` | <ul><li>`internal/httpapi/auth.go`（cookie 的寫入與清除）</li><li>`internal/httpapi/server.go`（`CrossOriginProtection` 包住整個 mux）</li><li>`frontend/src/proxy.ts`（只檢查 cookie 是否存在）</li><li>`features/auth/server.ts`（轉發 cookie）</li></ul> |
 | **I4　分層與依賴方向**（見表後說明） | <ul><li>`.golangci.yml` 的 depguard 規則</li><li>`internal/httpapi` 負責組裝</li><li>`cmd/app`</li></ul> |
 | **I5　schema 只由 Atlas 產生。** Atlas standard 版從各模組的 `schema.sql` 產生 migration，auth 的 `schema.sql` 先載入；baseline 之後的 migration 只增不改；image 內用 community 版套用（D12） | <ul><li>`backend/atlas.hcl`（`src` 順序：auth、items）</li><li>`backend/Dockerfile` 的 community 版與 CI、`backend/Makefile` 的 standard 版，版本與 checksum 照 P14</li><li>`backend/migrations/`</li><li>`backend/scripts/check-schema-drift.sh`、`backend/scripts/check-migrations-immutable.sh`（寫法照 FathomPod 同名腳本）</li><li>root `AGENTS.md` 的 Constraints</li></ul> |
+| **I7　回傳的資源網址都能 GET（D16）。** 每個 201 的 `Location` 都是契約裡有 GET 的路徑，建立者用同一組 cookie GET 得到 200；契約裡有 PATCH、PUT 或 DELETE 的 path 一定也有 GET | <ul><li>測試 helper `authAPI.do`：收到帶 `Location` 的 201 就 GET 它（`internal/httpapi/auth_test.go`）</li><li>契約測試 `TestEveryWritablePathHasGet`（`internal/httpapi/spec_test.go`）</li></ul> |
 | **I6　授權在查詢層。** 使用者擁有的資源，查詢一律帶 `owner_id = $current`，非 owner 回 404；admin 操作在 handler 前由 `requireRole("admin")` 把關 | <ul><li>`internal/modules/items/queries/*.sql`</li><li>`internal/httpapi/authz.go`</li><li>測試 `TestGetOtherUsersItem`、`TestNonAdminCannotPatchUser`</li></ul> |
 
 **I4 的具體規則：**
@@ -119,7 +120,7 @@
 
 | | auth | items | 共用（core/health） | 產生計數的位置 |
 |---|---|---|---|---|
-| REST operation（新） | 6 | 5 | 2 | 盤點 A 段 |
+| REST operation（新） | 12（D16 後；原 6） | 5 | 2 | 盤點 A 段 |
 | 表（新） | 3（`users`、`sessions`、`login_throttles`） | 1 | 0 | 盤點 C 段 |
 | 舊測試 | 16 | 8 | 1＋5（config） | `test-map.md` |
 | 既有缺陷 | E2、E3、E5、E8、E10、E11、E12、E13、E14 | E1、E6、E9 | E4、E7、E15 | 盤點 E 段 |
@@ -310,6 +311,7 @@
       - oasdiff 步驟的 log 顯示「main 沒有 openapi.yaml，跳過」。在 scratchpad 以兩份本機 spec 跑 oasdiff：刪一個 required 欄位要回報 breaking。
       - PR CI 綠燈。
 - [x] **3. auth 模組**（被擋於：步驟 2）
+  - 2026-10-18：auth 的 API 形狀部分由 D16 取代（新增 users 與 sessions 的讀取端、`POST /api/sessions` 改回 `Session`），由步驟 4b 接手；以下保留為完成時的紀錄。
   - 步驟 3 拆成 3a–3c，各自有驗收與 commit（2026-10-18 拆）。順序依相依：3b 的 service 用 3a 的 sqlc 碼與 migration；3c 的 `seed-admin` 用 3b 的 service。步驟 3 完成 = 3a–3c 都完成。
   - 消費端（整個步驟 3）：`rg -n "/auth/" frontend/src`，前端在步驟 5 改。
   - 不能動（整個步驟 3）：
@@ -399,13 +401,42 @@
     - `GET /api/items?limit=0x10` 回 422，`errors[0]` 為 `{pointer: /limit, code: invalid_type}`：kin-openapi 以 base 0 解析整數會放行，生成碼的 binder 擋下，2c 的 `writeParamError` 轉成 422。2c 只有 unit test，這一項是第一個走過生成碼的端到端驗證（2c code review 2026-10-18）。
     - PR CI 綠燈。
   - 完成後的狀態：後端完成；前端仍是舊的呼叫方式，必須接著做步驟 5。
-- [ ] **5. 前端切換與同源部署**（被擋於：步驟 4）
+- [ ] **4b. auth 資源補齊（D16）**（被擋於：步驟 4）
+  - 範圍：
+    - `internal/modules/auth/schema.sql`：sessions 加 `id uuid NOT NULL DEFAULT uuidv7() UNIQUE`（`token_hash` 仍是主鍵，每個請求依它查詢）；用 `make migration` 產生新 migration（I5：baseline 不改）。
+    - `api/openapi.yaml`：
+      - `getUser`（`GET /users/{id}`）：本人或 admin，其他人 404。
+      - `listUsers`（`GET /users`）：admin only，`Limit`、`Cursor` 參數，回 `{users, next_cursor}`，`ORDER BY id DESC`，含停用的使用者。
+      - `listSessions`（`GET /sessions`）：自己的未過期 session（absolute 與 idle 都未到），回 `{sessions, next_cursor}`。
+      - `getSession`、`deleteSession`（`/sessions/{id}`）：只限自己，其他人與不存在都回 404；刪除目前這個 session 時回應清 cookie。
+      - `getCurrentSession`（`GET /sessions/current`）：別名。
+      - `Session` schema：`{id, user, created_at, last_used_at, expires_at, current}`，建立、讀取、列表共用。`createSession` 改回 `Session`，`Location: /api/sessions/{id}`。
+    - auth service：讀取使用者的授權（本人或 admin）在 service 依 `authctx` 判斷；列表與 session 查詢都帶 `user_id` 條件（I6）；過期判斷沿用注入的時鐘。
+    - `internal/httpapi`：`listUsers` 加進 `requireRole` 名單；handler；I7 的兩道防護（helper 與 `spec_test.go`）。
+  - 消費端：`rg -n "users/me|/sessions|Location" frontend/src`（步驟 5 改）；後端 `rg -n "CreateSession201|toUser|requireRole" backend/internal backend/cmd`。
+  - 不能動：I1–I3、I6；P6 的 session 規則（token 只存 SHA-256、登入發新 token、停用撤銷全部）；timing 與節流行為。
+  - 驗收：
+    - test-map「4b 新增」各列通過；既有 auth 測試依新的回應形狀更新後通過。
+    - I7：既有與新增的每個 201 都經 helper GET 過 `Location`；`TestEveryWritablePathHasGet` 通過。
+    - mutation，每一項都必須讓指定的測試失敗：
+      - (a) `getUser` 拿掉本人或 admin 的判斷 → `TestGetOtherUserNotFound`。
+      - (b) `listUsers` 不在 `requireRole` 名單 → `TestNonAdminCannotListUsers`。
+      - (c) `deleteSession` 查詢拿掉 `user_id` 條件 → `TestDeleteOtherUsersSession`。
+      - (d) `listSessions` 不排除過期 session → `TestListSessionsExcludesExpired`。
+      - (e) `createUser` 的 `Location` 寫錯路徑 → helper 讓 `TestCreateUserSetsSessionCookie` 失敗。
+      - (f) 契約裡拿掉 `GET /items/{id}`（測試用副本）→ `TestEveryWritablePathHasGet`。
+    - `make -C backend check` 綠燈；隔離 worktree 的 compose 以 curl 走：註冊 → `GET Location` 200 → 登入 → `GET Location` 200 → `GET /api/sessions` 兩筆 → `DELETE /api/sessions/{另一個}` 204 → admin `GET /api/users` 200、一般使用者 403。
+    - code review（獨立 subagent）、PR CI 綠燈。
+  - 停止條件：squawk 擋下新增欄位的 migration（volatile default 會重寫表）時，停下回報，不加 ignore。
+  - 完成後的狀態：前端仍是舊呼叫方式，接著做步驟 5。
+- [ ] **5. 前端切換與同源部署**（被擋於：步驟 4b）
   - 範圍：
     - 盤點 F16–F22、F25–F27，以及 F6 的前端部分。
     - 同源部署：`deploy/Caddyfile`，以及正式 compose 的 `caddy` service、固定 subnet、`TRUSTED_PROXIES`（P10、F5 的正式環境部分）。Caddyfile 的 `reverse_proxy backend` 設 `lb_try_duration 10s`，backend 重建期間把請求留住；不設 `health_uri`（單一 upstream，D14）。部署文件（F10）在步驟 6 改寫。
     - 用 `pnpm gen:api` 從 `../backend/api/openapi.yaml` 生成 `src/lib/api/schema.d.ts`。
     - `src/lib/api/client.ts`：openapi-fetch，browser 端 baseUrl 是 `/api`，server 端是 `API_URL` 加上 `/api`。
     - `src/lib/api/errors.ts`：把 problem 轉成 next-intl 的訊息鍵。
+    - 登入的回應是 `Session`（D16），前端從 `.user` 取得使用者。
     - `next.config.ts` 的 `rewrites`。
     - `proxy.ts` 的 CSP 改成 `connect-src 'self'`。
   - 消費端：
@@ -536,13 +567,18 @@
   - 依據：OWASP Database Security Cheat Sheet（最小權限；「should not be the owner of the database」）；PostgreSQL `ALTER DEFAULT PRIVILEGES` 只影響之後由該角色建立的物件；postgres image 的 initdb 只在空 volume 執行、支援 `_FILE`；Docker Compose secrets 文件。
   - ADR：`docs/adr/2026-10-18-go-backend.md`（D5）。
 
-- **D16 `POST /api/users` 的 `Location`**（未決，2026-10-18 提出；擋住：無，步驟 5 前要決定）
-  - 問題：盤點 A3 定 `Location: /api/users/{id}`，但契約沒有 `GET /api/users/{id}`，這個網址打不開。RFC 9110 只要求 Location 指向建立的資源，慣例上可以 GET。
-  - 選項：(A) 新增 `GET /api/users/{id}`（admin 或本人可讀）；(B) Location 改為 `/api/users/me`；(C) 維持現狀。
-  - 建議：B，不新增沒有消費端的 operation；之後需要 admin 讀使用者時再加 A。
-  - 目前實作：照盤點（C）。
+- **D16 回傳的資源網址都要能 GET**（已決 2026-10-18，Will；擋住：4b、5）
+  - 問題：`POST /api/users` 的 `Location: /api/users/{id}`、`POST /api/sessions` 的 `Location: /api/sessions/current` 在契約裡都沒有 GET；`PATCH /api/users/{id}` 也沒有 GET，admin 不查 DB 拿不到 id。原列的選項 (A) 補 GET、(B) Location 改 `/users/me`、(C) 維持，只處理第一個。
+  - 業界基準：RFC 9110 §9.3.3（201 SHOULD 帶指向建立資源的 Location）與 §15.3.2（沒有 Location 時建立的資源就是 target URI）；Google AIP-121「A resource must support at minimum Get」；Azure REST guidelines「POST | Create new resource | 201-Created with URL of created resource」；allauth headless 的 `/auth/session`（GET＋DELETE）與 `/auth/sessions`（GET＋DELETE）；Better Auth 的 `listSessions`＋`revokeSession`；Supabase 的 admin users（列表、單筆、修改）。註冊 = 建立 user、登入 = 建立 session 的資源模型本身是基準之一，不改。brief 由沒參與撰寫的 subagent 起草（2026-10-18）。
+  - 約束：沒有 REAL 約束。D7「只有一個 admin 操作」、ADR 的資源導向 URL、「沒有消費端就不加 operation」都是 SELF-IMPOSED；P1、P3 讓相容性窗口不存在。
+  - 決定（Will 2026-10-18 全部選建議，sessions 選「現在就補」與「列表＋單筆讀取＋撤銷」）：
+    - (a) 新增 `GET /api/users/{id}`：本人或 admin 可讀，其他人回 404（同 I6）。註冊的 `Location` 不變。
+    - (b) sessions 成為完整資源：sessions 表加公開 `id`（UUIDv7，token 衍生值不外露）；新增 `GET /api/sessions`（自己的未過期 session，keyset）、`GET` 與 `DELETE /api/sessions/{id}`（只限自己，其他人回 404；撤銷目前這個時同時清 cookie）、`GET /api/sessions/current`（別名，對應 `/users/me`）。`POST /api/sessions` 回 `Session`，`Location: /api/sessions/{id}`。
+    - (c) D7 擴大：admin 可列出（`GET /api/users`，keyset）、讀取、停用使用者；只做後端，前端 admin 畫面延後（觸發：衍生專案需要 admin UI，或 Will 決定範本示範它）。
+    - (d) 防止再犯兩道：I7。
+  - ADR：`docs/adr/2026-10-18-api-and-auth-baseline.md`（D2、D7 修訂，D9 追加）。
 
-拍板順序：D16 未決，其餘已決。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
+拍板順序：全部已決（D16 於 2026-10-18 拍板）。P4、P9、P11 是預設，Will 可推翻；推翻時依 phase-plan 步驟 5 重寫受影響的步驟。
 
 ## 進度
 
@@ -561,6 +597,7 @@
 | 3b service 與 HTTP | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 auth 16 列與新增列都有測試；mutation（scratchpad 副本）17 項都讓指定測試失敗：(a)–(h)、(j)、(k)（另加 Verify 次數必須為 5，因為「先驗證後計數」時 401／429 的比例不變，只有被驗證的密碼次數會變）、拿掉 `CreateSession` 的限流、`AuthenticationFunc` 一律放行、`requireRole` 名單為空、`operations` 不檢查名稱、無效 cookie 不清除、session 每分鐘才 touch（idle < 2 分鐘時使用中的 session 會失效）；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（短 idle 的 touch 間隔、`Retry-After` 依真實時鐘的硬編值）；GitGuardian 把 `hibp_test.go` 註解裡 "password" 的 SHA-1 判成 Generic Password（incident 38354498），fixture 改成執行時計算，Will 選擇改寫歷史：`filter-branch` 把該檔在 `731bb4c..` 每個 commit 換成最終版，最終 tree 與改寫前相同，force push；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `05bc4de`、`41b0530` |
 | 3c seed-admin 與 compose | 完成 | `make -C backend check` 綠燈（本機）；mutation：(i) 不驗證輸入 → `TestSeedAdminRejectsShortPassword` 失敗；`CreateUserIfAbsent` 改成覆寫 → `TestSeedAdminExistingAccountUnchanged` 失敗；隔離 worktree 的 compose（`make init-env`）：migrate exit 0、backend healthy；`make seed ADMIN_ACCOUNT=Admin`（stdin）建立 `admin`，再跑一次 exit 0 且不改變，短密碼 exit 非 0、訊息不含密碼，沒帶帳號時印 usage；curl：`POST /api/users` 201 → `GET /api/users/me` 200 → `DELETE /api/sessions/current` 204（`Set-Cookie: session=; Max-Age=0; HttpOnly; SameSite=Lax`）→ 舊 cookie `GET /api/users/me` 401；另測跨站 POST 403、admin 停用後該使用者 401；`make reset-db` 沒帶帳號時在 `down -v` 前就擋下，帶了則重建並 seed；PR #12 在 `f9091d3` 的 `gh pr checks` 6 項全綠 | 無 | `f9091d3` |
 | 4 items | 完成 | `make -C backend check` 綠燈（本機）；test-map 的 items 8 列與 `TestCreateItemTitleTooLong`、`TestUpdatedAtChanges` 通過，另加 `TestListItemsLimitNotDecimal`、`TestCreateItemCrossSite`（E12）、`TestDefaultPageSizeMatchesContract`；mutation 4 項都讓指定測試失敗：(a) GetItem 拿掉 owner 條件 → `TestGetOtherUsersItem` 拿到 200、(b) PATCH 的 description 改成一般指標語意 → `TestUpdateItemMergePatch`、(c) cursor 改成 offset → `TestPaginationKeyset` 出現重複 id、(d) 拿掉 `updated_at = now()` → `TestUpdatedAtChanges`；`rg -n "users" backend/internal/modules/items/queries` 無結果；`GET /api/items?limit=0x10` 回 422 `{/limit, invalid_type}`（生成碼 binder 經 `writeParamError`，2c D1 的端到端驗證）；隔離 worktree 的 compose：migrate 套用 2 支 migration、curl 走過建立 201＋`Location`、列表 `next_cursor: null`、merge patch `description: null` 清空、刪除 204、刪除後 404、未登入 401；code review（獨立 subagent）0 HIGH、0 MED、2 LOW 都已修（空字串 cursor 改回 422；handler 的預設頁大小以測試綁住契約的 `default`），各補一個 mutation 並讓測試失敗；reviewer 另做 UPDATE、DELETE 拿掉 owner 條件兩項 mutation，`TestUpdateOtherUsersItem` 都失敗。實作與計畫字面不同處：oapi-codegen 開 `nullable-type: true`，回應的 nullable 欄位一律明確設值（未設定的 `Nullable` 會 marshal 成 `""`）；items 查詢只寫 owner 條件、空 patch 回原值不更新 `updated_at`；前端 `schema.d.ts` 那一列不適用（見步驟 4 範圍）。PR #12 在 `fb58bfa` 與 `f38b7b4`（含 review 修正 `e283c7c`）的 `gh pr checks` 都是 6 項全綠 | 無 | `fb58bfa`、`e283c7c` |
+| 4b auth 資源補齊（D16） | 未開始 | | | |
 | 5 前端切換 | 未開始 | | | |
 | 6 外圍與文件 | 未開始 | | | |
 | 7 對照驗證 | 未開始 | | | |

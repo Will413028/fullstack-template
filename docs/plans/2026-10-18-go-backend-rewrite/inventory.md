@@ -25,15 +25,15 @@ rg -l -i 'backend|python|uv |pytest|ruff|alembic|diff-cover|fastapi|sqlalchemy|p
 | A1 | `GET /health` | `{"status":"ok"}` | 保留為 `GET /health`，只給容器內部存取，不經 Caddy 對外 |
 | A2 | `GET /health/ready` | `SELECT 1`；成功回 `{"status":"ready"}`，失敗回 500 | 保留為 `GET /health/ready`；DB 失敗或 shutdown 中回 503（E7、B19） |
 | A3 | `POST /auth/register` | JSON `{account,password}`；建 user，發 access JWT 與 refresh cookie；回 200 `{data: UserResponse}` | 改寫為 `POST /api/users`：同一個 transaction 建 user 與 session，設 session cookie；回 **201**、`Location: /api/users/{id}`，body 直接是 `User` |
-| A4 | `POST /auth/login` | form-urlencoded `username`/`password`；dummy hash 防 timing；disabled 帳號視同失敗 | 改寫為 `POST /api/sessions`：body 是 JSON `{account,password}`；回 **201**，body 是 `User`；timing 防護保留；節流規則見 B6 |
+| A4 | `POST /auth/login` | form-urlencoded `username`/`password`；dummy hash 防 timing；disabled 帳號視同失敗 | 改寫為 `POST /api/sessions`：body 是 JSON `{account,password}`；回 **201**、`Location: /api/sessions/{id}`，body 是 `Session`（D16）；timing 防護保留；節流規則見 B6 |
 | A5 | `POST /auth/refresh` | refresh token 輪替 | 刪除：opaque session 沒有 refresh（D4） |
-| A6 | `POST /auth/logout` | 撤銷 refresh token、清 cookie；回 `{"detail":"Logged out"}` | 改寫為 `DELETE /api/sessions/current`：刪除該 session 列、清 cookie；回 **204** |
+| A6 | `POST /auth/logout` | 撤銷 refresh token、清 cookie；回 `{"detail":"Logged out"}` | 改寫為 `DELETE /api/sessions/current`：刪除該 session 列、清 cookie；回 **204**。另有 `GET /api/sessions/current`（D16） |
 | A7 | `GET /auth/me` | cookie 或 Bearer JWT；disabled 帳號回 401 | 改寫為 `GET /api/users/me`：只認 cookie（Bearer 刪除，因為沒有非瀏覽器 client）；disabled 帳號回 401 |
 | A8 | `POST /items` | 建 item，owner 是目前使用者 | 改寫為 `POST /api/items`：回 **201** 與 `Location`，body 直接是 `Item` |
 | A9 | `GET /items` | `page`/`size` 分頁；回 `{data,total,page,size,pages}`；沒有 ORDER BY | 改寫為 `GET /api/items?limit=&cursor=`：keyset 分頁，`ORDER BY id DESC`（UUIDv7 依時間排序）；回 `{items, next_cursor}`，不算總數（B9） |
 | A10 | `GET /items/{id}` | 任何登入者都能讀任何 item | 改寫為 `GET /api/items/{id}`：非 owner 回 404（E1） |
 | A11 | `PATCH /items/{id}`、`DELETE /items/{id}` | 非 owner 回 403；DELETE 回 `{"detail":"Item deleted"}` | 改寫：PATCH 吃 `application/merge-patch+json`（B14）；DELETE 回 **204**；非 owner 一律回 404 |
-| A12 | — | 舊系統的 role 沒有任何地方檢查 | 新增 `PATCH /api/users/{id}`（只限 admin，merge-patch，目前只開放 `is_disabled`）；新增 `DELETE /api/sessions`（登出目前使用者的所有 session，回 204）（B17、B18） |
+| A12 | — | 舊系統的 role 沒有任何地方檢查 | 新增 `PATCH /api/users/{id}`（只限 admin，merge-patch，目前只開放 `is_disabled`）；新增 `DELETE /api/sessions`（登出目前使用者的所有 session，回 204）（B17、B18）。D16 追加：`GET /api/users/{id}`（本人或 admin）、`GET /api/users`（admin，keyset）、`GET /api/sessions`、`GET` 與 `DELETE /api/sessions/{id}`（只限自己） |
 
 開發模式的 `/docs`、`/redoc`、`/openapi.json` 改寫為：`MODE=dev` 時提供 `GET /api/openapi.yaml`（契約檔原樣輸出）與 Swagger UI 靜態頁。
 
