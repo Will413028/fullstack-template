@@ -99,6 +99,23 @@ func Load(lookup func(string) (string, bool)) (Config, error) {
 	return cfg, errors.Join(e.problems...)
 }
 
+// SeedConfig holds the settings seed-admin needs: serve's, to reach the database as the app role and apply the same
+// password rules, and the admin account to create.
+type SeedConfig struct {
+	Config
+	AdminAccount  string
+	AdminPassword string
+}
+
+// LoadSeed reads the settings seed-admin needs through lookup (normally os.LookupEnv). ADMIN_PASSWORD_FILE can be
+// /dev/stdin, so the password never appears in an environment or on a command line (root Makefile, make seed).
+func LoadSeed(lookup func(string) (string, bool)) (SeedConfig, error) {
+	cfg, err := Load(lookup)
+	e := &env{lookup: lookup}
+	seed := SeedConfig{Config: cfg, AdminAccount: e.required("ADMIN_ACCOUNT"), AdminPassword: e.required("ADMIN_PASSWORD")}
+	return seed, errors.Join(err, errors.Join(e.problems...))
+}
+
 // LoadMigrate reads the settings migrate needs through lookup (normally os.LookupEnv).
 func LoadMigrate(lookup func(string) (string, bool)) (MigrateConfig, error) {
 	e := &env{lookup: lookup}
