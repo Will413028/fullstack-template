@@ -1,12 +1,12 @@
 services:
+  # `make dev` runs `docker compose up --watch`: a change under backend/ rebuilds the image and restarts it
   backend:
-    build:
-      context: ./backend
-      target: builder
-    command: ["/app/.venv/bin/fastapi", "dev", "src/main.py", "--host", "0.0.0.0"]
-    volumes:
-      - ./backend/src:/app/src
-      - ./backend/alembic:/app/alembic
+    develop:
+      watch:
+        - action: rebuild
+          path: ./backend
+          ignore:
+            - bin/
 
   frontend:
     build:
@@ -17,11 +17,3 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/messages:/app/messages
       - ./frontend/public:/app/public
-
-  migrate:
-    build:
-      context: ./backend
-      target: builder
-    volumes:
-      - ./backend/alembic:/app/alembic
-      - ./backend/scripts:/app/scripts
