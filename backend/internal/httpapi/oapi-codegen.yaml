@@ -8,3 +8,6 @@ generate:
 output-options:
   # Keep the shared components (Problem, parameters, responses) before any operation references them.
   skip-prune: true
+  # `nullable: true` fields become nullable.Nullable[T], which tells an omitted field from an explicit null: JSON
+  # Merge Patch needs the difference (`description: null` clears, omitted leaves unchanged).
+  nullable-type: true

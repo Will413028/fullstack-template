@@ -18,6 +18,7 @@ import (
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi"
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/config"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/db"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/hibp"
@@ -116,6 +117,7 @@ func serve(ctx context.Context) error {
 		TrustedProxies:  cfg.TrustedProxies,
 		RateLimitPerMin: cfg.AuthRateLimitPerMin,
 		Auth:            authSvc,
+		Items:           items.New(pool),
 		Cookie:          httpapi.Cookie{Name: cfg.CookieName(), Secure: cfg.CookieSecure},
 	})
 	if err != nil {

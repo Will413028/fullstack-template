@@ -19,6 +19,7 @@ import (
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
 	platformdb "github.com/Will413028/fullstack-template/backend/internal/platform/db"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/dbtest"
 )
@@ -69,7 +70,7 @@ type breachFunc func(context.Context, string) (bool, error)
 
 func (f breachFunc) Breached(ctx context.Context, p string) (bool, error) { return f(ctx, p) }
 
-// authAPI is the real handler over a migrated test database.
+// authAPI is the real handler, with the auth and items services, over a migrated test database.
 type authAPI struct {
 	t      *testing.T
 	h      http.Handler
@@ -97,7 +98,8 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 		hasher: &countingHasher{PasswordHasher: auth.NewArgon2Hasher(cheapArgon2, 0)},
 	}
 	cfg := auth.Config{SessionAbsolute: 7 * 24 * time.Hour, SessionIdle: 24 * time.Hour, Hasher: a.hasher, Now: a.clock.Now}
-	deps := Deps{Ready: ok, Logger: discard, RateLimitPerMin: 1000, Cookie: Cookie{Name: cookieName, Secure: true}}
+	deps := Deps{Ready: ok, Logger: discard, RateLimitPerMin: 1000, Cookie: Cookie{Name: cookieName, Secure: true},
+		Items: items.New(pool)}
 	for _, o := range opts {
 		o(&cfg, &deps)
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/Will413028/fullstack-template/backend/api"
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
 )
 
 // maxBodyBytes caps every request body.
@@ -65,11 +66,14 @@ type Deps struct {
 	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
 	Auth   *auth.Service
 	Cookie Cookie
+	// Items serves the items operations. Nil only in tests that call none of them.
+	Items *items.Service
 }
 
 // apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
 type apiServer struct {
 	auth   *auth.Service
+	items  *items.Service
 	cookie Cookie
 }
 
@@ -98,7 +102,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		limitOperations(limiter, limited...),
 		requireRole(auth.RoleAdmin, adminOnly...),
 	}
-	server := &apiServer{auth: deps.Auth, cookie: deps.Cookie}
+	server := &apiServer{auth: deps.Auth, items: deps.Items, cookie: deps.Cookie}
 	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeBodyDecodeError(w, r, deps.Logger, err)
