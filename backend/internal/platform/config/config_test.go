@@ -197,7 +197,7 @@ func TestLoadMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadMigrate: %v", err)
 	}
-	if cfg.DatabasePassword != "ownerpw" || cfg.AppRole != "app" {
+	if cfg.DatabasePassword != "ownerpw" || cfg.AppRole != "app" || cfg.Mode != "prod" {
 		t.Errorf("cfg = %+v", cfg)
 	}
 

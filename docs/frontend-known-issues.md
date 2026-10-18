@@ -9,8 +9,8 @@
   `pnpm build` output, or a heavy client dependency is added.
 
 ### Low Priority
-- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`). Today a server-side call
-  is bounded only by the backend's 30s `WriteTimeout`. Trigger: an operation that may run for seconds, or a
+- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`). Today nothing bounds how long
+  a server-side call waits: the backend's `WriteTimeout` sets a write deadline but does not end a slow handler. Trigger: an operation that may run for seconds, or a
   backend that is reached over a network rather than inside the compose stack.
 
 ## Architecture Decisions

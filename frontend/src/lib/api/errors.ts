@@ -60,7 +60,8 @@ type Translate = ((key: string) => string) & { has(key: string): boolean };
 
 const typePrefix = "/problems/";
 
-// Messages are chosen by code, then by type (RFC 9457); detail is for developers
+// Messages are chosen by code, then by type
+// (docs/adr/2026-10-18-api-and-auth-baseline.md D3); detail is for developers
 // and is never shown.
 export function problemMessage(t: Translate, problem: Problem): string {
   if (problem.code && t.has(`codes.${problem.code}`)) {
