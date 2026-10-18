@@ -26,11 +26,9 @@ var version = "dev"
 
 const usage = "usage: app serve|healthcheck"
 
-// Shutdown timing: readiness turns 503 and waits drainDelay, then the server closes within shutdownTimeout.
-const (
-	drainDelay      = 5 * time.Second
-	shutdownTimeout = 20 * time.Second
-)
+// shutdownTimeout lets the longest legitimate request (httpapi.DefaultTimeouts.Write) finish; compose's
+// stop_grace_period is a few seconds longer.
+const shutdownTimeout = 30 * time.Second
 
 func main() {
 	if len(os.Args) != 2 {
@@ -76,14 +74,13 @@ func serve(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	ready := httpapi.NewReadiness(pool.Ping)
-	srv := httpapi.NewServer(httpapi.NewHandler(httpapi.Deps{Ready: ready, Logger: logger}), httpapi.DefaultTimeouts)
+	srv := httpapi.NewServer(httpapi.NewHandler(httpapi.Deps{Ready: pool.Ping, Logger: logger}), httpapi.DefaultTimeouts)
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {
 		return err
 	}
 	logger.Info("serving", "app", cfg.AppName, "version", version, "addr", ln.Addr().String(), "mode", cfg.Mode)
-	return httpapi.Serve(ctx, ln, srv, ready, drainDelay, shutdownTimeout, logger)
+	return httpapi.Serve(ctx, ln, srv, shutdownTimeout, logger)
 }
 
 // healthcheck asks the local server whether it is ready (GET /health/ready) and fails unless it answers 200.
