@@ -75,12 +75,12 @@
 - **P12　本機 `.env` 由 Will 更新**（需要人做，見步驟 1）。agent 不讀 `.env`。新變數依 `.env-example`：
   - `DATABASE_URL` 去掉 `+asyncpg`；
   - 刪除 `SECRET_KEY`、`COOKIE_SAMESITE`、`COOKIE_DOMAIN`、`CORS_ORIGINS`、`NEXT_PUBLIC_API_URL`。
-- **P13　未查證的事實**，步驟 0 查證，查證前不當成前提使用：
-  - `http.Server` 的 timeout 欄位與 gosec G112 規則；
-  - Docker 發佈的 port 會繞過 ufw；
-  - Atlas community 版是否支援 `docker://` dev-url、`concurrent_index` policy：FathomPod 的 `backend/atlas.hcl:14-24` 已在用，步驟 0 只確認版本與下載 URL 是 community 版；
-  - Atlas 對 `DATABASE_URL` 的 `sslmode` 預設是否和 pgx 不同；若不同，compose 的 migrate service 改傳帶 `sslmode=disable` 的 URL；
-  - Chrome、Firefox、Safari 在 `http://localhost` 上對 `Secure` cookie 的處理。最後一項不影響設計，因為非 Secure 時 cookie 已改名為 `session`。
+- **P13　步驟 0 查證的事實**（2026-10-18）：
+  - **`http.Server` timeout 與 gosec G112：已確認。** 欄位有 `ReadTimeout`、`ReadHeaderTimeout`、`WriteTimeout`、`IdleTimeout`、`MaxHeaderBytes`。`ReadHeaderTimeout` 為 0 時沿用 `ReadTimeout`，兩者都是 0 就沒有 timeout；`IdleTimeout` 同理（[go1.27.2 `src/net/http/server.go:3089-3118`](https://raw.githubusercontent.com/golang/go/go1.27.2/src/net/http/server.go)）。G112 只檢查 `http.Server{...}` literal 裡有沒有寫 `ReadHeaderTimeout` 或 `ReadTimeout` 這個 key，不看值，事後賦值（`srv.ReadHeaderTimeout = …`）也不算（[gosec `rules/slowloris.go`](https://github.com/securego/gosec/blob/master/rules/slowloris.go)）。所以 G112 擋不住設成 0；B19 的 timeout 要靠 `TestSlowHeaderClosed` 守住，不能靠 lint。
+  - **Docker 發佈的 port 繞過 ufw：已確認。** Docker 文件：發佈 port 後，封包「are routed before the firewall rules can be applied, effectively ignoring your firewall configuration」（[Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)）。P10 的設計因此不變：只有 Caddy 發佈 port，dev compose 綁 `127.0.0.1`。
+  - **Atlas community 版：不成立，待 Will 決定。** 下載 URL `https://release.ariga.io/atlas/atlas-community-<os>-<arch>-<ver>` 確認是 community 版。但 FathomPod 在 v1.1.3 實測過：community 版不接受多個 schema 檔的 `src`，`concurrent_index` 產的檔也不加 `-- atlas:txmode none`（wiki `tech/atlas-migrate-ci-gate` Gotcha 6、Case 25；FathomPod ADR `2026-10-07-go-rewrite-scope-and-cutover`）。所以 FathomPod 改成產生 migration 與漂移檢查用 standard 版、image 內套用用 community 版（`backend/Dockerfile:15-27`、`.github/workflows/ci.yml:93-97`）。這和 I5 的「各模組一份 `schema.sql`」直接衝突，觸發步驟 0 的停止條件。
+  - **Atlas 與 pgx 的 `sslmode` 預設：不同。** Atlas v1.3.0 用 `lib/pq` v1.12.0（`cmd/atlas/go.mod:20`），它的預設是 `require`（`connector.go:61`）；pgx v5.11.0 照 libpq 預設 `prefer`（`pgconn/config.go:296-302`）。compose 內的 PostgreSQL 沒開 TLS，所以 Atlas 不帶參數會連不上。改法：`.env-example` 的 `DATABASE_URL` 直接寫 `?sslmode=disable`，backend 與 migrate 共用同一個 URL，不另外傳一份（FathomPod `backend/deploy/compose.yaml:102` 也是這樣）。
+  - **`http://localhost` 上的 `Secure` cookie：已確認，不影響設計。** Chrome 與 Firefox 接受；Safari 拒收 `Secure`、`__Host-`、`__Secure-`（[WebKit bug 231035](https://bugs.webkit.org/show_bug.cgi?id=231035)、[httpwg issue 2605](https://github.com/httpwg/http-extensions/issues/2605)，屬推論：bug 報告是 2021–2024 年的，沒有在當前 Safari 實測）。`COOKIE_SECURE=false` 時 cookie 改名為 `session`、不帶 `Secure`，三家都能用。
 
 **驗收基線（舊系統，`7a4d0fa`，2026-10-18，本機）：**
 - 後端：`uv run pytest -q` → `30 passed in 3.47s`（PostgreSQL 18 容器）。
@@ -447,7 +447,7 @@
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
-| 0 查證與依賴核准 | 未開始 | | | |
+| 0 查證與依賴核准 | 進行中 | P13 五項已查（Atlas community 不成立） | Will 核准依賴清單、Atlas 版本別決定 | |
 | 1 Walking skeleton | 未開始 | | | |
 | 2 共用平台 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
