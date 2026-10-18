@@ -1,0 +1,62 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gocritic
+    - gosec
+    - nilerr
+    - noctx
+  settings:
+    gocritic:
+      disable-all: true
+      enabled-tags:
+        - diagnostic
+    depguard:
+      rules:
+        # Layering: modules hold services, stores and sqlc code; they never touch HTTP or the composition root.
+        # Add one rule per module when it is created so modules do not import each other (items must not import
+        # .../modules/auth).
+        modules-no-http:
+          list-mode: lax
+          files:
+            - "**/internal/modules/**"
+          deny:
+            - pkg: net/http
+              desc: modules do not handle HTTP; handlers live in internal/httpapi
+            - pkg: github.com/Will413028/fullstack-template/backend/internal/httpapi
+              desc: modules must not depend on the HTTP layer
+            - pkg: github.com/Will413028/fullstack-template/backend/cmd
+              desc: modules must not depend on the composition root
+        platform-no-upward:
+          list-mode: lax
+          files:
+            - "**/internal/platform/**"
+          deny:
+            - pkg: github.com/Will413028/fullstack-template/backend/internal/modules
+              desc: platform is the bottom layer and must not depend on modules
+            - pkg: github.com/Will413028/fullstack-template/backend/internal/httpapi
+              desc: platform is the bottom layer and must not depend on the HTTP layer
+        standard-library-log:
+          list-mode: lax
+          files:
+            - $all
+          deny:
+            - pkg: log$
+              desc: use log/slog
+        production-random:
+          list-mode: lax
+          files:
+            - "!$test"
+          deny:
+            - pkg: math/rand$
+              desc: use math/rand/v2 or crypto/rand
+  exclusions:
+    generated: strict
+
+formatters:
+  enable:
+    - gofmt

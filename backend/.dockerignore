@@ -1,12 +1,7 @@
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-.ruff_cache
 .git
-.gitignore
 .env
 .env.*
+bin
 *.md
-tests
-.mypy_cache
+**/*_test.go
+**/testdata
