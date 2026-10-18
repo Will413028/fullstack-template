@@ -45,6 +45,11 @@ jobs:
           base="$EVENT_BASE"
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then base=HEAD~1; fi
           make check BASE="$base"
+      # Reported, not gated: total coverage, plus changed-line coverage against the PR base on pull requests
+      - name: Coverage report
+        env:
+          COVER_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: make -s coverage COVER_BASE="$COVER_BASE" >> "$GITHUB_STEP_SUMMARY"
       - run: make atlas-age
 
   # Builds the production backend image and applies migrations with the Atlas build that ships in it.

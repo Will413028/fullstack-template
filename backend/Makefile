@@ -14,6 +14,9 @@ SQUAWK        := npx --yes squawk-cli@2.65.0
 OAPI_CODEGEN  := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
 GEN_OUT       := internal/httpapi/gen/api.gen.go
+OASDIFF       := go run github.com/oasdiff/oasdiff@v1.33.0
+COBERTURA     := go run github.com/boumenot/gocover-cobertura@v1.5.0
+DIFF_COVER    := pipx run diff-cover==10.5.1
 # Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
 BASE ?= origin/main
 
@@ -59,14 +62,20 @@ lint: $(GOLANGCI_LINT)
 
 .PHONY: test
 test: $(ATLAS_COMMUNITY) ## Needs Docker: integration tests start PostgreSQL with testcontainers
-	go test -race ./...
+	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
+
+# Reported, not gated (AGENTS.md Verification). -coverpkg above counts code exercised from other packages' tests.
+# COVER_BASE (a ref) adds changed-line coverage against it; CI sets it on pull requests.
+.PHONY: coverage
+coverage: ## Markdown coverage report from the last make test
+	./scripts/coverage-report.sh "$(COBERTURA)" "$(DIFF_COVER)" $(COVER_BASE)
 
 .PHONY: vuln
 vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable
+check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable api-breaking
 
 .PHONY: gen
 gen: ## Regenerate internal/httpapi/gen from api/openapi.yaml
@@ -104,6 +113,10 @@ squawk: ## Lock and safety checks for migrations (needs Node)
 .PHONY: migrations-immutable
 migrations-immutable: ## Migrations already on BASE must not change
 	./scripts/check-migrations-immutable.sh $(BASE)
+
+.PHONY: api-breaking
+api-breaking: ## api/openapi.yaml must have no breaking change against BASE
+	./scripts/check-openapi-breaking.sh "$(OASDIFF)" $(BASE)
 
 .PHONY: tools
 tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT)
