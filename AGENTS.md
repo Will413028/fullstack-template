@@ -1,5 +1,7 @@
 # Fullstack Template
 
+> **Go rewrite in progress:** the backend, Alembic and Design Rules sections below describe the old FastAPI backend. Until the rewrite lands, `docs/plans/2026-10-18-go-backend-rewrite.md` is authoritative for them.
+
 Production-ready fullstack monorepo with FastAPI backend, Next.js frontend, and Docker Compose deployment.
 
 ## Verification

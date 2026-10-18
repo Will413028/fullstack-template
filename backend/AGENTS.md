@@ -1,5 +1,7 @@
 # FastAPI Template
 
+> **Go rewrite in progress:** this file describes the old FastAPI backend. Until the rewrite lands, `docs/plans/2026-10-18-go-backend-rewrite.md` is authoritative.
+
 Production-ready FastAPI template with Pragmatic DDD architecture, async SQLAlchemy, and JWT authentication.
 
 ## Tech Stack
