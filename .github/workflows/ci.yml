@@ -33,6 +33,23 @@ jobs:
       - run: make check
       - run: make atlas-age
 
+  # Builds the production backend image and applies migrations with the Atlas build that ships in it.
+  stack:
+    name: Compose stack (image + migrate + health)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: cp .env-example .env
+      - run: docker compose up -d --build --wait backend
+      - name: Migrate exited cleanly and backend is ready
+        run: |
+          test "$(docker compose ps -a migrate --format '{{.ExitCode}}')" = 0
+          curl -fsS http://127.0.0.1:8000/health/ready
+      - if: failure()
+        run: docker compose logs
+
   frontend:
     name: Frontend (lint + test + build)
     runs-on: ubuntu-latest
