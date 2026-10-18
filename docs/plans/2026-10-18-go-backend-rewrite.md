@@ -171,7 +171,7 @@
     - 某個套件找不到符合條件的版本 → 回報替代方案。
     - Atlas community 版缺少必要功能 → 回報；換成非 community 版之前先問。
   - 需要人做的事：Will 核准清單。
-- [ ] **1. Walking skeleton**（被擋於：步驟 0）
+- [x] **1. Walking skeleton**（被擋於：步驟 0）
   - 範圍：
     - 分支與保存：開 `go-rewrite` 分支；在開工時的 `main` 打 tag `archive/pre-go-rewrite` 並 push；開 draft PR。
     - 刪除 Python 後端：`backend/src`、`tests`、`alembic*`、`pyproject.toml`、`uv.lock`、`scripts/wait_for_db.py`、`.python-version`（若有）。
@@ -492,7 +492,7 @@
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 查證與依賴核准 | 完成 | P13 五項已查並寫回；清單 Will 2026-10-18 核准（P14）；D12、D13 已決 | 無 | `4ae2473` 與本 commit |
-| 1 Walking skeleton | 進行中 | `make -C backend check` 綠燈；6 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`docker compose stop` exit 0；`up --wait` 與 backend healthy；設計審查 11 項已分流 ；draft PR #12 的 `gh pr checks` 6 項全綠（含 stack job） | 無 | `9f014ed`…`437e79c` |
+| 1 Walking skeleton | 完成 | `make -C backend check` 綠燈；7 個 mutation 都讓指定測試失敗（503→500、MaxBytesReader、ReadHeaderTimeout、CrossOriginProtection、healthcheck 狀態判斷、lock_timeout、Shutdown→Close）；compose 驗收（隔離 worktree）：health、ready、migrate exit 0、port `127.0.0.1:8000`、停 postgres 後 503、`up --wait` 後 backend healthy、`docker compose stop backend` exit 0；設計審查 11 項已分流；D14 已實作；draft PR #12 在 `29d72d9` 的 `gh pr checks` 6 項全綠 | 無 | `9f014ed`…`29d72d9` |
 | 2 共用平台 | 未開始 | | | |
 | 3 auth | 未開始 | | | |
 | 4 items | 未開始 | | | |
