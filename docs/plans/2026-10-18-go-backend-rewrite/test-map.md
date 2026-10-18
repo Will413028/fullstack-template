@@ -65,3 +65,10 @@
 - **Items**：
   - `TestCreateItemTitleTooLong`（E9）
   - `TestUpdatedAtChanges`（盤點 C 段：`updated_at` 必須由查詢更新）
+- **4b 新增（D16）**：
+  - `TestGetUser`（本人與 admin 讀得到）、`TestGetOtherUserNotFound`
+  - `TestListUsers`（admin，keyset，含停用的使用者）、`TestNonAdminCannotListUsers`
+  - `TestCreateSessionReturnsSession`（`Session.user`、`current: true`、`Location`）、`TestGetCurrentSession`
+  - `TestListSessions`、`TestListSessionsExcludesExpired`
+  - `TestDeleteSession`（撤銷另一個 session；撤銷目前這個時清 cookie）、`TestDeleteOtherUsersSession`
+  - `TestEveryWritablePathHasGet`（I7）
