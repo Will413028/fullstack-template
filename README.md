@@ -35,6 +35,12 @@ make dev
 make seed ADMIN_ACCOUNT=admin
 ```
 
+### On GitHub, once per new repository
+
+Repository settings do not come with a copy of the template. Under Settings → Code security, turn on Dependabot alerts,
+Dependabot security updates (a fix pull request for each new advisory, without the 7-day cooldown that version updates
+wait), secret scanning and push protection. The checks in `.github/workflows/` run without further setup.
+
 ## Project Structure
 
 ```
