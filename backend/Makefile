@@ -69,8 +69,10 @@ lint: $(GOLANGCI_LINT)
 
 .PHONY: test
 # test-report.json (go test -json) feeds the executed-test count lock in scripts/check_locks.py at the repo root.
+# -shuffle=on runs tests in a random order so one that relies on another's leftovers fails; each package prints its
+# seed (-test.shuffle N), and -shuffle=N replays that order.
 test: $(ATLAS_COMMUNITY) ## Needs Docker: integration tests start PostgreSQL with testcontainers
-	$(GOTESTSUM) --format pkgname-and-test-fails --jsonfile test-report.json -- -race -coverpkg=./... -coverprofile=coverage.out ./...
+	$(GOTESTSUM) --format pkgname-and-test-fails --jsonfile test-report.json -- -race -shuffle=on -coverpkg=./... -coverprofile=coverage.out ./...
 
 # Reported, not gated (AGENTS.md Verification). -coverpkg above counts code exercised from other packages' tests.
 # COVER_BASE (a ref) adds changed-line coverage against it; CI sets it on pull requests.

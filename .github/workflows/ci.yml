@@ -58,6 +58,26 @@ jobs:
       - run: python3 scripts/check_locks.py --go-test-report backend/test-report.json
         working-directory: .
 
+  # Every commit that edits a checker's configuration or moves a lock the bad way names why in a Quality-Gate trailer
+  # (scripts/check_commit_policy.py; lefthook checks it at commit time too).
+  policy:
+    name: Commit policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Check the commits being added
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then range="$HEAD_SHA~1..$HEAD_SHA"
+          else range="$BASE..$HEAD_SHA"; fi
+          python3 scripts/check_commit_policy.py --range "$range"
+
   # A derived project starts with `make rename`; it must rewrite every old module path and still build.
   rename:
     name: Rename smoke test

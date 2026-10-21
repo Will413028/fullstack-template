@@ -10,7 +10,7 @@
     "dev": "next dev -H 0.0.0.0 --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "tsc --noEmit && biome check --error-on-warnings src/",
+    "lint": "tsc --noEmit && biome check --error-on-warnings .",
     "format": "biome format --write",
     "gen:api": "openapi-typescript ../backend/api/openapi.yaml -o src/lib/api/schema.d.ts",
     "gen:api:check": "openapi-typescript ../backend/api/openapi.yaml -o src/lib/api/schema.d.ts --check",

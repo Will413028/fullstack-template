@@ -12,6 +12,12 @@ linters:
     - nilerr
     - noctx
   settings:
+    # A #nosec comment would silence gosec without going through nolintlint or the suppression lock; with nosec on,
+    # gosec ignores it and //nolint:gosec with a reason is the only way.
+    gosec:
+      config:
+        global:
+          nosec: true
     nolintlint:
       require-explanation: true
       require-specific: true
@@ -61,6 +67,11 @@ linters:
               desc: use math/rand/v2 or crypto/rand
   exclusions:
     generated: strict
+
+issues:
+  # Report every finding: the defaults hide repeats past 3 per message and 50 per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
 
 formatters:
   enable:

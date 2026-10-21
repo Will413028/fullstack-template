@@ -7,7 +7,8 @@ report is given: vitest's json reporter for the frontend, `go test -json` (backe
 for the backend.
 
 Every count must equal its lock. Suppressions may only go down and executed tests only up: when a count moves the
-good way, lower or raise the lock in the same commit; when it moves the bad way, the commit message says why.
+good way, lower or raise the lock in the same commit; when it moves the bad way, a
+Quality-Gate trailer in the commit message says why (scripts/check_commit_policy.py).
 """
 
 import argparse
@@ -20,7 +21,8 @@ import sys
 LOCKS = pathlib.Path("scripts/quality-locks.json")
 # Every way to switch a check off, per language. A new spelling belongs here, or it would slip past the lock.
 SUPPRESSIONS = {
-    "go": (re.compile(r"//\s*nolint\b"), (".go",)),
+    # gosec ignores #nosec (backend/.golangci.yml), but a count here still shows one being added
+    "go": (re.compile(r"//\s*nolint\b|#nosec\b"), (".go",)),
     "typescript": (
         re.compile(r"biome-ignore|@ts-expect-error|@ts-ignore|@ts-nocheck|eslint-disable"),
         (".ts", ".tsx", ".js", ".mjs", ".cjs"),
@@ -84,7 +86,7 @@ def main() -> int:
             print(f"{key}: {got}, locked at {want}: set the lock in {LOCKS} to {got}", file=sys.stderr)
         else:
             print(
-                f"{key}: {got}, locked at {want}: remove the change, or set the lock to {got} and say why in the commit",
+                f"{key}: {got}, locked at {want}: remove the change, or set the lock to {got} with a Quality-Gate: <why> trailer in the commit",
                 file=sys.stderr,
             )
     return 1 if failed else 0

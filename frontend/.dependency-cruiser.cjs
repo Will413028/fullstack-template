@@ -5,14 +5,16 @@ module.exports = {
   forbidden: [
     {
       name: "no-circular",
-      comment: "An import cycle ties its modules into one unit that cannot change or be tested apart.",
+      comment:
+        "An import cycle ties its modules into one unit that cannot change or be tested apart.",
       severity: "error",
       from: {},
       to: { circular: true },
     },
     {
       name: "shared-not-to-features-or-app",
-      comment: "lib, components, hooks, store, providers and i18n are shared by every feature and never depend on one.",
+      comment:
+        "lib, components, hooks, store, providers and i18n are shared by every feature and never depend on one.",
       severity: "error",
       from: { path: "^src/(lib|components|hooks|store|providers|i18n)/" },
       to: { path: "^src/(features|app)/" },
@@ -26,19 +28,27 @@ module.exports = {
     },
     {
       name: "feature-public-api-from-outside",
-      comment: "Outside a feature, import it through index.ts, or server.ts for server-only code.",
+      comment:
+        "Outside a feature, import it through index.ts, or server.ts for server-only code.",
       severity: "error",
       from: { pathNot: "^src/features/" },
-      to: { path: "^src/features/[^/]+/", pathNot: "^src/features/[^/]+/(index|server)\\.ts$" },
+      to: {
+        path: "^src/features/[^/]+/",
+        pathNot: "^src/features/[^/]+/(index|server)\\.ts$",
+      },
     },
     {
       name: "feature-public-api-between-features",
-      comment: "One feature reaches another only through its index.ts or server.ts.",
+      comment:
+        "One feature reaches another only through its index.ts or server.ts.",
       severity: "error",
       from: { path: "^src/features/([^/]+)/" },
       to: {
         path: "^src/features/[^/]+/",
-        pathNot: ["^src/features/$1/", "^src/features/[^/]+/(index|server)\\.ts$"],
+        pathNot: [
+          "^src/features/$1/",
+          "^src/features/[^/]+/(index|server)\\.ts$",
+        ],
       },
     },
   ],
