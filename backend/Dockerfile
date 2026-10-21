@@ -20,6 +20,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:1896654cfc5c2b5ad74c07f29cb36f5d2d1cbed42e3054070fbfe444e521e83c AS atlas
 ARG TARGETARCH
 ARG ATLAS_VERSION=v1.3.3
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN case "$TARGETARCH" in \
       amd64) sum=7bddc9a0cebbb1f3e21cdd5f5811d346850e481e3b7c85e31206613d1f63f068 ;; \
       arm64) sum=546de518d9875e4fed991b917295395dc5400aa26922fa4cd3fbce33afdb75be ;; \
@@ -34,7 +35,8 @@ WORKDIR /app
 COPY --from=build /out/app /usr/local/bin/app
 COPY --from=atlas /atlas /usr/local/bin/atlas
 COPY migrations migrations
-USER nonroot
+# distroless's nonroot user, by number so a runtime can verify it is not root without reading /etc/passwd
+USER 65532:65532
 EXPOSE 8000
 ENTRYPOINT ["/usr/local/bin/app"]
 CMD ["serve"]

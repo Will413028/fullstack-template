@@ -42,6 +42,8 @@ pre-push:
     frontend-check:
       root: frontend/
       run: pnpm audit --prod --audit-level high && pnpm gen:api:check && pnpm lint && pnpm check:deps && pnpm check:arch && pnpm test:report && pnpm build && cd .. && python3 scripts/check_locks.py --vitest-report frontend/test-report.json
+    docker-lint:
+      run: make --no-print-directory lint-docker
     policy:
       run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/check_commit_policy.py --range origin/main..HEAD
     # osv-scanner gets each tracked lockfile by name: its recursive walk honours a parent repository's .gitignore,

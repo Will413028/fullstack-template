@@ -107,3 +107,26 @@ reset-db:
 	$(COMPOSE) up -d --wait backend
 	@$(MAKE) --no-print-directory seed ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)"
 	@echo "Database has been reset and seeded."
+
+# --- Checks ---
+
+# hadolint is installed from its release binary; the checksums are the release's checksums.sha256.
+HADOLINT_VERSION := 2.15.1
+HADOLINT := bin/hadolint
+HADOLINT_SHA256_macos-arm64  := 5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2
+HADOLINT_SHA256_linux-x86_64 := c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+HADOLINT_SHA256_linux-arm64  := f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
+HADOLINT_PLATFORM := $(subst darwin,macos,$(shell uname -s | tr A-Z a-z))-$(subst aarch64,arm64,$(shell uname -m))
+
+# Every finding fails, infos included (hadolint's default threshold).
+.PHONY: lint-docker
+lint-docker: $(HADOLINT)
+	$(HADOLINT) backend/Dockerfile frontend/Dockerfile
+
+$(HADOLINT):
+	@sum="$(HADOLINT_SHA256_$(HADOLINT_PLATFORM))"; \
+	if [ -z "$$sum" ]; then echo "no hadolint checksum for $(HADOLINT_PLATFORM)"; exit 1; fi; \
+	mkdir -p bin && \
+	curl -sSfL -o $@.tmp "https://github.com/hadolint/hadolint/releases/download/v$(HADOLINT_VERSION)/hadolint-$(HADOLINT_PLATFORM)" && \
+	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
+	chmod 0755 $@.tmp && mv $@.tmp $@

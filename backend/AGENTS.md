@@ -4,12 +4,12 @@ Go modular monolith: stdlib `net/http` with an oapi-codegen strict server genera
 
 ## Commands
 
-Run from `backend/`. Needs Go (version in `go.mod`) and Docker (integration tests and the Atlas dev database). Tool versions and checksums are pinned only in `Makefile` and `tools/go.mod`: the Go-built tools (govulncheck, sqlc, oapi-codegen, oasdiff, gocover-cobertura, gotestsum) share the module `tools/go.mod` and run as `go tool -modfile=tools/go.mod <name>`, so they never change the application's `go.mod`; never add a tool to `go.mod` itself. A vulnerable dependency of a tool is upgraded in `tools/go.mod`; `make check` shows the tools still produce and detect the same things. CI runs `make check`, so local and CI use the same versions.
+Run from `backend/`. Needs Go (version in `go.mod`) and Docker (integration tests and the Atlas dev database). Tool versions and checksums are pinned only in `Makefile` and `tools/go.mod`: the Go-built tools (govulncheck, sqlc, oapi-codegen, oasdiff, gocover-cobertura, gotestsum, deadcode) share the module `tools/go.mod` and run as `go tool -modfile=tools/go.mod <name>`, so they never change the application's `go.mod`; never add a tool to `go.mod` itself. A vulnerable dependency of a tool is upgraded in `tools/go.mod`; `make check` shows the tools still produce and detect the same things. CI runs `make check`, so local and CI use the same versions.
 
 ```bash
 make run                     # serve with backend/.env (format in .env-example)
 make test                    # go test -race through gotestsum; integration tests start PostgreSQL 18 with testcontainers
-make check                   # everything CI runs: fmt-check gen-check lint test vuln sqlc-diff drift squawk
+make check                   # everything CI runs: fmt-check gen-check lint deadcode test vuln sqlc-diff drift squawk
                              # migrations-immutable api-breaking tools-selftest
 make gen                     # regenerate internal/httpapi/gen from api/openapi.yaml
 make sqlc                    # regenerate each module's internal/store from its schema.sql and queries
@@ -46,7 +46,7 @@ Modules: `auth` (users, sessions, login throttling, password checks) and `items`
 7. **Every returned URL can be read.** A 201's `Location` is a path with a GET in the contract, and every path with PATCH, PUT or DELETE also has a GET (`TestEveryWritablePathHasGet`). API rules: `docs/rules/api-design.md`.
 8. **Sessions.** The session cookie is `HttpOnly` (`__Host-session`, or `session` when `COOKIE_SECURE=false`); `http.CrossOriginProtection` wraps the whole mux. A feature that changes a user's role or password must revoke all of that user's sessions.
 9. **Time.** Code reads the time from the injected clock (`auth.Config.Now`, `httpapi.Deps.Now`); only `cmd/` and tests call `time.Now`, `time.Since` or `time.Until` (forbidigo). Resource tables' `created_at`/`updated_at` come from the database's `now()` (`docs/rules/database-design.md`, 時間戳記).
-10. **Tests.** Behavior is tested through HTTP against a real PostgreSQL (`internal/platform/dbtest`, testcontainers) with the same DB roles as production. Follow `internal/httpapi/items_test.go`.
+10. **Tests.** Behavior is tested through HTTP against a real PostgreSQL (`internal/platform/dbtest`, testcontainers) with the same DB roles as production. Follow `internal/httpapi/items_test.go`. Every package with tests has a `TestMain` that fails on a leaked goroutine: `dbtest.Main` for database tests, `goleak.VerifyTestMain` otherwise (`internal/archtest` checks this). `make deadcode` fails on a function that neither the binary nor a test reaches.
 
 ## Adding a module
 

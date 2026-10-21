@@ -11,6 +11,7 @@
 #   a base without migrations passes; an unknown base ref fails instead of passing as "nothing to compare".
 # - check-openapi-breaking.sh: removing a response property fails.
 # - govulncheck: a module that calls a known-vulnerable function fails.
+# - deadcode.sh: a function nothing calls fails.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 unset GIT_DIR GIT_WORK_TREE
@@ -19,9 +20,11 @@ scripts=$PWD/scripts
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 failures=0
-go build -modfile=tools/go.mod -o "$tmp/bin/" github.com/oasdiff/oasdiff golang.org/x/vuln/cmd/govulncheck
+go build -modfile=tools/go.mod -o "$tmp/bin/" github.com/oasdiff/oasdiff golang.org/x/vuln/cmd/govulncheck \
+  golang.org/x/tools/cmd/deadcode
 oasdiff=$tmp/bin/oasdiff
 govulncheck=$tmp/bin/govulncheck
+deadcode=$tmp/bin/deadcode
 
 expect() { # expect pass <description> <command...> | expect fail <description> <output pattern> <command...>
   local want=$1 what=$2 pattern=""
@@ -96,6 +99,15 @@ EOF
 (cd "$vuln" && go mod init vulnfixture >/dev/null 2>&1 && go get golang.org/x/text@v0.3.6 >/dev/null 2>&1)
 vulncheck() { (cd "$vuln" && "$govulncheck" ./...); }
 expect fail "govulncheck: calling a known-vulnerable function fails" "GO-2021-0113" vulncheck
+
+dead=$tmp/dead
+mkdir -p "$dead"
+printf 'package main\n\nfunc main() { used() }\n\nfunc used() {}\n' >"$dead/main.go"
+(cd "$dead" && go mod init deadfixture >/dev/null 2>&1)
+deadcheck() { (cd "$dead" && "$scripts/deadcode.sh" "$deadcode"); }
+expect pass "deadcode: a module whose functions are all called passes" deadcheck
+printf '\nfunc unused() {}\n' >>"$dead/main.go"
+expect fail "deadcode: a function nothing calls fails" "unreachable func: unused" deadcheck
 
 if ((failures > 0)); then
   echo "$failures self-test case(s) failed" >&2
