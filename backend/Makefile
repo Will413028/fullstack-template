@@ -1,5 +1,6 @@
 # Backend commands. Needs Go (version in go.mod) and Docker (Atlas dev database, integration tests).
-# Tool versions are pinned only here; CI runs `make check` too, so local and CI use the same versions.
+# Tool versions are pinned only here and in tools/go.mod; CI runs `make check` too, so local and CI use the same
+# versions.
 
 # golangci-lint is installed from its release binary: the project does not support building it with go run/install.
 GOLANGCI_LINT_VERSION := 2.14.0
@@ -7,15 +8,21 @@ GOLANGCI_LINT := bin/golangci-lint
 GOLANGCI_LINT_SHA256_darwin-arm64 := 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
 GOLANGCI_LINT_SHA256_linux-amd64  := ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
 GOLANGCI_LINT_SHA256_linux-arm64  := ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
-GOVULNCHECK   := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
+# Go-built dev tools share one module, tools/go.mod (its own go.sum and build list), so they never change the
+# application's go.mod or the production binary. They are dependencies like any other: Dependabot bumps them, osv-scanner
+# scans them, and a vulnerable dependency of a tool is upgraded there. gen-check, sqlc-diff and tools-selftest show
+# that an upgrade did not change what a tool produces or detects. Add a tool with `cd tools && go get -tool <pkg>@<v>`.
+GO_TOOL        = go tool -modfile=tools/go.mod $(1)
+GOVULNCHECK   := $(call GO_TOOL,govulncheck)
 # sqlc builds with cgo (libpg_query); the first run compiles it, later runs use the Go build cache.
-SQLC          := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+SQLC          := $(call GO_TOOL,sqlc)
 SQUAWK        := npx --yes squawk-cli@2.65.0
-OAPI_CODEGEN  := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+OAPI_CODEGEN  := $(call GO_TOOL,oapi-codegen)
 OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
 GEN_OUT       := internal/httpapi/gen/api.gen.go
-OASDIFF       := go run github.com/oasdiff/oasdiff@v1.33.0
-COBERTURA     := go run github.com/boumenot/gocover-cobertura@v1.5.0
+OASDIFF       := $(call GO_TOOL,oasdiff)
+COBERTURA     := $(call GO_TOOL,gocover-cobertura)
+GOTESTSUM     := $(call GO_TOOL,gotestsum)
 DIFF_COVER    := pipx run diff-cover==10.5.1
 # Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
 BASE ?= origin/main
@@ -61,8 +68,9 @@ lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 
 .PHONY: test
+# test-report.json (go test -json) feeds the executed-test count lock in scripts/check_locks.py at the repo root.
 test: $(ATLAS_COMMUNITY) ## Needs Docker: integration tests start PostgreSQL with testcontainers
-	go test -race -coverpkg=./... -coverprofile=coverage.out ./...
+	$(GOTESTSUM) --format pkgname-and-test-fails --jsonfile test-report.json -- -race -coverpkg=./... -coverprofile=coverage.out ./...
 
 # Reported, not gated (AGENTS.md Verification). -coverpkg above counts code exercised from other packages' tests.
 # COVER_BASE (a ref) adds changed-line coverage against it; CI sets it on pull requests.

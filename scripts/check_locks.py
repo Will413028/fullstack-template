@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Compare suppression comments and executed tests with the values locked in scripts/quality-locks.json.
 
-Usage: python3 scripts/check_locks.py [--vitest-report <file>]
-Run from the repository root. Suppressions are counted in tracked files on every run; the frontend test count is checked
-when vitest's json report is given.
+Usage: python3 scripts/check_locks.py [--vitest-report <file>] [--go-test-report <file>]
+Run from the repository root. Suppressions are counted in tracked files on every run; a test count is checked when its
+report is given: vitest's json reporter for the frontend, `go test -json` (backend/test-report.json from `make test`)
+for the backend.
 
 Every count must equal its lock. Suppressions may only go down and executed tests only up: when a count moves the
 good way, lower or raise the lock in the same commit; when it moves the bad way, the commit message says why.
@@ -45,15 +46,30 @@ def count_vitest(report: pathlib.Path) -> int:
     return data["numPassedTests"] + data["numFailedTests"]
 
 
+def count_go(report: pathlib.Path) -> int:
+    # Tests and subtests that ran to a result, per package; skipped ones do not count.
+    ran = set()
+    for line in report.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("{"):
+            continue
+        event = json.loads(line)
+        if event.get("Test") and event.get("Action") in ("pass", "fail"):
+            ran.add((event["Package"], event["Test"]))
+    return len(ran)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--vitest-report", type=pathlib.Path)
+    parser.add_argument("--go-test-report", type=pathlib.Path)
     args = parser.parse_args()
 
     locks = json.loads(LOCKS.read_text(encoding="utf-8"))
     counts = {f"suppressions.{lang}": count_suppressions(lang) for lang in SUPPRESSIONS}
     if args.vitest_report:
         counts["tests.frontend"] = count_vitest(args.vitest_report)
+    if args.go_test_report:
+        counts["tests.backend"] = count_go(args.go_test_report)
 
     failed = False
     for key, got in counts.items():
