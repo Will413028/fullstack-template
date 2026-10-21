@@ -27,7 +27,7 @@ func newSeedService(t *testing.T) (*auth.Service, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 	svc, err := auth.New(t.Context(), pool, auth.Config{
-		SessionAbsolute: time.Hour, SessionIdle: time.Hour,
+		SessionAbsolute: time.Hour, SessionIdle: time.Hour, Now: time.Now,
 		Hasher: auth.NewArgon2Hasher(auth.Argon2Params{MemoryKiB: 64, Time: 1, Threads: 1}, 0),
 	})
 	if err != nil {

@@ -37,7 +37,8 @@ describe("api client", () => {
 
     await api.GET("/users/me");
 
-    const request = mockFetch.mock.calls[0][0];
+    const [request] =
+      mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
     expect(request.url).toBe(`${originalLocation.origin}/api/users/me`);
   });
 
@@ -48,7 +49,8 @@ describe("api client", () => {
 
     await api.POST("/sessions", { body: { account: "a", password: "p" } });
 
-    const request = mockFetch.mock.calls[0][0];
+    const [request] =
+      mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
     expect(request.method).toBe("POST");
     expect(request.headers.get("Content-Type")).toBe("application/json");
     expect(await request.text()).toBe('{"account":"a","password":"p"}');

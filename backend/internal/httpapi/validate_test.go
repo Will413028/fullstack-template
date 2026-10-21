@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
@@ -34,6 +35,9 @@ func newStubAPI(t *testing.T, deps Deps) http.Handler {
 	}
 	if deps.Ready == nil {
 		deps.Ready = ok
+	}
+	if deps.Now == nil {
+		deps.Now = time.Now
 	}
 	return assemble(deps, spec, routes)
 }
@@ -242,6 +246,9 @@ func newTestHandlerDeps(t *testing.T, deps Deps) http.Handler {
 	t.Helper()
 	if deps.RateLimitPerMin == 0 {
 		deps.RateLimitPerMin = 5
+	}
+	if deps.Now == nil {
+		deps.Now = time.Now
 	}
 	h, err := NewHandler(t.Context(), deps)
 	if err != nil {

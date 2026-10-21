@@ -106,9 +106,9 @@ func securityHeaders(h http.Handler) http.Handler {
 
 // accessLog logs one line per request once it ends. The query string is left out: it can hold cursors and search
 // terms. Health checks log at debug level: the container probe calls them every few seconds.
-func accessLog(logger *slog.Logger, h http.Handler) http.Handler {
+func accessLog(logger *slog.Logger, now func() time.Time, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		start := time.Now()
+		start := now()
 		w := &statusWriter{ResponseWriter: rw}
 		level := slog.LevelInfo
 		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/health/") {
@@ -126,7 +126,7 @@ func accessLog(logger *slog.Logger, h http.Handler) http.Handler {
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", status),
-				slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
+				slog.Float64("duration_ms", float64(now().Sub(start).Microseconds())/1000),
 				slog.String("client_ip", clientIPFrom(r.Context()).String()),
 			}
 			if aborted != nil {

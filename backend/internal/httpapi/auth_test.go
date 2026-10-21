@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,8 +97,8 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 		hasher: &countingHasher{PasswordHasher: auth.NewArgon2Hasher(cheapArgon2, 0)},
 	}
 	cfg := auth.Config{SessionAbsolute: 7 * 24 * time.Hour, SessionIdle: 24 * time.Hour, Hasher: a.hasher, Now: a.clock.Now}
-	deps := Deps{Ready: ok, Logger: discard, RateLimitPerMin: 1000, Cookie: Cookie{Name: cookieName, Secure: true},
-		Items: items.New(pool)}
+	deps := Deps{Ready: ok, Logger: discard, Now: a.clock.Now, RateLimitPerMin: 1000,
+		Cookie: Cookie{Name: cookieName, Secure: true}, Items: items.New(pool)}
 	for _, o := range opts {
 		o(&cfg, &deps)
 	}
@@ -685,12 +684,7 @@ func TestRateLimitAuthOperations(t *testing.T) {
 			if _, _, err := a.svc.CreateUser(t.Context(), "alice", goodPassword); err != nil {
 				t.Fatal(err)
 			}
-			send := func(i int) *httptest.ResponseRecorder {
-				if op == "createUser" {
-					return a.signUp(fmt.Sprintf("user%d", i), goodPassword)
-				}
-				return a.signIn("alice", goodPassword, "")
-			}
+			send := a.limitedOperation(op)
 			for i := range 2 {
 				if code := send(i).Code; code != http.StatusCreated {
 					t.Fatalf("request %d = %d, want 201", i+1, code)
@@ -698,10 +692,19 @@ func TestRateLimitAuthOperations(t *testing.T) {
 			}
 			rec := send(2)
 			assertProblem(t, rec, http.StatusTooManyRequests, "/problems/rate-limited")
-			// one token every 30s, less the time the first requests took (the limiter uses the real clock)
-			if ra, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || ra < 1 || ra > 30 {
-				t.Errorf("Retry-After = %q, want 1 to 30 seconds", rec.Header().Get("Retry-After"))
+			// one token every 30s, and the test clock has not moved since the first request
+			if got := rec.Header().Get("Retry-After"); got != "30" {
+				t.Errorf("Retry-After = %q, want 30", got)
 			}
 		})
 	}
+}
+
+// limitedOperation returns a sender for op whose i-th call succeeds while the limit allows it: sign-up with a new
+// account each time, or sign-in as alice.
+func (a *authAPI) limitedOperation(op string) func(i int) *httptest.ResponseRecorder {
+	if op == "createUser" {
+		return func(i int) *httptest.ResponseRecorder { return a.signUp(fmt.Sprintf("user%d", i), goodPassword) }
+	}
+	return func(int) *httptest.ResponseRecorder { return a.signIn("alice", goodPassword, "") }
 }

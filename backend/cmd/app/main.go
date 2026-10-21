@@ -93,7 +93,9 @@ func serve(ctx context.Context) error {
 	}
 	defer pool.Close()
 
-	authCfg := auth.Config{SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Logger: logger}
+	authCfg := auth.Config{
+		SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Now: time.Now, Logger: logger,
+	}
 	if cfg.PasswordHIBPCheck {
 		authCfg.Breach = hibp.New()
 	}
@@ -115,6 +117,7 @@ func serve(ctx context.Context) error {
 		Logger:          logger,
 		Docs:            cfg.Mode == "dev",
 		TrustedProxies:  cfg.TrustedProxies,
+		Now:             time.Now,
 		RateLimitPerMin: cfg.AuthRateLimitPerMin,
 		Auth:            authSvc,
 		Items:           items.New(pool),
@@ -149,7 +152,8 @@ func runSeedAdmin(ctx context.Context) error {
 	}
 	defer pool.Close()
 	authCfg := auth.Config{
-		SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Logger: logx.New(os.Stderr, cfg.Mode),
+		SessionAbsolute: cfg.SessionAbsolute, SessionIdle: cfg.SessionIdle, Now: time.Now,
+		Logger: logx.New(os.Stderr, cfg.Mode),
 	}
 	if cfg.PasswordHIBPCheck {
 		authCfg.Breach = hibp.New()

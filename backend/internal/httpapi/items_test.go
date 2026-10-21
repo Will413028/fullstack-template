@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -187,14 +188,14 @@ func TestPaginationKeyset(t *testing.T) {
 		}
 		query = "?limit=2&cursor=" + page.NextCursor.MustGet()
 	}
-	if len(got) != len(want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("paged ids = %v, want %v", got, want)
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("paged ids = %v, want %v", got, want)
-		}
-	}
+}
+
+func TestListItemsInvalidPage(t *testing.T) {
+	a := newAuthAPI(t)
+	_, token := a.mustSignUp("alice")
 	p := assertProblem(t, a.do(http.MethodGet, "/api/items?limit=101", token, "", ""), http.StatusUnprocessableEntity, "/problems/validation")
 	assertFieldError(t, p, "/limit", "out_of_range")
 	p = assertProblem(t, a.do(http.MethodGet, "/api/items?cursor=not-a-cursor", token, "", ""), http.StatusUnprocessableEntity, "/problems/validation")

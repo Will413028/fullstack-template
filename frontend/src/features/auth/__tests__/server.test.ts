@@ -37,7 +37,8 @@ describe("getServerUser", () => {
     mockFetch.mockResolvedValueOnce(Response.json(user));
 
     expect(await getServerUser()).toEqual(user);
-    const request = mockFetch.mock.calls[0][0];
+    const [request] =
+      mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
     expect(request.url).toBe("http://backend:8000/api/users/me");
     expect(request.headers.get("cookie")).toBe("session=abc");
     // Next is a trusted proxy: forwarding X-Forwarded-For would let the client

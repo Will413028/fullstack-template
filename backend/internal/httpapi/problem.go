@@ -113,6 +113,8 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 			if e.RetryAfter > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(e.RetryAfter.Seconds()))))
 			}
+		default:
+			// the other kinds map to their problem as they are
 		}
 		writeProblem(w, p, e.Detail, e.Code)
 		return

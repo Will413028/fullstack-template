@@ -95,7 +95,7 @@ type Config struct {
 	Hasher PasswordHasher
 	// Breach is the optional breached-password check (PASSWORD_HIBP_CHECK); nil skips it.
 	Breach BreachChecker
-	// Now defaults to time.Now.
+	// Now is the clock for sessions and sign-in throttling; the composition root passes time.Now.
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -117,12 +117,12 @@ func New(ctx context.Context, pool *pgxpool.Pool, cfg Config) (*Service, error) 
 	if cfg.SessionAbsolute <= 0 || cfg.SessionIdle <= 0 || cfg.SessionIdle > cfg.SessionAbsolute {
 		return nil, errors.New("auth: session lifetimes must be positive and idle must not exceed absolute")
 	}
+	if cfg.Now == nil {
+		return nil, errors.New("auth: Now is required")
+	}
 	s := &Service{pool: pool, cfg: cfg, hasher: cfg.Hasher, now: cfg.Now, logger: cfg.Logger}
 	if s.hasher == nil {
 		s.hasher = NewArgon2Hasher(DefaultArgon2Params, 0)
-	}
-	if s.now == nil {
-		s.now = time.Now
 	}
 	if s.logger == nil {
 		s.logger = slog.New(slog.DiscardHandler)
