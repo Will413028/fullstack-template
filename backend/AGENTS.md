@@ -4,13 +4,13 @@ Go modular monolith: stdlib `net/http` with an oapi-codegen strict server genera
 
 ## Commands
 
-Run from `backend/`. Needs Go (version in `go.mod`) and Docker (integration tests and the Atlas dev database). Tool versions and checksums are pinned only in `Makefile`; CI runs `make check`, so local and CI use the same versions.
+Run from `backend/`. Needs Go (version in `go.mod`) and Docker (integration tests and the Atlas dev database). Tool versions and checksums are pinned only in `Makefile` and `tools/go.mod`: the Go-built tools (govulncheck, sqlc, oapi-codegen, oasdiff, gocover-cobertura, gotestsum) share the module `tools/go.mod` and run as `go tool -modfile=tools/go.mod <name>`, so they never change the application's `go.mod`; never add a tool to `go.mod` itself. A vulnerable dependency of a tool is upgraded in `tools/go.mod`; `make check` shows the tools still produce and detect the same things. CI runs `make check`, so local and CI use the same versions.
 
 ```bash
 make run                     # serve with backend/.env (format in .env-example)
-make test                    # go test -race; integration tests start PostgreSQL 18 with testcontainers
+make test                    # go test -race through gotestsum; integration tests start PostgreSQL 18 with testcontainers
 make check                   # everything CI runs: fmt-check gen-check lint test vuln sqlc-diff drift squawk
-                             # migrations-immutable api-breaking
+                             # migrations-immutable api-breaking tools-selftest
 make gen                     # regenerate internal/httpapi/gen from api/openapi.yaml
 make sqlc                    # regenerate each module's internal/store from its schema.sql and queries
 make migration name=<name>   # generate a migration from the modules' schema.sql (Atlas standard build)

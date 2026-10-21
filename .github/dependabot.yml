@@ -23,6 +23,20 @@ updates:
       backend-minor-patch:
         update-types: [minor, patch]
 
+  # the Go-built dev tools (backend/tools/go.mod, backend/Makefile). Every require there is marked indirect, which
+  # version updates skip by default, so allow all dependency types.
+  - package-ecosystem: gomod
+    directory: /backend/tools
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    allow:
+      - dependency-type: all
+    groups:
+      backend-tools:
+        patterns: ["*"]
+
   # the Go toolchain and distroless base images, pinned by digest in backend/Dockerfile
   - package-ecosystem: docker
     directory: /backend

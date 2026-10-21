@@ -31,7 +31,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          # the dev tools build from their own module, backend/tools/
+          cache-dependency-path: |
+            backend/go.sum
+            backend/tools/go.sum
       # squawk runs through npx
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -51,6 +54,9 @@ jobs:
           COVER_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: make -s coverage COVER_BASE="$COVER_BASE" >> "$GITHUB_STEP_SUMMARY"
       - run: make atlas-age
+      # suppression comments may only go down and executed tests only up (scripts/quality-locks.json)
+      - run: python3 scripts/check_locks.py --go-test-report backend/test-report.json
+        working-directory: .
 
   # A derived project starts with `make rename`; it must rewrite every old module path and still build.
   rename:
