@@ -31,12 +31,12 @@ describe("proxy", () => {
     ).toBe("/overview");
   });
 
-  it.each([
-    ["__Host-session=abc"],
-    ["session=abc"],
-  ])("lets a protected page through with %s", (cookie) => {
-    expect(isLoginRedirect(get("/en/overview", cookie))).toBe(false);
-  });
+  it.each([["__Host-session=abc"], ["session=abc"]])(
+    "lets a protected page through with %s",
+    (cookie) => {
+      expect(isLoginRedirect(get("/en/overview", cookie))).toBe(false);
+    },
+  );
 
   it("does not take another cookie for a session", () => {
     expect(
