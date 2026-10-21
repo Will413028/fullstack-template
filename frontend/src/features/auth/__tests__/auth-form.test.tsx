@@ -91,7 +91,8 @@ describe("AuthForm", () => {
 
     await fillAndSubmit(form, "newuser", "short");
 
-    const request = mockFetch.mock.calls[0][0];
+    const [request] =
+      mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
     expect(new URL(request.url).pathname).toBe("/api/users");
     expect(push).toHaveBeenCalledWith("/overview");
   });

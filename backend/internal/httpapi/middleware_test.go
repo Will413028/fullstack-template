@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -210,7 +211,7 @@ func TestClientIP(t *testing.T) {
 func TestAccessLogAbortBeforeWriting(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(logx.WithContext(slog.NewJSONHandler(&buf, nil)))
-	h := protect(Deps{Logger: logger}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	h := protect(Deps{Logger: logger, Now: time.Now}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic(http.ErrAbortHandler)
 	}))
 	func() {
@@ -226,7 +227,7 @@ func TestAccessLogAbortBeforeWriting(t *testing.T) {
 // the chain to Unwrap.
 func TestResponseControllerReachesConnection(t *testing.T) {
 	var flushErr error
-	h := protect(Deps{Logger: discard}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := protect(Deps{Logger: discard, Now: time.Now}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		flushErr = http.NewResponseController(w).Flush()
 	}))
 	rec := do(t, h, http.MethodGet, "/x", "", "")

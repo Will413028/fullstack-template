@@ -152,7 +152,7 @@ func post(t *testing.T, h http.Handler, body []byte, headers map[string]string) 
 var sameOrigin = map[string]string{"Sec-Fetch-Site": "same-origin"}
 
 func TestBodyTooLarge(t *testing.T) {
-	h := protect(Deps{Logger: discard}, readsBody)
+	h := protect(Deps{Logger: discard, Now: time.Now}, readsBody)
 	if code := post(t, h, make([]byte, maxBodyBytes), sameOrigin); code != http.StatusOK {
 		t.Fatalf("body at the limit: code = %d, want 200", code)
 	}
@@ -161,7 +161,7 @@ func TestBodyTooLarge(t *testing.T) {
 }
 
 func TestCrossOriginPostRejected(t *testing.T) {
-	h := protect(Deps{Logger: discard}, readsBody)
+	h := protect(Deps{Logger: discard, Now: time.Now}, readsBody)
 	for _, tc := range []struct {
 		name    string
 		headers map[string]string

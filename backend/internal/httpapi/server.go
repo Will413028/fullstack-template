@@ -61,6 +61,8 @@ type Deps struct {
 	Docs bool
 	// TrustedProxies are the peers whose X-Forwarded-For and X-Request-ID are believed (TRUSTED_PROXIES).
 	TrustedProxies []netip.Prefix
+	// Now is the clock for rate limiting and request durations; the composition root passes time.Now.
+	Now func() time.Time
 	// RateLimitPerMin is the per-IP limit on the operations limitOperations names (AUTH_RATE_LIMIT_PER_MIN).
 	RateLimitPerMin int
 	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
@@ -82,6 +84,9 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	if deps.RateLimitPerMin < 1 {
 		return nil, errors.New("RateLimitPerMin must be positive")
 	}
+	if deps.Now == nil {
+		return nil, errors.New("Now is required")
+	}
 	spec, err := loadSpec(ctx, api.Spec)
 	if err != nil {
 		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
@@ -97,7 +102,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	limiter := newIPLimiter(deps.RateLimitPerMin, time.Now)
+	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
 	middlewares := []gen.StrictMiddlewareFunc{
 		limitOperations(limiter, limited...),
 		requireRole(auth.RoleAdmin, adminOnly...),
@@ -186,7 +191,7 @@ func protect(deps Deps, h http.Handler) http.Handler {
 		writeProblem(w, problemForbidden, "cross-origin request rejected", codeCrossOrigin)
 	}))
 	inner := recoverPanics(deps.Logger, cop.Handler(limited))
-	return withRequestInfo(deps.TrustedProxies, accessLog(deps.Logger, securityHeaders(inner)))
+	return withRequestInfo(deps.TrustedProxies, accessLog(deps.Logger, deps.Now, securityHeaders(inner)))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

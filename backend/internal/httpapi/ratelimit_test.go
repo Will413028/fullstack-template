@@ -28,7 +28,7 @@ func newLimitedAPI(t *testing.T, perMin int) http.Handler {
 	routes := http.NewServeMux()
 	routes.Handle("POST /api/widgets", operation("createWidget", http.StatusCreated))
 	routes.Handle("GET /api/widgets", operation("listWidgets", http.StatusOK))
-	return assemble(Deps{Ready: ok, Logger: discard, TrustedProxies: proxies}, loadTestSpec(t), routes)
+	return assemble(Deps{Ready: ok, Logger: discard, Now: time.Now, TrustedProxies: proxies}, loadTestSpec(t), routes)
 }
 
 func postFrom(t *testing.T, h http.Handler, remote, xff string) int {

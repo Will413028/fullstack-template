@@ -7,6 +7,9 @@ linters:
     - depguard
     - nolintlint
     - errorlint
+    - exhaustive
+    - forbidigo
+    - gocognit
     - gocritic
     - gosec
     - nilerr
@@ -18,6 +21,23 @@ linters:
       config:
         global:
           nosec: true
+    # A switch over an enum lists every value, or has a default that says the rest need nothing.
+    exhaustive:
+      default-signifies-exhaustive: true
+    # Non-test code outside the composition root (cmd/):
+    #   - reads the time from an injected clock (auth.Config.Now, httpapi.Deps.Now), so tests can set it;
+    #   - runs row-returning queries only through sqlc, whose generated code closes the rows and checks rows.Err
+    #     (sqlclosecheck and rowserrcheck do not see pgx).
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^time\.(Now|Since|Until)$
+          msg: take the time from the injected clock
+        - pattern: \.Query$
+          pkg: ^github\.com/jackc/pgx/v5
+          msg: write the query in the module's queries/*.sql and call the sqlc method
+    gocognit:
+      min-complexity: 15
     nolintlint:
       require-explanation: true
       require-specific: true
@@ -67,6 +87,10 @@ linters:
               desc: use math/rand/v2 or crypto/rand
   exclusions:
     generated: strict
+    rules:
+      - path: (_test\.go$|^cmd/)
+        linters:
+          - forbidigo
 
 issues:
   # Report every finding: the defaults hide repeats past 3 per message and 50 per linter.
