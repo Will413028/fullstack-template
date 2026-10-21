@@ -1,6 +1,6 @@
 module github.com/Will413028/fullstack-template/backend
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/getkin/kin-openapi v0.149.0
