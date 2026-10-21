@@ -141,5 +141,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm check:deps
       - run: pnpm check:arch
-      - run: pnpm test
+      - run: pnpm test:report
+      # suppression comments may only go down and executed tests only up (scripts/quality-locks.json)
+      - run: python3 scripts/check_locks.py --vitest-report frontend/test-report.json
+        working-directory: .
       - run: pnpm build

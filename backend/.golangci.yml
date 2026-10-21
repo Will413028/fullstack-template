@@ -5,12 +5,16 @@ linters:
   enable:
     - bodyclose
     - depguard
+    - nolintlint
     - errorlint
     - gocritic
     - gosec
     - nilerr
     - noctx
   settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
     gocritic:
       disable-all: true
       enabled-tags:

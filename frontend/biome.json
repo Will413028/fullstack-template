@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.5/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": {
     "enabled": false,
     "clientKind": "git",
@@ -22,7 +22,13 @@
     "enabled": true,
     "indentStyle": "space"
   },
-  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
   "linter": {
     "enabled": true,
     "rules": {
@@ -32,9 +38,12 @@
       },
       "suspicious": {
         "noArrayIndexKey": "warn",
-        "noDocumentCookie": "off"
+        "noDocumentCookie": "off",
+        "noImportCycles": "error"
       },
-      "nursery": {},
+      "nursery": {
+        "noFloatingPromises": "error"
+      },
       "a11y": {
         "noSvgWithoutTitle": "warn",
         "useKeyWithClickEvents": "warn",
@@ -42,6 +51,9 @@
       },
       "performance": {
         "noImgElement": "warn"
+      },
+      "style": {
+        "noProcessEnv": "error"
       }
     }
   },
@@ -49,5 +61,19 @@
     "formatter": {
       "quoteStyle": "double"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/src/lib/env.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noProcessEnv": "off"
+          }
+        }
+      }
+    }
+  ]
 }

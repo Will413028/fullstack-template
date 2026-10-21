@@ -1,8 +1,9 @@
 import type { MetadataRoute } from "next";
 import { routing } from "@/i18n/routing";
+import { appUrl } from "@/lib/env";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://example.com";
+  const baseUrl = appUrl();
   const pages = ["/", "/login"];
 
   return pages.flatMap((page) =>

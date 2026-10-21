@@ -1,0 +1,4 @@
+{
+  "suppressions": { "go": 17, "typescript": 0 },
+  "tests": { "frontend": 28 }
+}

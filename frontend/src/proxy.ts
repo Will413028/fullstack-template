@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "@/i18n/routing";
+import { isDevelopment } from "@/lib/env";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -57,7 +58,7 @@ export default function proxy(request: NextRequest) {
   }
 
   // next dev needs eval and its own inline scripts; the policy is for builds.
-  if (process.env.NODE_ENV === "development") return intlMiddleware(request);
+  if (isDevelopment()) return intlMiddleware(request);
 
   const csp = cspFor(btoa(crypto.randomUUID()));
   const headers = new Headers(request.headers);
