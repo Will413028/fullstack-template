@@ -5,6 +5,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 ## Verification
 
 - Backend tests are Go integration tests (testcontainers, PostgreSQL 18), frontend tests use `vitest`; a task is complete only when `make -C backend test` (backend) and `pnpm test` (frontend) pass. CI also runs `make -C backend check` (lint, generated-code, schema and contract checks); run it before pushing backend changes.
+- `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
 - Cover observable behavior, failure conditions, and regressions; do not add tests per module or function when existing tests already cover the behavior. Docs-only or formatting changes need only the relevant static checks.
 - Coverage is reported, not gated: CI prints backend total coverage and, on pull requests, changed-line coverage (`diff-cover`) in the job summary; review uncovered changed lines rather than chasing a total percentage. Frontend covers critical paths.
 
@@ -14,7 +15,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 - `make down-v` deletes the Postgres volume and all local data.
 - Never commit `.env` or `.secrets/`; add new variables to `.env-example`.
 - Agents do not add or upgrade dependencies on their own: list each package and version, confirm the package exists and was not registered recently (deps.dev shows publish dates), and wait for approval before installing.
-- Fix known vulnerabilities (`pnpm audit`, `govulncheck`, Dependabot alerts) by severity: critical within 7 days, high within 30 days, medium within 90 days, low at the next routine upgrade.
+- Fix known vulnerabilities (`osv-scanner` over every lockfile, `pnpm audit`, `govulncheck`, Dependabot alerts; the Security workflow rescans `main` every Monday) by severity: critical within 7 days, high within 30 days, medium within 90 days, low at the next routine upgrade.
 
 ## Monorepo Structure
 

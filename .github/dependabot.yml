@@ -31,6 +31,22 @@ updates:
     cooldown:
       default-days: 7
 
+  # node in frontend/Dockerfile, pinned by digest
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  # postgres and caddy in docker-compose.yml, pinned by digest
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: npm
     directory: /frontend
     schedule:

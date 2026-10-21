@@ -31,6 +31,20 @@ pre-commit:
       run: make --no-print-directory bin/golangci-lint && bin/golangci-lint run --new-from-rev=HEAD ./...
       priority: 2
 
+# CI's checks, minus the compose stack job (it builds every image): a push to main is stopped here even when CI has
+# not run yet. The security tools are local binaries (brew install actionlint zizmor gitleaks osv-scanner).
+pre-push:
+  parallel: true
+  commands:
+    backend-check:
+      root: backend/
+      run: make --no-print-directory check BASE=origin/main
+    frontend-check:
+      root: frontend/
+      run: pnpm audit --prod --audit-level high && pnpm gen:api:check && pnpm lint && pnpm check:deps && pnpm test && pnpm build
+    security:
+      run: actionlint && zizmor --offline .github/workflows && gitleaks git --redact --no-banner . && osv-scanner scan source --recursive ./
+
 commit-msg:
   commands:
     conventional-commit:

@@ -30,8 +30,9 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
 )
 
-// Image is the PostgreSQL major version compose and the Atlas dev database use.
-const Image = "postgres:18"
+// Image is the PostgreSQL image compose runs, pinned by digest; TestImageMatchesCompose keeps the two equal, since
+// Dependabot updates only the compose file. The Atlas dev database (atlas.hcl) runs the same major version.
+const Image = "postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336"
 
 // Role names and passwords inside the test container.
 const (

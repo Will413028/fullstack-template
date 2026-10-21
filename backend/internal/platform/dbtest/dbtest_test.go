@@ -1,6 +1,8 @@
 package dbtest
 
 import (
+	"os"
+	"regexp"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -36,5 +38,20 @@ func TestNewDBMatchesInitDB(t *testing.T) {
 	}
 	if gotOwner != wantOwner || gotACL != wantACL {
 		t.Errorf("test database owner=%q acl=%q, want owner=%q acl=%q", gotOwner, gotACL, wantOwner, wantACL)
+	}
+}
+
+// Dependabot bumps the postgres image in docker-compose.yml only; tests must run the same image.
+func TestImageMatchesCompose(t *testing.T) {
+	compose, err := os.ReadFile("../../../../docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^\s+image: (postgres:\S+)$`).FindSubmatch(compose)
+	if m == nil {
+		t.Fatal("docker-compose.yml has no postgres image")
+	}
+	if got := string(m[1]); got != Image {
+		t.Errorf("docker-compose.yml postgres image = %q, dbtest.Image = %q", got, Image)
 	}
 }
