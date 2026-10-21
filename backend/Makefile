@@ -83,7 +83,12 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable api-breaking
+check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
+
+# The git-diff checks and the detecting tools still fail on a planted violation (scripts/selftest-checks.sh).
+.PHONY: tools-selftest
+tools-selftest:
+	./scripts/selftest-checks.sh
 
 .PHONY: gen
 gen: ## Regenerate internal/httpapi/gen from api/openapi.yaml

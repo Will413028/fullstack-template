@@ -9,17 +9,24 @@
 # Compares the working tree with the merge-base, so uncommitted changes are covered too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# A git hook exports GIT_DIR; without a work tree git would then take this directory as the repository root. Find the
+# repository from here instead, and name paths from its root.
+unset GIT_DIR GIT_WORK_TREE
+prefix=$(git rev-parse --show-prefix)
 
 base=${1:?usage: check-migrations-immutable.sh <base-ref>}
 merge_base=$(git merge-base HEAD "$base")
-if ! sum=$(git show "$merge_base:./migrations/atlas.sum" 2>/dev/null); then
+# Only a path missing from the base tree means "nothing to compare"; any git error fails the check (set -e).
+listed=$(git ls-tree --full-tree --name-only "$merge_base" -- "${prefix}migrations/atlas.sum")
+if [[ -z "$listed" ]]; then
   echo "the base has no migrations/atlas.sum, so no existing migrations"
   exit 0
 fi
+sum=$(git show "$merge_base:${prefix}migrations/atlas.sum")
 changed=()
 while read -r name _; do
   [[ -z "$name" || "$name" == h1:* ]] && continue # the first line is the hash of the whole directory
-  if [[ ! -f "migrations/$name" ]] || ! git show "$merge_base:./migrations/$name" | cmp -s - "migrations/$name"; then
+  if [[ ! -f "migrations/$name" ]] || ! git show "$merge_base:${prefix}migrations/$name" | cmp -s - "migrations/$name"; then
     changed+=("$name")
   fi
 done <<<"$sum"
