@@ -23,6 +23,7 @@ GEN_OUT       := internal/httpapi/gen/api.gen.go
 OASDIFF       := $(call GO_TOOL,oasdiff)
 COBERTURA     := $(call GO_TOOL,gocover-cobertura)
 GOTESTSUM     := $(call GO_TOOL,gotestsum)
+DEADCODE      := $(call GO_TOOL,deadcode)
 DIFF_COVER    := pipx run diff-cover==10.5.1
 # Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
 BASE ?= origin/main
@@ -85,7 +86,12 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check gen-check lint test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
+check: fmt-check gen-check lint deadcode test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
+
+# Functions that neither the binary nor any test reaches.
+.PHONY: deadcode
+deadcode:
+	./scripts/deadcode.sh $(DEADCODE)
 
 # The git-diff checks and the detecting tools still fail on a planted violation (scripts/selftest-checks.sh).
 .PHONY: tools-selftest

@@ -5,7 +5,8 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 ## Verification
 
 - Backend tests are Go integration tests (testcontainers, PostgreSQL 18), frontend tests use `vitest`; a task is complete only when `make -C backend test` (backend) and `pnpm test` (frontend) pass. CI also runs `make -C backend check` (lint, generated-code, schema and contract checks); run it before pushing backend changes.
-- `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
+- `make lint-docker` (hadolint, pinned in the root `Makefile`) checks both Dockerfiles; every finding fails, infos included.
+- `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job, except its `make lint-docker`); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
 - Suppression comments (`//nolint`, `#nosec`, `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, `eslint-disable`) and the number of tests run (frontend and backend) are locked in `scripts/quality-locks.json`; `scripts/check_locks.py` (CI and pre-push) fails when a count differs. Suppressions only go down and tests only up: update the lock in the same commit. `nolintlint` requires every `//nolint` to name its linter and give a reason; gosec ignores `#nosec`.
 - A commit that edits a checker's configuration (`.golangci.yml`, `biome.json`, `.dependency-cruiser.cjs`, `knip.config.ts`, `tsconfig.json`, any `osv-scanner.toml`, the lock scripts) or moves a lock the bad way carries a `Quality-Gate: <why>` trailer, and a commit over 1,000 changed lines (files `.gitattributes` marks `linguist-generated` not counted) is split or carries a `Large-Change: <why>` trailer; `scripts/check_commit_policy.py` checks both at commit time (lefthook) and for every pushed commit (CI and pre-push).
 - Tests run in random order (`go test -shuffle=on`, vitest `sequence.shuffle`); a failure prints its seed, and `-shuffle=<seed>` or `--sequence.seed=<seed>` replays it.
@@ -54,6 +55,7 @@ make generate-migration MSG=<name>  # Generate a migration from the modules' sch
 make seed ADMIN_ACCOUNT=<name>      # Create the admin user (password read from the terminal)
 make reset-db ADMIN_ACCOUNT=<name>  # Delete all local data, restart, seed
 make rename NAME=<name>             # Rename a fresh clone (optional MODULE=<go module path>)
+make lint-docker                    # hadolint over both Dockerfiles
 
 # Backend development (from backend/)
 make run              # Start the API server with backend/.env

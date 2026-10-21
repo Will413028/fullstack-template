@@ -104,6 +104,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - run: make lint-docker
       # .env and the password files under .secrets/, as a developer gets them
       - run: make init-env
       - name: Each service gets only its own secrets

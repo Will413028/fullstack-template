@@ -26,6 +26,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"go.uber.org/goleak"
 
 	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
 )
@@ -104,7 +105,8 @@ func secret(name, password string) testcontainers.ContainerFile {
 // Close stops the container.
 func (s *Server) Close() { _ = s.container.Terminate(context.Background()) }
 
-// Main is a whole TestMain: start the container, run the tests, stop the container.
+// Main is a whole TestMain: start the container, run the tests, stop the container, then fail if a goroutine the
+// tests started is still running (goleak).
 func Main(m *testing.M, s **Server) {
 	srv, err := Start(context.Background())
 	if err != nil {
@@ -114,6 +116,12 @@ func Main(m *testing.M, s **Server) {
 	*s = srv
 	code := m.Run()
 	srv.Close()
+	if code == 0 {
+		if err := goleak.Find(); err != nil {
+			fmt.Fprintln(os.Stderr, "goleak:", err)
+			code = 1
+		}
+	}
 	os.Exit(code)
 }
 

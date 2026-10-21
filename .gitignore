@@ -6,3 +6,5 @@ backend/coverage.out
 frontend/test-report.json
 backend/test-report.json
 backend/coverage.xml
+/bin/
+__pycache__/
