@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
@@ -77,6 +80,28 @@ type authAPI struct {
 	pool   *pgxpool.Pool
 	clock  *testClock
 	hasher *countingHasher
+	// queries counts the statements sent to the database.
+	queries *queryCounter
+}
+
+// queryCounter is a pgx tracer that counts queries.
+type queryCounter struct{ n atomic.Int64 }
+
+func (c *queryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	c.n.Add(1)
+	return ctx
+}
+
+func (c *queryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+// countQueries returns how many queries the request sent sends.
+func (a *authAPI) countQueries(send func() *httptest.ResponseRecorder) int64 {
+	a.t.Helper()
+	before := a.queries.n.Load()
+	if rec := send(); rec.Code != http.StatusOK {
+		a.t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+	return a.queries.n.Load() - before
 }
 
 type authOption func(*auth.Config, *Deps)
@@ -85,14 +110,15 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 	t.Helper()
 	db := pg.NewMigratedDB(t)
 	// opened the way serve opens it (TimeZone=UTC, timeouts)
+	queries := &queryCounter{}
 	pool, err := platformdb.Open(t.Context(), platformdb.Config{
-		URL: db.AppURL, Password: dbtest.AppRole, MaxConns: 10, StatementTimeout: 5 * time.Second,
+		URL: db.AppURL, Password: dbtest.AppRole, MaxConns: 10, StatementTimeout: 5 * time.Second, Tracer: queries,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	a := &authAPI{t: t, pool: pool,
+	a := &authAPI{t: t, pool: pool, queries: queries,
 		clock:  &testClock{t: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)},
 		hasher: &countingHasher{PasswordHasher: auth.NewArgon2Hasher(cheapArgon2, 0)},
 	}
@@ -295,6 +321,26 @@ func TestCreateUserDuplicate(t *testing.T) {
 	a.mustSignUp("alice")
 	p := assertProblem(t, a.signUp("ALICE", goodPassword), http.StatusConflict, "/problems/conflict")
 	assertCode(t, p, auth.CodeAccountTaken)
+}
+
+// Concurrent sign-ups for one account: the unique index decides, so exactly one gets the account and the rest a 409.
+func TestCreateUserConcurrentSameAccount(t *testing.T) {
+	a := newAuthAPI(t)
+	const n = 20
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() { codes <- a.signUp("alice", goodPassword).Code })
+	}
+	wg.Wait()
+	close(codes)
+	got := map[int]int{}
+	for c := range codes {
+		got[c]++
+	}
+	if got[http.StatusCreated] != 1 || got[http.StatusConflict] != n-1 {
+		t.Errorf("status counts = %v, want one 201 and %d 409", got, n-1)
+	}
 }
 
 func TestCreateUserPasswordTooShort(t *testing.T) {
@@ -707,4 +753,65 @@ func (a *authAPI) limitedOperation(op string) func(i int) *httptest.ResponseReco
 		return func(i int) *httptest.ResponseRecorder { return a.signUp(fmt.Sprintf("user%d", i), goodPassword) }
 	}
 	return func(int) *httptest.ResponseRecorder { return a.signIn("alice", goodPassword, "") }
+}
+
+// lockedBuffer is a log destination that requests running at once can share.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Passwords and session tokens never reach the log, at any level, on success or failure paths: sign-up (including
+// a failing breached-password check), wrong and right sign-in, a validation error and a malformed body carrying the
+// password, an unknown token, and sign-out.
+func TestCredentialsNeverLogged(t *testing.T) {
+	// what must not leak, fresh each run: the phrase used as the password, and a cookie value the server does not know
+	secretPart := rand.Text()
+	canary := "canary " + secretPart + " phrase"
+	strayCookie := rand.Text()
+	var logs lockedBuffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a := newAuthAPI(t, func(c *auth.Config, d *Deps) {
+		c.Logger, d.Logger = logger, logger
+		c.Breach = breachFunc(func(context.Context, string) (bool, error) { return false, errors.New("range API down") })
+	})
+
+	signUp := a.signUp("canary", canary)
+	if signUp.Code != http.StatusCreated {
+		t.Fatalf("sign up = %d %s", signUp.Code, signUp.Body)
+	}
+	a.signIn("canary", canary+" wrong", "")
+	token := a.mustSignIn("canary", canary)
+	a.me(token)
+	a.signUp("x", canary)
+	a.do(http.MethodPost, "/api/sessions", "", "application/json", `{"account":"canary","password":"`+canary)
+	a.me(strayCookie)
+	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
+
+	out := logs.String()
+	if !strings.Contains(out, "breached-password check failed") || !strings.Contains(out, `"path":"/api/sessions"`) {
+		t.Fatalf("the log did not capture the requests: %s", out)
+	}
+	for _, leak := range []struct{ what, value string }{
+		{"password", secretPart},
+		{"sign-up session", sessionCookie(t, signUp).Value},
+		{"sign-in session", token},
+		{"unknown cookie", strayCookie},
+	} {
+		if strings.Contains(out, leak.value) {
+			t.Errorf("the log contains the %s", leak.what)
+		}
+	}
 }

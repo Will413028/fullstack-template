@@ -361,8 +361,9 @@ Wire the service:
 - `backend/internal/httpapi/auth_test.go`: add `<Entities>: <pkg>.New(pool)` to the `Deps` literal in
   `newAuthAPI`, and the import, so the integration tests serve the new operations.
 
-No authorization middleware is needed: owner scoping is in the queries. `server.go`'s `requireRole` list is only
-for operations restricted to a role.
+- `backend/internal/httpapi/authz.go`: add each new operation to `operationAccess` as `accessUser` (owner scoping is
+  in the queries); `accessAdmin` only for an operation restricted to admins. The server does not start while an
+  operation is missing from the table.
 
 ## 7. Integration tests: `backend/internal/httpapi/<pkg>_test.go`
 
