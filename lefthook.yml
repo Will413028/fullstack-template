@@ -41,7 +41,7 @@ pre-push:
       run: make --no-print-directory check BASE=origin/main
     frontend-check:
       root: frontend/
-      run: pnpm audit --prod --audit-level high && pnpm gen:api:check && pnpm lint && pnpm check:deps && pnpm test && pnpm build
+      run: pnpm audit --prod --audit-level high && pnpm gen:api:check && pnpm lint && pnpm check:deps && pnpm check:arch && pnpm test && pnpm build
     security:
       run: actionlint && zizmor --offline .github/workflows && gitleaks git --redact --no-banner . && osv-scanner scan source --recursive ./
 

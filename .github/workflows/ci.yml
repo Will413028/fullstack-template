@@ -140,5 +140,6 @@ jobs:
       - run: pnpm gen:api:check
       - run: pnpm lint
       - run: pnpm check:deps
+      - run: pnpm check:arch
       - run: pnpm test
       - run: pnpm build
