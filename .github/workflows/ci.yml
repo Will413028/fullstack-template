@@ -52,6 +52,24 @@ jobs:
         run: make -s coverage COVER_BASE="$COVER_BASE" >> "$GITHUB_STEP_SUMMARY"
       - run: make atlas-age
 
+  # A derived project starts with `make rename`; it must rewrite every old module path and still build.
+  rename:
+    name: Rename smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: make rename NAME=ci-probe
+      - name: No file still names the template's module path
+        run: '! git grep -n "github.com/Will413028/fullstack-template/backend" -- backend'
+      - run: go vet ./...
+        working-directory: backend
+
   # Builds the production backend image and applies migrations with the Atlas build that ships in it.
   stack:
     name: Compose stack (image + migrate + health)
