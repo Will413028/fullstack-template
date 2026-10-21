@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { Suspense } from "react";
-import { AuthForm } from "@/features/auth/components/auth-form";
+import { AuthForm } from "@/features/auth";
 
 export default function RegisterPage() {
   const t = useTranslations("auth");

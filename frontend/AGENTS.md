@@ -25,6 +25,7 @@ pnpm format           # Biome format
 pnpm test             # Run Vitest
 pnpm test:watch       # Watch mode
 pnpm gen:api          # Regenerate src/lib/api/schema.d.ts after changing the contract
+pnpm check:arch       # Dependency direction and import cycles (dependency-cruiser)
 ```
 
 ## Architecture
@@ -51,6 +52,20 @@ src/
 ├── store/                # Zustand stores (use-ui-store: sidebar state)
 └── proxy.ts              # Presence redirect + CSP headers (advisory, not the gate)
 ```
+
+## Dependency Direction
+
+`pnpm check:arch` (CI and pre-push) enforces these rules from `.dependency-cruiser.cjs`, with no exceptions:
+
+| Layer | May import |
+|---|---|
+| `app/` | everything below it; a feature only through `features/<name>/index.ts` or `server.ts` |
+| `features/<name>/` | its own files, shared layers, other features through their `index.ts` or `server.ts`; never `app/` |
+| `lib/`, `components/`, `hooks/`, `store/`, `providers/`, `i18n/` (shared) | each other; never `features/` or `app/` |
+
+No import cycles anywhere. A derived project that adds a layer adds it to the table and to the matching rule in
+`.dependency-cruiser.cjs` in the same commit. Fix a violation by moving code (into the feature, or down into a shared
+layer), not by adding an exception.
 
 ## Key Conventions
 
