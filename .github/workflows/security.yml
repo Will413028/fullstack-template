@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # new advisories land without any commit here, so main is rescanned weekly
+  schedule:
+    - cron: "0 3 * * 1"
 
 permissions:
   contents: read
@@ -16,6 +19,7 @@ concurrency:
 jobs:
   workflows:
     name: Workflow lint (actionlint + zizmor)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -31,6 +35,7 @@ jobs:
 
   secrets:
     name: Secret scan (gitleaks)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -42,3 +47,15 @@ jobs:
         with:
           args: git --redact --no-banner --verbose .
 
+
+  # Every lockfile, dev dependencies included: pnpm audit in CI covers only production packages.
+  vulnerabilities:
+    name: Vulnerability scan (osv-scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: --recursive ./
