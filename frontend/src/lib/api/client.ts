@@ -1,4 +1,5 @@
 import createClient, { type Middleware } from "openapi-fetch";
+import { apiUrl } from "../env";
 import type { paths } from "./schema";
 
 // The API is served on the page's own origin under /api (Caddy in production,
@@ -11,7 +12,7 @@ import type { paths } from "./schema";
 // address whatever X-Forwarded-For it carries.
 function baseUrl(): string {
   if (typeof window !== "undefined") return `${window.location.origin}/api`;
-  return `${process.env.API_URL || "http://localhost:8000"}/api`;
+  return `${apiUrl()}/api`;
 }
 
 // A 401 means the session is gone. Sessions are opaque and never refreshed, so

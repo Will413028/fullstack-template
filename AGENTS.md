@@ -6,6 +6,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 
 - Backend tests are Go integration tests (testcontainers, PostgreSQL 18), frontend tests use `vitest`; a task is complete only when `make -C backend test` (backend) and `pnpm test` (frontend) pass. CI also runs `make -C backend check` (lint, generated-code, schema and contract checks); run it before pushing backend changes.
 - `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
+- Suppression comments (`//nolint`, `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, `eslint-disable`) and the number of frontend tests run are locked in `scripts/quality-locks.json`; `scripts/check_locks.py` (CI and pre-push) fails when a count differs. Suppressions only go down and tests only up: update the lock in the same commit, and when it moves the bad way, say why in the commit message. `nolintlint` requires every `//nolint` to name its linter and give a reason.
 - Cover observable behavior, failure conditions, and regressions; do not add tests per module or function when existing tests already cover the behavior. Docs-only or formatting changes need only the relevant static checks.
 - Coverage is reported, not gated: CI prints backend total coverage and, on pull requests, changed-line coverage (`diff-cover`) in the job summary; review uncovered changed lines rather than chasing a total percentage. Frontend covers critical paths.
 

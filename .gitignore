@@ -3,4 +3,5 @@
 .DS_Store
 backend/bin/
 backend/coverage.out
+frontend/test-report.json
 backend/coverage.xml
