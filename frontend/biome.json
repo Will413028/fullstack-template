@@ -10,11 +10,14 @@
     "includes": [
       "**/src/**/*.ts",
       "**/src/**/*.tsx",
+      "*.ts",
+      "*.mjs",
+      "*.cjs",
       "!**/dist",
       "!**/.next",
       "!**/node_modules",
       "!**/build",
-      "!**/src/generated/**",
+      "!**/src/generated",
       "!**/src/lib/api/schema.d.ts"
     ]
   },
@@ -32,17 +35,19 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
-        "noUnusedVariables": "off"
+        "noUnusedVariables": "error"
       },
       "suspicious": {
         "noArrayIndexKey": "warn",
         "noDocumentCookie": "off",
-        "noImportCycles": "error"
+        "noImportCycles": "error",
+        "noSkippedTests": "error"
       },
       "nursery": {
-        "noFloatingPromises": "error"
+        "noFloatingPromises": "error",
+        "useExhaustiveSwitchCases": "error"
       },
       "a11y": {
         "noSvgWithoutTitle": "warn",
@@ -54,6 +59,9 @@
       },
       "style": {
         "noProcessEnv": "error"
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "error"
       }
     }
   },
@@ -64,9 +72,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "**/src/lib/env.ts"
-      ],
+      "includes": ["**/src/lib/env.ts"],
       "linter": {
         "rules": {
           "style": {
