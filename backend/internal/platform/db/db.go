@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,6 +26,8 @@ type Config struct {
 	Password         string
 	MaxConns         int32
 	StatementTimeout time.Duration
+	// Tracer, when set, sees every query (tests count queries per request with it).
+	Tracer pgx.QueryTracer
 }
 
 // Open creates the pool. pgxpool connects lazily, so a database that is briefly unavailable does not fail
@@ -47,6 +50,7 @@ func poolConfig(cfg Config) (*pgxpool.Config, error) {
 	}
 	pc.ConnConfig.Password = cfg.Password
 	pc.MaxConns = cfg.MaxConns
+	pc.ConnConfig.Tracer = cfg.Tracer
 	params := pc.ConnConfig.RuntimeParams
 	params["statement_timeout"] = millis(cfg.StatementTimeout)
 	params["lock_timeout"] = millis(lockTimeout)

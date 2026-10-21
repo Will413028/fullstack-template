@@ -142,7 +142,7 @@ http.Error(w, "conflict", http.StatusConflict)
 - role 只有 `admin` 和 `user`（`auth.RoleAdmin`、`auth.RoleUser`），註冊預設 `user`，admin 只能用 `seed-admin` 建立（ADR api-and-auth D7）。
 - 使用者擁有的資源，**每個查詢**都帶 owner 條件（`WHERE id = @id AND owner_id = @owner_id`）；別人的資源回 404，不回 403，不透露它存在（`TestGetOtherUsersItem`）。
 - UPDATE 與 DELETE 用 `:one` 或 `:execrows` 回報影響的列，0 列回 404，不可靜默成功。
-- 只限某個 role 的 operation，加到 `NewHandler` 的 `requireRole(auth.RoleAdmin, adminOnly...)` 清單，在 handler 執行前回 403 `insufficient_role`（`TestNonAdminCannotPatchUser`）。
+- 每個 operation 都要在 `internal/httpapi/authz.go` 的 `operationAccess` 寫明誰能呼叫（公開、登入者、admin）；漏列或與契約的 `security: []` 不一致時 server 不會啟動（`TestAdminOperationsChecksTable`）。admin 的 operation 由 `requireRole` 在 handler 執行前回 403 `insufficient_role`（`TestOperationAccessEnforced`）。
 - 授權分三處，依「判斷需要什麼」選一處：只看是否登入的寫在契約的 `security`；只看 role 的寫在 `requireRole` 清單；要看呼叫者與資源的關係的（例如 `GET /api/users/{id}` 的「本人或 admin」）寫在 service 或查詢條件，非授權者回 404（`auth.Service.User`、`TestGetOtherUserNotFound`）。
 - **NEVER** 先查出資源再在 handler 比對 owner：條件必須在 SQL 裡。
 

@@ -97,6 +97,28 @@ class CommitPolicyTest(unittest.TestCase):
         self.commit("feat: main")
         self.assertEqual(self.check_range().returncode, 0)
 
+    def test_large_change_needs_trailer(self):
+        self.write("backend/big.go", "package main\n" + "// line\n" * 1000)
+        self.commit("feat: big")
+        result = self.check_range()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("changes 1001 lines, over 1000", result.stderr)
+
+    def test_large_change_with_trailer_passes(self):
+        self.write("backend/big.go", "package main\n" + "// line\n" * 1000)
+        self.commit("feat: big\n\nLarge-Change: one generated table, reviewed as a whole")
+        self.assertEqual(self.check_range().returncode, 0)
+
+    def test_generated_files_do_not_count(self):
+        self.write(".gitattributes", "*.sum linguist-generated=true\n")
+        self.write("backend/go.sum", "h1\n" * 5000)
+        self.commit("build: bump deps")
+        self.assertEqual(self.check_range().returncode, 0, self.check_range().stderr)
+
+    def test_commit_msg_mode_counts_staged_lines(self):
+        self.write("backend/big.go", "package main\n" + "// line\n" * 1000)
+        self.assertIn("changes 1001 lines", self.check_staged("feat: big\n").stderr)
+
     def test_commit_msg_mode_checks_staged_changes(self):
         self.write("frontend/tsconfig.json", "{}\n")
         result = self.check_staged("chore: relax ts\n")

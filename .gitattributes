@@ -1,0 +1,8 @@
+# Generated files: GitHub collapses them in diffs, and scripts/check_commit_policy.py leaves them out of a commit's
+# size. Their sources (api/openapi.yaml, queries/*.sql, schema.sql, go.mod, package.json) are counted instead.
+backend/internal/httpapi/gen/** linguist-generated=true
+backend/internal/modules/*/internal/store/** linguist-generated=true
+backend/migrations/** linguist-generated=true
+frontend/src/lib/api/schema.d.ts linguist-generated=true
+**/go.sum linguist-generated=true
+frontend/pnpm-lock.yaml linguist-generated=true

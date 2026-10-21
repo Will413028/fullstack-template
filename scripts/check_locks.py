@@ -86,7 +86,8 @@ def main() -> int:
             print(f"{key}: {got}, locked at {want}: set the lock in {LOCKS} to {got}", file=sys.stderr)
         else:
             print(
-                f"{key}: {got}, locked at {want}: remove the change, or set the lock to {got} with a Quality-Gate: <why> trailer in the commit",
+                f"{key}: {got}, locked at {want}: remove the change, or set the lock to {got} "
+                "with a Quality-Gate: <why> trailer in the commit",
                 file=sys.stderr,
             )
     return 1 if failed else 0

@@ -11,6 +11,7 @@ import {
   fieldMessage,
   problemMessage,
 } from "@/lib/api/errors";
+import { safeCallbackPath } from "../callback";
 import { useLogin, useRegister } from "../hooks/use-auth";
 import { type CredentialsFormData, credentialsSchema } from "../validations";
 
@@ -37,14 +38,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   const onSubmit = (data: CredentialsFormData) => {
     submit.mutate(data, {
-      onSuccess: () => {
-        // Only allow local paths; reject protocol-relative "//evil.com" redirects.
-        const isSafe =
-          !!callbackUrl &&
-          callbackUrl.startsWith("/") &&
-          !callbackUrl.startsWith("//");
-        router.push(isSafe ? callbackUrl : "/overview");
-      },
+      onSuccess: () => router.push(safeCallbackPath(callbackUrl)),
       onError: (error) => {
         if (!(error instanceof ApiError)) return;
         for (const [name, fieldError] of fieldErrors(error.problem)) {
