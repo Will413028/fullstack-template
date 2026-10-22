@@ -11,6 +11,7 @@
       "**/src/**/*.ts",
       "**/src/**/*.tsx",
       "*.ts",
+      "*.mts",
       "*.mjs",
       "*.cjs",
       "scripts/**/*.mjs",
