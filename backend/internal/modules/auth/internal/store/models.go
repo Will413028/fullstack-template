@@ -10,6 +10,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// append-only: retain 365 days by at
+type AuditEvent struct {
+	ID        uuid.UUID
+	At        time.Time
+	ActorID   *uuid.UUID
+	Action    string
+	TargetID  uuid.UUID
+	RequestID *string
+}
+
 type LoginThrottle struct {
 	AccountKey    string
 	Failures      int64

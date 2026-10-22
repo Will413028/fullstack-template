@@ -1,6 +1,10 @@
 // Package migrate is the migrate subcommand: it applies migrations/ with the Atlas CLI as the owner role, then
 // grants the app role DML on the public schema (docs/adr/2026-10-18-go-backend.md D5). Both steps can be re-run.
 //
+// A table whose comment starts with "append-only" (COMMENT ON TABLE in the module's schema.sql) gets INSERT and
+// SELECT only, so the application cannot change or delete its rows; "append-only: retain N days by <column>" also
+// deletes rows older than N days on every run, as the owner role.
+//
 // There is no in-house runner: Atlas honors `-- atlas:txmode none` (CREATE INDEX CONCURRENTLY) and records what it
 // applied in atlas_schema_revisions. The connection string reaches Atlas only through its environment, never its
 // command line, so the password does not show up in the process list.
@@ -15,6 +19,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -123,8 +129,9 @@ func atlasCommand(ctx context.Context, bin, conf, migrations, connURL string) *e
 	return cmd
 }
 
-// grant gives the app role DML on everything in public, now and later. Default privileges cover only objects the
-// owner role creates, which is every object migrations create. One transaction: a partial grant never commits.
+// grant gives the app role DML on everything in public, now and later, except what appendOnly takes back. Default
+// privileges cover only objects the owner role creates, which is every object migrations create. One transaction: a
+// partial grant never commits.
 func grant(ctx context.Context, connURL, role string) error {
 	conn, err := pgx.Connect(ctx, connURL)
 	if err != nil {
@@ -151,6 +158,49 @@ func grant(ctx context.Context, connURL, role string) error {
 				return fmt.Errorf("migrate: grant app role: %w", err)
 			}
 		}
-		return nil
+		return appendOnly(ctx, tx, r)
 	})
+}
+
+// appendOnlyComment is the table comment appendOnly acts on; the retention part is optional.
+var appendOnlyComment = regexp.MustCompile(`^append-only(?:: retain ([1-9][0-9]*) days by ([a-z_][a-z0-9_]*))?$`)
+
+// appendOnly takes UPDATE, DELETE and TRUNCATE on every append-only table away from the app role r (already
+// sanitized) and deletes the rows past each table's retention. A comment that starts with "append-only" but does not
+// match the format fails the run, so a typo cannot leave a table writable or kept forever.
+func appendOnly(ctx context.Context, tx pgx.Tx, r string) error {
+	var tables []struct {
+		Table   string `json:"table"`
+		Comment string `json:"comment"`
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT coalesce(json_agg(json_build_object('table', c.relname, 'comment', d.description) ORDER BY c.relname), '[]')
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_description d ON d.objoid = c.oid AND d.classoid = 'pg_class'::regclass AND d.objsubid = 0
+		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND d.description LIKE 'append-only%'`).
+		Scan(&tables); err != nil {
+		return fmt.Errorf("migrate: find append-only tables: %w", err)
+	}
+	for _, t := range tables {
+		m := appendOnlyComment.FindStringSubmatch(t.Comment)
+		if m == nil {
+			return fmt.Errorf("migrate: table %s: comment %q is not \"append-only\" or \"append-only: retain N days by <column>\"", t.Table, t.Comment)
+		}
+		table := pgx.Identifier{t.Table}.Sanitize()
+		if _, err := tx.Exec(ctx, "REVOKE UPDATE, DELETE, TRUNCATE ON "+table+" FROM "+r); err != nil {
+			return fmt.Errorf("migrate: make %s append-only: %w", t.Table, err)
+		}
+		if m[1] == "" {
+			continue
+		}
+		days, err := strconv.Atoi(m[1])
+		if err != nil {
+			return fmt.Errorf("migrate: table %s: retention %q: %w", t.Table, m[1], err)
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM "+table+" WHERE "+pgx.Identifier{m[2]}.Sanitize()+" < now() - make_interval(days => $1)", days); err != nil {
+			return fmt.Errorf("migrate: prune %s: %w", t.Table, err)
+		}
+	}
+	return nil
 }

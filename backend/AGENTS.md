@@ -47,6 +47,7 @@ Modules: `auth` (users, sessions, login throttling, password checks) and `items`
 8. **Sessions.** The session cookie is `HttpOnly` (`__Host-session`, or `session` when `COOKIE_SECURE=false`); `http.CrossOriginProtection` wraps the whole mux. A feature that changes a user's role or password must revoke all of that user's sessions.
 9. **Time.** Code reads the time from the injected clock (`auth.Config.Now`, `httpapi.Deps.Now`); only `cmd/` and tests call `time.Now`, `time.Since` or `time.Until` (forbidigo). Resource tables' `created_at`/`updated_at` come from the database's `now()` (`docs/rules/database-design.md`, 時間戳記).
 10. **Tests.** Behavior is tested through HTTP against a real PostgreSQL (`internal/platform/dbtest`, testcontainers) with the same DB roles as production. Follow `internal/httpapi/items_test.go`. Every package with tests has a `TestMain` that fails on a leaked goroutine: `dbtest.Main` for database tests, `goleak.VerifyTestMain` otherwise (`internal/archtest` checks this). `make deadcode` fails on a function that neither the binary nor a test reaches.
+11. **Audit.** A state-changing admin operation writes one `audit_events` row in its own transaction (`auth.Service.audit`); `TestAdminChangesAreAudited` fails for a new one without a case. A table whose `schema.sql` comment is `append-only` (optionally `: retain N days by <column>`) gets INSERT and SELECT only for the app role, and `app migrate` prunes it. Security events (sign-in, sign-out, refused operations) are log lines with `event` and `user_id`.
 
 ## Adding a module
 

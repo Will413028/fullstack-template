@@ -105,7 +105,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
 	middlewares := []gen.StrictMiddlewareFunc{
 		limitOperations(limiter, limited...),
-		requireRole(auth.RoleAdmin, adminOnly...),
+		requireRole(deps.Logger, auth.RoleAdmin, adminOnly...),
 	}
 	server := &apiServer{auth: deps.Auth, items: deps.Items, cookie: deps.Cookie}
 	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{

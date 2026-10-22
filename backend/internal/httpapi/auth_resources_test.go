@@ -316,7 +316,7 @@ func (a *authAPI) deleteMe(token string) *httptest.ResponseRecorder {
 // sessions, and clears the cookie.
 func TestDeleteCurrentUser(t *testing.T) {
 	a := newAuthAPI(t)
-	_, token := a.mustSignUp("alice")
+	alice, token := a.mustSignUp("alice")
 	item := a.mustCreateItem(token, "mine")
 	other := a.mustSignIn("alice", goodPassword)
 	a.clock.Advance(11 * time.Minute)
@@ -336,6 +336,10 @@ func TestDeleteCurrentUser(t *testing.T) {
 	var items int
 	if err := a.pool.QueryRow(t.Context(), `SELECT count(*) FROM items WHERE id = $1`, item.Id).Scan(&items); err != nil || items != 0 {
 		t.Errorf("items left = %d (%v), want 0", items, err)
+	}
+	events := a.auditEvents()
+	if e := events[len(events)-1]; e.action != auth.AuditUserDeleted || e.target != alice.Id || e.actor == nil || *e.actor != alice.Id {
+		t.Errorf("audit row = %+v, want alice deleting herself", e)
 	}
 	// the name is free again
 	a.mustSignUp("alice")

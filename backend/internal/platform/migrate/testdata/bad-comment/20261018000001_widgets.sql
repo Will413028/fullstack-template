@@ -1,0 +1,1 @@
+CREATE TABLE "widgets" ("id" bigint NOT NULL GENERATED ALWAYS AS IDENTITY, "name" text NOT NULL, PRIMARY KEY ("id"));

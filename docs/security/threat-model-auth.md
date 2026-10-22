@@ -69,7 +69,7 @@
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
 | 無法追蹤某個請求 | 每個請求一行 access log，帶 `request_id`、`method`、`path`、`status`、`duration_ms`、`client_ip`（`httpapi/middleware.go`）。測試：`TestPanicLogAndAccessLogCarryRequestID` | 已緩解 |
-| 使用者或 admin 否認做過某個操作 | 日誌不帶 user 或 session id，也沒有登入、登出、admin 操作的稽核事件。admin 的 `PATCH /api/users/{id}` 在 `path` 裡看得到目標 id，看不到是哪個 admin 送的 | Open |
+| 使用者或 admin 否認做過某個操作 | admin 的停用、啟用、刪除、解鎖與主機上的 `recover-admin`，在同一個交易寫進 `audit_events`（執行者、動作、對象、request id）；app 角色對它只能新增與讀取，保留 365 天。註冊、登入成功與失敗、登出、被拒絕的 admin 操作寫安全事件日誌，帶 user id 與 request id；容器日誌有輪替。測試：`TestAdminChangesAreAudited`（每個會改狀態的 admin operation 都要有案例）、`TestAuditEventsAppendOnly`、`TestAppendOnlyTables`、`TestSecurityEventsLogged` | 已緩解。紀錄存在同一個資料庫，能拿到 owner 或 superuser 權限的人仍可修改；需要防竄改證明時改送外部儲存 |
 
 ## Information disclosure（資訊洩漏）
 

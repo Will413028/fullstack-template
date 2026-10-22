@@ -10,8 +10,17 @@ x-db-names: &db-names
   DB_OWNER_USER: ${DB_OWNER_USER:-fullstack_owner}
   DB_APP_USER: ${DB_APP_USER:-fullstack_app}
 
+# Every container's log is rotated: at most 5 files of 10 MB each, then the oldest is dropped. Without this Docker's
+# default json-file driver keeps logs until the container is removed (docs/privacy/data-inventory.md, 日誌).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
 services:
   postgres:
+    logging: *logging
     image: postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
     restart: unless-stopped
     environment:
@@ -33,6 +42,7 @@ services:
   # applies backend/migrations as the owner role and grants the app role; backend starts after it exits.
   # Same image as backend, built once by the backend service.
   migrate:
+    logging: *logging
     image: fullstack-template-backend
     pull_policy: never
     command: ["migrate"]
@@ -48,6 +58,7 @@ services:
     restart: "no"
 
   backend:
+    logging: *logging
     build: ./backend
     image: fullstack-template-backend
     restart: unless-stopped
@@ -78,6 +89,7 @@ services:
       retries: 5
 
   frontend:
+    logging: *logging
     build: ./frontend
     restart: unless-stopped
     environment:
@@ -89,6 +101,7 @@ services:
         condition: service_healthy
 
   caddy:
+    logging: *logging
     image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
     restart: unless-stopped
     environment:

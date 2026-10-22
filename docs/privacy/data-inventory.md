@@ -30,6 +30,7 @@
 | Request id、method、path、status、處理時間 | backend access log；同一個請求的每行日誌都帶 `request_id` | 追蹤 | 見「日誌」 | 讀得到日誌的人 |
 | User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
 | 送給 HIBP 的密碼雜湊前綴 | 只在 `PASSWORD_HIBP_CHECK=true`（預設 false）時：正規化後密碼的 SHA-1 前 5 個 hex 字元，帶 `Add-Padding: true`（`backend/internal/platform/hibp/hibp.go`）。測試：`TestBreached` | 註冊與 `seed-admin` 時的外洩密碼檢查 | backend 不儲存；處理者端的保留依它的政策 | Have I Been Pwned |
+| 稽核紀錄 | `audit_events`：時間、執行者的 user id（主機上的指令為空）、動作、對象的 user id、request id；不存帳號名 | 追查誰停用、啟用、刪除、解鎖了哪個帳號 | 只能新增與讀取（app 角色沒有 UPDATE、DELETE），保留 365 天，每次 `app migrate` 刪掉更舊的列（表的 comment，`internal/platform/migrate`）；帳號刪除後紀錄仍在，只剩 id | 只有 DB 角色，沒有 API |
 | 建立 admin 時的帳號名 | `seed-admin` 印到 stdout（`backend/cmd/app/seed.go`） | 回饋給操作者 | 看操作者的終端機或 job 輸出存到哪 | 操作者 |
 
 ## 瀏覽器端儲存
@@ -49,12 +50,13 @@
 - Backend 錯誤：非預期錯誤記 `method`、`path` 與錯誤文字（`httpapi/problem.go`）。HIBP 查詢失敗會記錄錯誤；網路錯誤時那是 Go 的 `*url.Error`，含請求網址，也就是那 5 個字元的雜湊前綴（推論自 `net/http`）。
 - 密碼與 session token 不會出現在任何級別的日誌：`TestCredentialsNeverLogged`。
 - 清理：只記刪掉的筆數。
+- 安全事件：註冊、登入成功與失敗（原因，帳號存在時帶 user id，不記送出的帳號名）、登出、被拒絕的 admin 操作，各一行帶 `event` 與 `user_id`（`TestSecurityEventsLogged`）。
 - Caddy：每個請求一行 access log，內容見上表（推論）。
 - PostgreSQL：image 預設值；違反唯一約束這類錯誤訊息可能帶出衝突的值，例如帳號名（推論，PostgreSQL 預設）。
 
-**保留期間。** `docker-compose.yml` 沒有為任何服務設定 `logging:`，所以每個容器用 Docker daemon 的預設 driver 與輪替設定。daemon 沒改過的話是 `json-file`、不輪替，日誌會一直長到容器被刪除（推論，Docker 預設）。`docs/deploy-vps.md` 第 7 節的備份腳本保留 7 天的完整資料庫 dump。
+**保留期間。** `docker-compose.yml` 讓每個容器的日誌輪替：每份最多 10 MB、最多 5 份，超過就丟掉最舊的（`x-logging`；CI 的 compose 檢查擋下沒設定的新服務）。實際保留多久取決於流量。`docs/deploy-vps.md` 第 7 節的備份腳本保留 7 天的完整資料庫 dump。
 
-**操作者的責任。** 處理真實使用者的資料前，操作者要設定日誌輪替與保留期間（daemon 的 `log-opts`，或每個服務的 `logging:`）、決定誰能在主機上操作 Docker，並在刪除使用者資料時一併處理備份。
+**操作者的責任。** 處理真實使用者的資料前，操作者要依流量確認輪替設定對應的保留期間、決定誰能在主機上操作 Docker，並在刪除使用者資料時一併處理備份。
 
 ## 當事人的請求
 

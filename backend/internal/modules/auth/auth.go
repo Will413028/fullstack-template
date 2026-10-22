@@ -26,6 +26,7 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
 )
 
 // Roles.
@@ -197,6 +198,9 @@ func (s *Service) CreateUser(ctx context.Context, account, password string) (Use
 		sess, err = s.newSession(ctx, q, u.ID)
 		return err
 	})
+	if err == nil {
+		s.logger.InfoContext(ctx, "signed up", "event", "auth.sign_up", "user_id", u.ID)
+	}
 	return u, sess, err
 }
 
@@ -248,8 +252,37 @@ func (s *Service) RecoverAdmin(ctx context.Context, account, password string) er
 		if err := q.ClearLoginThrottle(ctx, key); err != nil {
 			return fmt.Errorf("auth: clear throttle: %w", err)
 		}
-		return nil
+		return s.audit(ctx, q, AuditAdminRecovered, id)
 	})
+}
+
+// Audit actions (audit_events.action); a new one also goes into the table's CHECK.
+const (
+	AuditUserDisabled   = "user.disabled"
+	AuditUserEnabled    = "user.enabled"
+	AuditUserDeleted    = "user.deleted"
+	AuditUserUnlocked   = "user.unlocked"
+	AuditAdminRecovered = "admin.recovered"
+)
+
+// audit records action on target in q's transaction, with the signed-in caller as the actor (none for a command run
+// on the host) and the request id when there is one.
+func (s *Service) audit(ctx context.Context, q *store.Queries, action string, target uuid.UUID) error {
+	var actor *uuid.UUID
+	if c, ok := authctx.From(ctx); ok {
+		actor = &c.ID
+	}
+	var requestID *string
+	if id := logx.RequestID(ctx); id != "" {
+		requestID = &id
+	}
+	err := q.InsertAuditEvent(ctx, store.InsertAuditEventParams{
+		At: s.now(), ActorID: actor, Action: action, TargetID: target, RequestID: requestID,
+	})
+	if err != nil {
+		return fmt.Errorf("auth: audit %s: %w", action, err)
+	}
+	return nil
 }
 
 // ErrLastAdmin refuses to disable or delete the only enabled admin: nobody could administer users afterwards, and
@@ -338,12 +371,12 @@ func (s *Service) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) 
 		}
 		u = User(row)
 		if !disabled {
-			return nil
+			return s.audit(ctx, q, AuditUserEnabled, id)
 		}
 		if err := q.DeleteUserSessions(ctx, id); err != nil {
 			return fmt.Errorf("auth: revoke sessions: %w", err)
 		}
-		return nil
+		return s.audit(ctx, q, AuditUserDisabled, id)
 	})
 	return u, err
 }
@@ -401,6 +434,6 @@ func (s *Service) deleteUser(ctx context.Context, id uuid.UUID) error {
 		if n == 0 {
 			return errUserNotFound
 		}
-		return nil
+		return s.audit(ctx, q, AuditUserDeleted, id)
 	})
 }
