@@ -23,7 +23,7 @@ func TestAdminOperationsChecksTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"ListUsers", "PatchUser"}; !slices.Equal(admin, want) {
+	if want := []string{"DeleteUser", "ListUsers", "PatchUser"}; !slices.Equal(admin, want) {
 		t.Errorf("admin operations = %v, want %v", admin, want)
 	}
 

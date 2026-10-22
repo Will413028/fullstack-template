@@ -25,7 +25,7 @@ module; when this file and `items` disagree, stop and tell the user instead of g
   contract's `minLength`/`maxLength`; enums are `text` with `CHECK (col IN (...))`; times are `timestamptz`; every
   table has `created_at` and `updated_at timestamptz NOT NULL DEFAULT now()`, and every UPDATE query sets
   `updated_at = now()`.
-- The resource is owned: `owner_id uuid NOT NULL REFERENCES users (id)` (users is the only table another module may
+- The resource is owned: `owner_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE`, deleted with the account (users is the only table another module may
   reference) and every query has `owner_id = @owner_id`. Another user's row is a 404, exactly like a missing one.
 - Lengths, formats and enums are declared only in `backend/api/openapi.yaml`. The request validator enforces them
   before the handler runs; do not re-check them in Go handlers, services, or frontend zod schemas.
@@ -103,7 +103,7 @@ CREATE TABLE <table> (
   -- one line per field, from the mapping table, e.g.
   -- title    text        NOT NULL CHECK (char_length(title) BETWEEN 1 AND 200),
   -- body     text,
-  owner_id    uuid        NOT NULL REFERENCES users (id),
+  owner_id    uuid        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );

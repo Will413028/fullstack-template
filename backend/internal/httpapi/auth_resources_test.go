@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
 )
 
 // The user and session resources (docs/adr/2026-10-18-api-and-auth-baseline.md D9): reading users, and listing,
@@ -304,4 +305,63 @@ func TestDeleteOtherUsersSession(t *testing.T) {
 	assertProblem(t, a.do(http.MethodDelete, a.sessionPath(target.Id), bob, "", ""), http.StatusNotFound, "/problems/not-found")
 	assertProblem(t, a.do(http.MethodGet, a.sessionPath(target.Id), bob, "", ""), http.StatusNotFound, "/problems/not-found")
 	assertMe(t, a, alice, http.StatusOK)
+}
+
+func (a *authAPI) deleteMe(token string) *httptest.ResponseRecorder {
+	a.t.Helper()
+	return a.do(http.MethodDelete, "/api/users/me", token, "", "")
+}
+
+// Deleting your own account needs a sign-in from the last 10 minutes; it removes the account, what it owns and its
+// sessions, and clears the cookie.
+func TestDeleteCurrentUser(t *testing.T) {
+	a := newAuthAPI(t)
+	_, token := a.mustSignUp("alice")
+	item := a.mustCreateItem(token, "mine")
+	other := a.mustSignIn("alice", goodPassword)
+	a.clock.Advance(11 * time.Minute)
+	p := assertProblem(t, a.deleteMe(token), http.StatusForbidden, "/problems/forbidden")
+	assertCode(t, p, auth.CodeReauthenticationRequired)
+
+	fresh := a.mustSignIn("alice", goodPassword)
+	rec := a.deleteMe(fresh)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+	if c := sessionCookie(t, rec); c.MaxAge >= 0 {
+		t.Errorf("cookie not cleared: %v", c)
+	}
+	assertMe(t, a, other, http.StatusUnauthorized)
+	assertProblem(t, a.signIn("alice", goodPassword, ""), http.StatusUnauthorized, "/problems/unauthenticated")
+	var items int
+	if err := a.pool.QueryRow(t.Context(), `SELECT count(*) FROM items WHERE id = $1`, item.Id).Scan(&items); err != nil || items != 0 {
+		t.Errorf("items left = %d (%v), want 0", items, err)
+	}
+	// the name is free again
+	a.mustSignUp("alice")
+}
+
+func TestDeleteCurrentUserLastAdmin(t *testing.T) {
+	a := newAuthAPI(t)
+	root := a.mustAdmin()
+	p := assertProblem(t, a.deleteMe(root), http.StatusConflict, "/problems/conflict")
+	assertCode(t, p, auth.CodeLastAdmin)
+}
+
+func TestAdminDeletesUser(t *testing.T) {
+	a := newAuthAPI(t)
+	admin := a.mustAdmin()
+	u, token := a.mustSignUp("alice")
+	a.mustCreateItem(token, "mine")
+	path := "/api/users/" + u.Id.String()
+	if rec := a.do(http.MethodDelete, path, admin, "", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body)
+	}
+	assertMe(t, a, token, http.StatusUnauthorized)
+	assertProblem(t, a.getUser(admin, u.Id), http.StatusNotFound, "/problems/not-found")
+	assertProblem(t, a.do(http.MethodDelete, path, admin, "", ""), http.StatusNotFound, "/problems/not-found")
+	adminUser := a.currentSession(admin).User
+	p := assertProblem(t, a.do(http.MethodDelete, "/api/users/"+adminUser.Id.String(), admin, "", ""),
+		http.StatusConflict, "/problems/conflict")
+	assertCode(t, p, auth.CodeLastAdmin)
 }

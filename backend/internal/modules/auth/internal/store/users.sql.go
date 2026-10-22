@@ -80,6 +80,21 @@ func (q *Queries) CreateUserIfAbsent(ctx context.Context, arg CreateUserIfAbsent
 	return i, err
 }
 
+const deleteUser = `-- name: DeleteUser :execrows
+DELETE FROM users
+WHERE id = $1
+`
+
+// DeleteUser deletes the account; sessions and every module's rows that reference it go with it (ON DELETE CASCADE,
+// docs/rules/database-design.md).
+func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getLoginUser = `-- name: GetLoginUser :one
 SELECT id, account, password_hash, role, is_disabled, created_at
 FROM users

@@ -34,7 +34,7 @@ pnpm check:arch       # Dependency direction and import cycles (dependency-cruis
 src/
 ├── app/[locale]/         # File-based routing with i18n
 │   ├── (auth)/           # Auth pages (login, register)
-│   ├── (dashboard)/      # Protected pages (overview)
+│   ├── (dashboard)/      # Protected pages (overview, settings: delete account)
 │   └── (marketing)/      # Public pages
 ├── features/             # Feature modules
 │   └── auth/             # Auth: api, hooks, components, validations,

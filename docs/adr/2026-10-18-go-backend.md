@@ -46,7 +46,7 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 ## Decision
 
 - **D1**：直接取代，舊系統保存在 tag `archive/pre-go-rewrite`。
-- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；合併進 `main` 的 migration 只能新增，不能修改，還沒合併的可以重新產生（2026-10-18 修訂）。DDL 只由 `atlas migrate diff` 產生；純資料的 backfill（對既有表走 expand 步驟時）例外，用 `atlas migrate new` 手寫，一樣經 squawk 與 immutable 檢查。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖同一個版本與 checksum（2026-10-18 起 v1.3.3）。
+- **D2**：pgx＋sqlc＋Atlas 宣告式 schema。只有一個 `migrations/` 目錄；用 squawk 檢查會鎖表的變更；合併進 `main` 的 migration 只能新增，不能修改，還沒合併的可以重新產生（2026-10-18 修訂）。DDL 只由 `atlas migrate diff` 產生；兩種例外用 `atlas migrate new` 手寫，一樣經 squawk、drift 與 immutable 檢查：純資料的 backfill（對既有表走 expand 步驟時），以及 Atlas 產生的 DDL 被 squawk 判定會鎖表時改寫成的不鎖表步驟（2026-10-22 修訂）。Atlas 分兩個版本別（2026-10-18 修訂，見 Review Notes）：產生 migration 與漂移檢查用 standard 版，只在開發機與 CI；image 內套用 migration 用 community 版。兩者都鎖同一個版本與 checksum（2026-10-18 起 v1.3.3）。
 - **D3**：主鍵用 `uuid DEFAULT uuidv7()`，JSON 裡是字串。文字欄用 `text`，有長度限制時加 CHECK；狀態與 role 欄用 `text` 加 `CHECK (x IN (...))`；時間一律用 `timestamptz`。`updated_at` 由每一個 UPDATE 查詢明寫 `= now()`，並有測試覆蓋。
 - **D4**：`make rename` 先執行 `go mod edit -module`，再改寫所有 import 前綴，預設路徑是 `github.com/Will413028/<NAME>/backend`，也可以用 `MODULE=` 覆寫。作法同 [`gonew`](https://pkg.go.dev/golang.org/x/tools/cmd/gonew)。
 
@@ -88,6 +88,8 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 - 2026-10-18（Will 照建議，計畫 D17）：給既有的 sessions 表加 `id … DEFAULT uuidv7()` 被 squawk 擋下（volatile default 會重寫表）。D2 的不可變規則原本寫「baseline 之後」，但它要保護的是已經套用過這些 migration 的資料庫，而合併前不存在這樣的資料庫：`origin/main` 沒有 migration、範本沒有部署。所以把 PR #12 上未發布的 migration 重新產生成一支 baseline，規則改以「合併進 `main`」為界，由 `migrations-immutable` 以 `main` 為基準守住。合併後對既有表加 volatile default 或 NOT NULL 時要走 expand 步驟，其中的資料 backfill 是 diff 產生不了的，所以「不手寫」改為只限 DDL。
 
 - 2026-10-19（Will 照建議，收尾的設計審查）：HTTP 層用 oapi-codegen strict server 加 kin-openapi validator，每個 request 會被解析兩次，兩邊對同一份輸入的判斷不完全相同（例如 binder 拒收 kin-openapi 放行的 `0x10`）。`internal/httpapi` 的 `validate.go` 與 `bind.go` 合計 353 行（含 validator 本身的掛載），大半是把兩邊的錯誤統一成同一種 422 problem 的轉接碼。只解析一次的替代做法是 [ogen](https://github.com/ogen-go/ogen)，沒有實測。決定保留現狀：這層已經實作完成，並有測試與 mutation 守住；ogen 未經實測，現在換等於重寫 HTTP 層。這不是跨專案一致性的選擇：FathomPod 與 dailyfresh 的契約是 Protobuf＋Connect，沒有用 oapi-codegen。代價是這層轉接碼要跟著兩個套件的行為維護。重新評估的觸發（任一）：轉接層要再加一類新的特例；下一個衍生專案開工前，先做 ogen 的 spike。
+
+- 2026-10-22（Will 選修訂）：`items.owner_id` 改成 `ON DELETE CASCADE`（刪除帳號）時，Atlas 產生的是一般的 `ADD CONSTRAINT … FOREIGN KEY`，squawk 擋下：它在驗證既有列時持有阻擋寫入的鎖。不鎖表的寫法 `NOT VALID` 加下一支 `VALIDATE CONSTRAINT` 是 Atlas 產生不了的（v1.3.3），原本的規則要求「遇到時先修訂本 ADR」。不選「接受鎖表並在檔案加 squawk 忽略」，因為衍生專案遇到有資料的表時仍無做法可循。修訂後允許手寫這類改寫，條件是 squawk 原本會擋、`make drift` 證明結果與 `schema.sql` 相同。`schema.sql` 仍是 schema 唯一的真相。
 
 ## Related
 

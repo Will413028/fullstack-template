@@ -61,6 +61,7 @@
       "invalid_credentials": "帳號或密碼錯誤。",
       "login_throttled": "這個帳號登入失敗次數過多，請稍後再試。",
       "last_admin": "唯一啟用中的管理員不能被停用或刪除。",
+      "reauthentication_required": "為了安全，請再輸入一次密碼才能繼續。",
       "session_invalid": "登入已失效，請重新登入。",
       "insufficient_role": "你的帳號沒有權限執行這個動作。",
       "cross_origin_request": "來自其他網站的請求已被擋下。"
@@ -79,5 +80,12 @@
       "invalid": "不正確。",
       "password_too_common": "這個密碼太常見，或曾出現在外洩資料中，請換一個。"
     }
+  },
+  "settings": {
+    "title": "設定",
+    "deleteTitle": "刪除帳號",
+    "deleteDescription": "刪除你的帳號與其中所有資料，並登出所有裝置。這個動作無法復原。",
+    "deletePassword": "輸入密碼以確認",
+    "deleteConfirm": "刪除我的帳號"
   }
 }

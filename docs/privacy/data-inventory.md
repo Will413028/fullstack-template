@@ -19,13 +19,13 @@
 
 | 資料 | 存在哪裡 | 用途 | 保留與刪除 | 誰讀得到 |
 |---|---|---|---|---|
-| 帳號名稱 | `users.account`，小寫，3 到 50 字元 | 登入識別 | 直到該列被刪；沒有刪除使用者的 operation（見下方） | 本人（`getCurrentUser`、`getUser`）；admin（`listUsers`、`getUser`、`patchUser` 的回應）；上述 DB 角色 |
+| 帳號名稱 | `users.account`，小寫，3 到 50 字元 | 登入識別 | 直到帳號被刪除（見「當事人的請求」） | 本人（`getCurrentUser`、`getUser`）；admin（`listUsers`、`getUser`、`patchUser` 的回應）；上述 DB 角色 |
 | 密碼雜湊 | `users.password_hash`：對 NFKC 正規化後的密碼做 argon2id，m=19 MiB、t=2、p=1、16 byte salt、32 byte key（`auth/password.go`） | 驗證登入 | 直到該列被刪；API 從不回傳 | 只有 DB 角色 |
 | 角色、停用狀態、建立與更新時間 | `users.role`、`is_disabled`、`created_at`、`updated_at` | 授權、帳號狀態 | 直到該列被刪 | `updated_at` 只有 DB 角色；其餘本人與 admin 可透過 API 讀 |
 | Session token | 只在 cookie；資料庫存 token 的 SHA-256（`sessions.token_hash`） | 驗證請求 | cookie 的 `Max-Age` 是絕對期限。這些情況會刪掉該列：登出、全部登出、撤銷單一 session、帶著它重新登入、使用者被停用、使用者被刪（`ON DELETE CASCADE`）、每小時清理過期的 session（`auth/sessions.go`） | 原始 token 只有瀏覽器（HttpOnly）；雜湊只有 DB 角色 |
 | Session 中繼資料 | `sessions.id`、`user_id`、`created_at`、`last_used_at`（最多每分鐘寫一次）、`expires_at` | 列出與撤銷 session；idle 與絕對期限 | 同 session 那列。超過 `expires_at` 或閒置超過 `SESSION_IDLE` 的列每小時清掉（`backend/cmd/app/main.go` 的 cleanup）。測試：`TestCleanup` | 本人，只限自己的 session；admin 沒有 session API；DB 角色 |
 | 登入嘗試紀錄 | `login_throttles.account_key` = 送出的帳號名轉小寫，不論帳號是否存在；另有 `failures`、`next_allowed_at`、`updated_at` | 帳號節流 | 登入成功時刪除，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | 只有 DB 角色，沒有 API。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
-| Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `deleteItem` 刪除。`owner_id` 參照 `users` 但沒有 `ON DELETE`，所以有 items 的使用者要先刪 items 才能刪 | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
+| Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `deleteItem` 刪除；帳號刪除時一起刪（`ON DELETE CASCADE`） | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
 | Client IP | backend access log 的 `client_ip`；每 IP 限流放在程式記憶體，IPv6 截到 /64（`httpapi/ratelimit.go`） | 追蹤、限流 | 日誌：見「日誌」。記憶體：閒置 1 分鐘的 bucket 會丟掉，重啟就全部消失 | 讀得到日誌的人 |
 | Request id、method、path、status、處理時間 | backend access log；同一個請求的每行日誌都帶 `request_id` | 追蹤 | 見「日誌」 | 讀得到日誌的人 |
 | User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
@@ -62,7 +62,7 @@
 |---|---|---|
 | 查閱 | 本人可讀自己的帳號（`getCurrentUser`）與 session（`listSessions`） | 沒有一次匯出 items 或其他模組資料的方式 |
 | 更正 | 沒有：沒有改帳號名或密碼的 operation | 使用者需要更正資料時，衍生專案要補 |
-| 刪除 | 沒有刪除使用者的 operation，契約裡沒有 `DELETE /api/users/{id}`。admin 只能停用帳號，會刪掉它的 session 但保留那列。手動刪除那列時 session 會連帶刪除（`TestSchemaChecks`），items 會擋住刪除，`login_throttles` 以帳號名為鍵、24 小時內過期 | 處理真實使用者的資料前，衍生專案必須加上刪除帳號，並決定擁有的資料、日誌與備份怎麼處理 |
+| 刪除 | 本人在設定頁輸入密碼後刪除帳號（重新登入，再 `DELETE /api/users/me`；session 必須是 10 分鐘內登入的）；admin 用 `DELETE /api/users/{id}`。資料庫刪掉帳號、session 與每個模組擁有的列（指向 `users` 的 FK 都是 `CASCADE` 或 `SET NULL`，`TestForeignKeysToUsersAllowDeletion`）。`login_throttles` 以帳號名為鍵，24 小時內過期。測試：`TestDeleteCurrentUser`、`TestAdminDeletesUser` | 備份保留 7 天，期間仍有被刪帳號的資料；日誌依輪替設定過期。衍生專案在 PostgreSQL 以外存放使用者資料（檔案、搜尋索引）時，要在刪除帳號時一併處理 |
 | 限制處理 | admin 停用（`patchUser`） | 範本無 |
 
 ## 何時更新這份文件

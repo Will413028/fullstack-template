@@ -50,3 +50,9 @@ WHERE id = @id AND user_id = @user_id AND expires_at > @now AND last_used_at > @
 -- name: DeleteUserSession :execrows
 DELETE FROM sessions
 WHERE id = @id AND user_id = @user_id AND expires_at > @now AND last_used_at > @idle_before;
+
+-- GetSessionCreatedAt is when the user's session was issued, that is when they last signed in with it.
+-- name: GetSessionCreatedAt :one
+SELECT created_at
+FROM sessions
+WHERE id = @id AND user_id = @user_id;

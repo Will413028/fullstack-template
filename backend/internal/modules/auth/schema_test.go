@@ -97,3 +97,39 @@ func TestSchemaChecks(t *testing.T) {
 		t.Errorf("sessions after deleting their user = %d (%v), want 0", n, err)
 	}
 }
+
+// undeletableFromUsers lists the tables whose foreign key to users neither cascades nor sets null: deleting an
+// account would fail on their rows (DeleteUser) instead of removing what it owns.
+func undeletableFromUsers(t *testing.T, c *pgx.Conn) []string {
+	t.Helper()
+	rows, err := c.Query(t.Context(), `
+		SELECT conrelid::regclass::text FROM pg_constraint
+		WHERE contype = 'f' AND confrelid = 'users'::regclass AND confdeltype NOT IN ('c', 'n')
+		ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tables
+}
+
+// Every table that references users declares what happens when the account is deleted: ON DELETE CASCADE for what
+// the user owns, SET NULL for a reference that outlives it (docs/rules/database-design.md). A module that forgets
+// would make account deletion fail for every user with a row there.
+func TestForeignKeysToUsersAllowDeletion(t *testing.T) {
+	db := pg.NewMigratedDB(t)
+	c := connect(t, pg.SuperuserURL(db.Name))
+	if bad := undeletableFromUsers(t, c); len(bad) > 0 {
+		t.Errorf("foreign keys to users without ON DELETE CASCADE or SET NULL: %v", bad)
+	}
+	// the check itself: a table with a plain reference is reported
+	if _, err := c.Exec(t.Context(), `CREATE TABLE probe (owner_id uuid REFERENCES users (id))`); err != nil {
+		t.Fatal(err)
+	}
+	if bad := undeletableFromUsers(t, c); len(bad) != 1 || bad[0] != "probe" {
+		t.Errorf("with a plain reference: %v, want [probe]", bad)
+	}
+}

@@ -33,7 +33,8 @@
 | `deleteCurrentSession` | `DELETE /api/sessions/current` | 匿名也可，讓過期的 cookie 也能登出 |
 | `getCurrentUser`、`getUser` | `GET /api/users/me`、`GET /api/users/{id}` | 登入者；`getUser` 只能看自己，admin 例外 |
 | `listSessions`、`getSession`、`deleteSession`、`deleteAllSessions`、`getCurrentSession` | `/api/sessions…` | 登入者，只限自己的 session |
-| `listUsers`、`patchUser` | `GET /api/users`、`PATCH /api/users/{id}` | 只有 admin |
+| `deleteCurrentUser` | `DELETE /api/users/me` | 登入者；session 必須是 10 分鐘內登入的，否則 403 `reauthentication_required` |
+| `listUsers`、`patchUser`、`deleteUser` | `GET /api/users`、`PATCH`／`DELETE /api/users/{id}` | 只有 admin |
 
 不在範圍內：`items` 的各個 operation（擁有者範圍之外）、主機與 Docker 的強化、Caddy 的 TLS 設定。
 
@@ -105,6 +106,7 @@
 | 角色變更後仍用舊角色 | 每個請求都從資料庫讀角色。目前沒有改角色或改密碼的 operation；後端規則 8 要求這類功能撤銷該使用者所有 session（`backend/AGENTS.md`） | 已緩解 |
 | 匿名請求到達受保護的 handler | 契約宣告 security，validator 在參數與 body 之前檢查。測試：`TestUnauthenticatedBeforeValidation`、`TestOperationAccessEnforced` | 已緩解 |
 | backend 被入侵後改 schema | app 角色只有 DML。測試：`TestAppRoleCannotDDL` | 已緩解；所有表的資料仍可寫入，見「已接受的風險」 |
+| 偷到或忘了登出的 session 被拿來刪除帳號 | 刪除自己的帳號要求 session 在 10 分鐘內登入過（`auth.ReauthenticateWithin`），前端先用密碼重新登入再刪除。測試：`TestDeleteCurrentUser`、`delete-account.test.tsx` | 已緩解 |
 | 透過 API 建立 admin | 註冊一律寫 `user`；`EnsureAdmin` 只在 `seed-admin` 呼叫。測試：`TestSeedAdminCreatesAdmin` | 已緩解 |
 
 ## 已接受的風險

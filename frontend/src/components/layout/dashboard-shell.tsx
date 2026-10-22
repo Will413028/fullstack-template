@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboard, Menu, X } from "lucide-react";
+import { LayoutDashboard, Menu, Settings, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { useUiStore } from "@/store/use-ui-store";
@@ -19,6 +19,7 @@ export function DashboardShell({
 
   const sidebarLinks = [
     { href: "/overview" as const, labelKey: "overview", icon: LayoutDashboard },
+    { href: "/settings" as const, labelKey: "settings", icon: Settings },
   ];
 
   return (
