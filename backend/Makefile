@@ -33,21 +33,21 @@ BASE ?= origin/main
 # Generating migrations and drift checks use the Atlas standard build: the community build rejects several
 # schema.sql files (docs/adr/2026-10-18-go-backend.md D2). The image applies migrations with the community build
 # (see Dockerfile). Checksums are the .sha256 files published next to each binary on release.ariga.io.
-ATLAS_VERSION := v1.3.3
+ATLAS_VERSION := v1.3.4
 # Atlas removes binaries published more than 6 months ago from its CDN (atlasgo.io/cli-reference, Distributed
 # Binaries); `make atlas-age` fails 30 days before that so the pin is bumped while downloads still work.
-ATLAS_RELEASED := 2026-09-04
+ATLAS_RELEASED := 2026-10-14
 ATLAS_MAX_AGE_DAYS := 150
 ATLAS         := bin/atlas
-ATLAS_SHA256_darwin-arm64 := 59856bce61637e5a40f7f32f3a4e4909419752b917cac48d6d500a608ff7803e
-ATLAS_SHA256_linux-amd64  := a41ea66b5aaad1e363fd829613a6725c3934378792d0be5591269c041c112b96
-ATLAS_SHA256_linux-arm64  := 8044e6dd2971c741563748b35b0d32ca69908c40548b9797d46a626c00d2e07f
+ATLAS_SHA256_darwin-arm64 := e85bb80abbc20d312e42ce320acc7fe35aa985566aede1d911ee2107d99d7174
+ATLAS_SHA256_linux-amd64  := aec7e73a561889836b5fb7d8ba8cc55969c593e53188048d83cdf087f23bc476
+ATLAS_SHA256_linux-arm64  := 870fdd78dea732b8d1985caed6e8ea424b84dcf3b5cbb7e1d2c06f1ba09e59e4
 # The community build applies migrations: in the image (Dockerfile, same checksums for linux) and in the integration
 # tests (internal/platform/dbtest), so tests exercise the build that runs in production.
 ATLAS_COMMUNITY := bin/atlas-community
-ATLAS_COMMUNITY_SHA256_darwin-arm64 := a9b2e223191b60108bcf6ca35a55a8b4810197a5067dad83781289e324e9a156
-ATLAS_COMMUNITY_SHA256_linux-amd64  := 7bddc9a0cebbb1f3e21cdd5f5811d346850e481e3b7c85e31206613d1f63f068
-ATLAS_COMMUNITY_SHA256_linux-arm64  := 546de518d9875e4fed991b917295395dc5400aa26922fa4cd3fbce33afdb75be
+ATLAS_COMMUNITY_SHA256_darwin-arm64 := eba89a0a7ca149f71f1ffe9320e6359a39c032e20926bbd39c7d2d18cc50efb3
+ATLAS_COMMUNITY_SHA256_linux-amd64  := 746868e056299897e2da3b7a4b02546b665a7566c53d1fc2efa8636b5fd144f5
+ATLAS_COMMUNITY_SHA256_linux-arm64  := 4716df1c7bbb991dee7b3056a61e5c91d4a19b96add12623f87f710f019ed702
 PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
 .PHONY: run
