@@ -36,3 +36,22 @@ CREATE TABLE login_throttles (
   next_allowed_at timestamptz,
   updated_at      timestamptz NOT NULL
 );
+
+-- Who did what to which account, written in the transaction that made the change. The comment makes the table
+-- append-only: app migrate gives the app role INSERT and SELECT but not UPDATE or DELETE here, so the application
+-- cannot rewrite the record, and deletes rows older than the retention period (internal/platform/migrate).
+-- actor_id and target_id have no foreign key, so the record outlives the accounts; a NULL actor is the operator
+-- on the host (recover-admin).
+CREATE TABLE audit_events (
+  id         uuid        PRIMARY KEY DEFAULT uuidv7(),
+  at         timestamptz NOT NULL,
+  actor_id   uuid,
+  action     text        NOT NULL
+                         CHECK (action IN ('user.disabled', 'user.enabled', 'user.deleted', 'user.unlocked', 'admin.recovered')),
+  target_id  uuid        NOT NULL,
+  request_id text
+);
+COMMENT ON TABLE audit_events IS 'append-only: retain 365 days by at';
+
+-- Retention deletes by age.
+CREATE INDEX audit_events_at_idx ON audit_events (at);

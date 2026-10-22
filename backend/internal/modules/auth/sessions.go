@@ -14,6 +14,7 @@ import (
 
 	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/internal/store"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
 )
 
@@ -89,30 +90,35 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, uuid.UU
 // attempt is counted before the password is checked (ReserveLoginAttempt), so requests sent at the same time
 // cannot all pass a waiting period that has not been recorded yet; a successful sign-in clears the count.
 func (s *Service) SignIn(ctx context.Context, account, password, previousToken string) (User, Session, error) {
+	u, sess, err := s.signIn(ctx, account, password, previousToken)
+	if err == nil {
+		s.logger.InfoContext(ctx, "signed in", "event", "auth.sign_in", "user_id", u.ID)
+	}
+	return u, sess, err
+}
+
+// signInFailed logs a refused sign-in: the reason and, when the account exists, its id. The submitted name is not
+// logged: it can be a password typed into the wrong field.
+func (s *Service) signInFailed(ctx context.Context, reason string, userID *uuid.UUID) {
+	attrs := []any{"event", "auth.sign_in_failed", "reason", reason}
+	if userID != nil {
+		attrs = append(attrs, "user_id", *userID)
+	}
+	s.logger.WarnContext(ctx, "sign-in refused", attrs...)
+}
+
+func (s *Service) signIn(ctx context.Context, account, password, previousToken string) (User, Session, error) {
 	key := accountKey(account)
-	now := s.now()
-	if err := s.reserveAttempt(ctx, key, now); err != nil {
-		return User{}, Session{}, err
-	}
-	normalized := normalizePassword(password)
-	row, err := s.q().GetLoginUser(ctx, key)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, err := s.hasher.Verify(ctx, normalized, s.dummyHash); err != nil {
-			return User{}, Session{}, err
+	if err := s.reserveAttempt(ctx, key, s.now()); err != nil {
+		if e, ok := apperr.As(err); ok && e.Kind == apperr.RateLimited {
+			s.signInFailed(ctx, "throttled", nil)
 		}
-		return User{}, Session{}, errInvalidCredentials
+		return User{}, Session{}, err
 	}
-	if err != nil {
-		return User{}, Session{}, fmt.Errorf("auth: get user: %w", err)
-	}
-	ok, err := s.hasher.Verify(ctx, normalized, row.PasswordHash)
+	u, err := s.verifyCredentials(ctx, key, password)
 	if err != nil {
 		return User{}, Session{}, err
 	}
-	if !ok || row.IsDisabled {
-		return User{}, Session{}, errInvalidCredentials
-	}
-	u := User{ID: row.ID, Account: row.Account, Role: row.Role, IsDisabled: row.IsDisabled, CreatedAt: row.CreatedAt}
 	var sess Session
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := store.New(tx)
@@ -128,6 +134,36 @@ func (s *Service) SignIn(ctx context.Context, account, password, previousToken s
 		return err
 	})
 	return u, sess, err
+}
+
+// verifyCredentials returns the enabled user whose account key and password match. An unknown account costs the
+// same hash as a wrong password, and every refusal is the same errInvalidCredentials.
+func (s *Service) verifyCredentials(ctx context.Context, key, password string) (User, error) {
+	normalized := normalizePassword(password)
+	row, err := s.q().GetLoginUser(ctx, key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if _, err := s.hasher.Verify(ctx, normalized, s.dummyHash); err != nil {
+			return User{}, err
+		}
+		s.signInFailed(ctx, "unknown_account", nil)
+		return User{}, errInvalidCredentials
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("auth: get user: %w", err)
+	}
+	ok, err := s.hasher.Verify(ctx, normalized, row.PasswordHash)
+	if err != nil {
+		return User{}, err
+	}
+	if !ok || row.IsDisabled {
+		reason := "invalid_credentials"
+		if ok {
+			reason = "disabled"
+		}
+		s.signInFailed(ctx, reason, &row.ID)
+		return User{}, errInvalidCredentials
+	}
+	return User{ID: row.ID, Account: row.Account, Role: row.Role, IsDisabled: row.IsDisabled, CreatedAt: row.CreatedAt}, nil
 }
 
 func (s *Service) reserveAttempt(ctx context.Context, key string, now time.Time) error {
@@ -155,6 +191,11 @@ func (s *Service) SignOut(ctx context.Context, token string) error {
 	if err := s.q().DeleteSession(ctx, hashToken(token)); err != nil {
 		return fmt.Errorf("auth: delete session: %w", err)
 	}
+	attrs := []any{"event", "auth.sign_out"}
+	if c, ok := authctx.From(ctx); ok {
+		attrs = append(attrs, "user_id", c.ID)
+	}
+	s.logger.InfoContext(ctx, "signed out", attrs...)
 	return nil
 }
 
@@ -163,6 +204,7 @@ func (s *Service) SignOutAll(ctx context.Context, userID uuid.UUID) error {
 	if err := s.q().DeleteUserSessions(ctx, userID); err != nil {
 		return fmt.Errorf("auth: delete sessions: %w", err)
 	}
+	s.logger.InfoContext(ctx, "signed out everywhere", "event", "auth.sign_out_all", "user_id", userID)
 	return nil
 }
 

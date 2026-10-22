@@ -137,6 +137,12 @@ func TestRecoverAdmin(t *testing.T) {
 	if _, _, err := svc.SignIn(t.Context(), "root", newPassword, ""); err != nil {
 		t.Fatalf("sign in with the new password: %v", err)
 	}
+	var action string
+	var actorIsNull bool
+	if err := pool.QueryRow(t.Context(), `SELECT action, actor_id IS NULL FROM audit_events`).Scan(&action, &actorIsNull); err != nil ||
+		action != "admin.recovered" || !actorIsNull {
+		t.Errorf("audit = %q, operator actor %t (%v); want admin.recovered by the operator", action, actorIsNull, err)
+	}
 
 	if _, _, err := svc.CreateUser(t.Context(), "alice", adminPassword); err != nil {
 		t.Fatal(err)

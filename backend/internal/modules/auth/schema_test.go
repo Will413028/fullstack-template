@@ -133,3 +133,19 @@ func TestForeignKeysToUsersAllowDeletion(t *testing.T) {
 		t.Errorf("with a plain reference: %v, want [probe]", bad)
 	}
 }
+
+// audit_events is append-only for the app role (its table comment; internal/platform/migrate).
+func TestAuditEventsAppendOnly(t *testing.T) {
+	db := pg.NewMigratedDB(t)
+	app := connect(t, db.AppURL)
+	ctx := t.Context()
+	if _, err := app.Exec(ctx, `INSERT INTO audit_events (at, action, target_id) VALUES (now(), 'user.disabled', uuidv7())`); err != nil {
+		t.Fatalf("app INSERT: %v", err)
+	}
+	for _, stmt := range []string{`UPDATE audit_events SET action = 'user.enabled'`, `DELETE FROM audit_events`} {
+		var pgErr *pgconn.PgError
+		if _, err := app.Exec(ctx, stmt); !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+			t.Errorf("%s: err = %v, want permission denied", stmt, err)
+		}
+	}
+}

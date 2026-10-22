@@ -135,3 +135,47 @@ func TestMigrateLockTimeout(t *testing.T) {
 		t.Errorf("migrate gave up after %s, want within 10s (lock_timeout %s)", elapsed, "5s")
 	}
 }
+
+// A table commented append-only gives the app role INSERT and SELECT only; one with a retention also loses its
+// rows past it on every migrate, while newer rows stay.
+func TestAppendOnlyTables(t *testing.T) {
+	db := migrated(t, "testdata/v3")
+	app := connect(t, db.AppURL)
+	ctx := t.Context()
+	if _, err := app.Exec(ctx, `INSERT INTO events (at) VALUES (now() - interval '31 days'), (now() - interval '29 days')`); err != nil {
+		t.Fatalf("app INSERT: %v", err)
+	}
+	if _, err := app.Exec(ctx, `INSERT INTO notes (body) VALUES ('kept')`); err != nil {
+		t.Fatalf("app INSERT: %v", err)
+	}
+	for _, stmt := range []string{
+		`UPDATE events SET at = now()`, `DELETE FROM events`, `TRUNCATE events`,
+		`UPDATE notes SET body = 'changed'`, `DELETE FROM notes`,
+	} {
+		_, err := app.Exec(ctx, stmt)
+		wantInsufficientPrivilege(t, err, stmt)
+	}
+	// other tables keep full DML
+	if _, err := app.Exec(ctx, `INSERT INTO widgets (name) VALUES ('a'); DELETE FROM widgets`); err != nil {
+		t.Errorf("widgets DML: %v", err)
+	}
+
+	if err := pg.Migrate(ctx, t, db, "testdata/v3"); err != nil {
+		t.Fatal(err)
+	}
+	var events, notes int
+	if err := app.QueryRow(ctx, `SELECT (SELECT count(*) FROM events), (SELECT count(*) FROM notes)`).Scan(&events, &notes); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 || notes != 1 {
+		t.Errorf("after migrate: events = %d, notes = %d; want 1 and 1 (only the 31-day-old event pruned)", events, notes)
+	}
+}
+
+func TestAppendOnlyMalformedCommentFails(t *testing.T) {
+	db := pg.NewDB(t)
+	err := pg.Migrate(t.Context(), t, db, "testdata/bad-comment")
+	if err == nil || !strings.Contains(err.Error(), `comment "append-only: keep for a year"`) {
+		t.Errorf("err = %v, want the malformed comment named", err)
+	}
+}

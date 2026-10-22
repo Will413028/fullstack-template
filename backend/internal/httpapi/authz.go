@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"slices"
@@ -106,8 +107,8 @@ func methodName(operationID string) string {
 var errInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
 
 // requireRole lets only users with role call the named operations (generated method names, see operations). The
-// role is the one read from the database for this request (authenticate).
-func requireRole(role string, names ...string) gen.StrictMiddlewareFunc {
+// role is the one read from the database for this request (authenticate). A refusal is logged as authz.denied.
+func requireRole(logger *slog.Logger, role string, names ...string) gen.StrictMiddlewareFunc {
 	return func(f gen.StrictHandlerFunc, name string) gen.StrictHandlerFunc {
 		if !slices.Contains(names, name) {
 			return f
@@ -118,6 +119,7 @@ func requireRole(role string, names ...string) gen.StrictMiddlewareFunc {
 				return nil, auth.ErrSessionInvalid
 			}
 			if u.Role != role {
+				logger.WarnContext(ctx, "operation refused", "event", "authz.denied", "user_id", u.ID, "operation", name)
 				return nil, errInsufficientRole
 			}
 			return f(ctx, w, r, request)

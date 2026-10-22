@@ -117,6 +117,9 @@ jobs:
           if jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'; then
             echo "frontend receives database settings"; exit 1
           fi
+      # Logs hold client addresses and paths: every service rotates them (docs/privacy/data-inventory.md)
+      - name: Every service rotates its logs
+        run: test "$(jq -c '[.services | to_entries[] | select(.value.logging.options["max-size"] == null) | .key]' /tmp/compose.json)" = '[]'
       # Published ports bypass ufw: only caddy may have any (docs/adr/2026-10-18-api-and-auth-baseline.md D1)
       - name: Only caddy publishes ports
         run: test "$(jq -c '[.services | to_entries[] | select(.value.ports) | .key]' /tmp/compose.json)" = '["caddy"]'

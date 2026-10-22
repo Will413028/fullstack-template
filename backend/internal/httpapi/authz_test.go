@@ -3,6 +3,7 @@ package httpapi
 import (
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"slices"
 	"strings"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Will413028/fullstack-template/backend/api"
+	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
 )
 
 func TestAdminOperationsChecksTable(t *testing.T) {
@@ -91,4 +94,86 @@ func anyRequest(path, method string, op *openapi3.Operation) (url, contentType, 
 		return url, "application/merge-patch+json", "{}"
 	}
 	return url, "application/json", "{}"
+}
+
+type auditRow struct {
+	actor     *uuid.UUID
+	action    string
+	target    uuid.UUID
+	requestID *string
+}
+
+func (a *authAPI) auditEvents() []auditRow {
+	a.t.Helper()
+	r, err := a.pool.Query(a.t.Context(), `SELECT actor_id, action, target_id, request_id FROM audit_events ORDER BY id`)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	rows, err := pgx.CollectRows(r, func(row pgx.CollectableRow) (auditRow, error) {
+		var e auditRow
+		return e, row.Scan(&e.actor, &e.action, &e.target, &e.requestID)
+	})
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return rows
+}
+
+// Every admin operation that changes state leaves one audit row naming the admin, the action, the target and the
+// request id (OWASP Logging Cheat Sheet: user administration). A new state-changing admin operation fails this test
+// until it is added to send, so it cannot ship unaudited.
+func TestAdminChangesAreAudited(t *testing.T) {
+	spec, err := loadSpec(t.Context(), api.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newAuthAPI(t)
+	admin := a.mustAdmin()
+	adminID := a.currentSession(admin).User.Id
+	send := map[string]struct {
+		action string
+		call   func(target uuid.UUID) *httptest.ResponseRecorder
+	}{
+		"PatchUser": {auth.AuditUserDisabled, func(id uuid.UUID) *httptest.ResponseRecorder {
+			return a.patchUser(admin, id, `{"is_disabled":true}`)
+		}},
+		"DeleteUser": {auth.AuditUserDeleted, func(id uuid.UUID) *httptest.ResponseRecorder {
+			return a.do(http.MethodDelete, "/api/users/"+id.String(), admin, "", "")
+		}},
+	}
+	for _, name := range stateChangingAdminOperations(spec) {
+		if _, ok := send[name]; !ok {
+			t.Errorf("admin operation %s changes state but has no case here", name)
+		}
+	}
+	for name, c := range send {
+		t.Run(name, func(t *testing.T) {
+			u, _ := a.mustSignUp("target-" + strings.ToLower(name))
+			before := len(a.auditEvents())
+			if rec := c.call(u.Id); rec.Code >= 300 {
+				t.Fatalf("%s = %d %s", name, rec.Code, rec.Body)
+			}
+			events := a.auditEvents()
+			if len(events) != before+1 {
+				t.Fatalf("audit rows %d -> %d, want one more", before, len(events))
+			}
+			e := events[len(events)-1]
+			if e.actor == nil || *e.actor != adminID || e.action != c.action || e.target != u.Id || e.requestID == nil {
+				t.Errorf("audit row = %+v, want actor %s, action %s, target %s and a request id", e, adminID, c.action, u.Id)
+			}
+		})
+	}
+}
+
+// stateChangingAdminOperations lists the admin operations that are not GETs.
+func stateChangingAdminOperations(spec *openapi3.T) []string {
+	var names []string
+	for _, item := range spec.Paths.Map() {
+		for method, op := range item.Operations() {
+			if name := methodName(op.OperationID); method != http.MethodGet && operationAccess[name] == accessAdmin {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }

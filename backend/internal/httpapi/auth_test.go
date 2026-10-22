@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
 	platformdb "github.com/Will413028/fullstack-template/backend/internal/platform/db"
 	"github.com/Will413028/fullstack-template/backend/internal/platform/dbtest"
+	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
 )
 
 var pg *dbtest.Server
@@ -861,5 +863,48 @@ func TestCredentialsNeverLogged(t *testing.T) {
 		if strings.Contains(out, leak.value) {
 			t.Errorf("the log contains the %s", leak.what)
 		}
+	}
+}
+
+// Sign-up, sign-in (both outcomes), sign-out and a refused admin operation each log a security event with the user
+// id when it is known (OWASP Logging Cheat Sheet, ASVS 5.0 16.3), so an incident can be traced to an account.
+func TestSecurityEventsLogged(t *testing.T) {
+	var logs lockedBuffer
+	logger := slog.New(logx.WithContext(slog.NewJSONHandler(&logs, nil)))
+	a := newAuthAPI(t, func(c *auth.Config, d *Deps) { c.Logger, d.Logger = logger, logger })
+	alice, _ := a.mustSignUp("alice")
+	a.signIn("alice", "not the password", "")
+	a.signIn("nobody", "not the password", "")
+	token := a.mustSignIn("alice", goodPassword)
+	a.do(http.MethodGet, "/api/users", token, "", "")
+	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
+
+	type event struct{ name, userID, reason string }
+	var got []event
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if name, ok := m["event"].(string); ok {
+			if m["request_id"] == nil {
+				t.Errorf("event %s has no request_id", name)
+			}
+			userID, _ := m["user_id"].(string)
+			reason, _ := m["reason"].(string)
+			got = append(got, event{name, userID, reason})
+		}
+	}
+	id := alice.Id.String()
+	want := []event{
+		{"auth.sign_up", id, ""},
+		{"auth.sign_in_failed", id, "invalid_credentials"},
+		{"auth.sign_in_failed", "", "unknown_account"},
+		{"auth.sign_in", id, ""},
+		{"authz.denied", id, ""},
+		{"auth.sign_out", id, ""},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("events = %+v\nwant %+v", got, want)
 	}
 }
