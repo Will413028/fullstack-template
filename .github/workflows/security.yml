@@ -8,6 +8,16 @@ on:
   # new advisories land without any commit here, so main is rescanned weekly
   schedule:
     - cron: "0 3 * * 1"
+  # Other repositories run the same checks by calling this workflow at a pinned commit:
+  #   uses: Will413028/fullstack-template/.github/workflows/security.yml@<sha> # <tag>
+  # A caller's scheduled run gets only the vulnerability scan, as here. Projects made from this template keep their
+  # own copy of this file instead of calling it.
+  workflow_call:
+    inputs:
+      osv-scan-args:
+        description: Arguments for osv-scanner scan source, e.g. "-L backend/uv.lock -L web/pnpm-lock.yaml"
+        type: string
+        default: --recursive ./
 
 permissions:
   contents: read
@@ -58,4 +68,4 @@ jobs:
           persist-credentials: false
       - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
         with:
-          scan-args: --recursive ./
+          scan-args: ${{ inputs.osv-scan-args || '--recursive ./' }}
