@@ -35,10 +35,10 @@ jobs:
           cache-dependency-path: |
             backend/go.sum
             backend/tools/go.sum
-      # squawk runs through npx
+      # squawk installs from backend/tools/package-lock.json with npm
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: 26
       # Atlas standard build (checksum-verified) for migration generation and drift checks
       - run: make tools
       - name: make check
@@ -156,12 +156,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Node.js 24 and the pnpm version in package.json's packageManager, then pnpm install --frozen-lockfile with the
+      # Node.js 26 and the pnpm version in package.json's packageManager, then pnpm install --frozen-lockfile with the
       # store cached. pnpm/setup succeeds pnpm/action-setup for pnpm 11 and newer.
       - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
         with:
           working-directory: frontend
-          runtime: node@24
+          runtime: node@26
           cache: true
           require-lockfile: true
       - name: Check git hooks were installed
