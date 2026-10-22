@@ -17,7 +17,10 @@ func lookup(m map[string]string) func(string) (string, bool) {
 }
 
 func baseEnv() map[string]string {
-	return map[string]string{"DATABASE_URL": "postgres://app@db:5432/app?sslmode=disable", "DATABASE_PASSWORD": "pw"}
+	return map[string]string{
+		"DATABASE_URL": "postgres://app@db:5432/app?sslmode=disable", "DATABASE_PASSWORD": "pw",
+		"DATABASE_PLAINTEXT": "same-host",
+	}
 }
 
 func TestConfigDefaults(t *testing.T) {
@@ -190,6 +193,7 @@ func TestConfigRejectsPasswordInDatabaseURL(t *testing.T) {
 func TestLoadMigrate(t *testing.T) {
 	env := map[string]string{
 		"MIGRATE_DATABASE_URL":           "postgres://owner@db:5432/app?sslmode=disable",
+		"DATABASE_PLAINTEXT":             "same-host",
 		"MIGRATE_DATABASE_PASSWORD_FILE": writeSecret(t, "ownerpw\n"),
 		"DB_APP_USER":                    "app",
 	}
@@ -232,4 +236,45 @@ func TestLoadSeed(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A database connection verifies the server's certificate unless DATABASE_PLAINTEXT=same-host declares that the
+// traffic stays on this host; a derived project pointed at a remote database cannot forget TLS.
+func TestDatabaseURLRequiresVerifiedTLS(t *testing.T) {
+	for _, tc := range []struct {
+		url, plaintext string
+		ok             bool
+	}{
+		{"postgres://app@db.example.com:5432/app?sslmode=verify-full", "", true},
+		{"postgres://app@db:5432/app?sslmode=disable", "same-host", true},
+		{"postgres://app@db:5432/app?sslmode=disable", "", false},
+		{"postgres://app@db.example.com:5432/app?sslmode=require", "", false},
+		{"postgres://app@db.example.com:5432/app", "", false},
+		{"postgres://app@db:5432/app?sslmode=disable", "yes", false},
+	} {
+		for _, key := range []string{"DATABASE_URL", "MIGRATE_DATABASE_URL"} {
+			err := loadWithURL(key, tc.url, tc.plaintext)
+			if tc.ok && err != nil {
+				t.Errorf("%s=%s DATABASE_PLAINTEXT=%q: %v", key, tc.url, tc.plaintext, err)
+			}
+			if !tc.ok && (err == nil || !strings.Contains(err.Error(), "sslmode=verify-full")) {
+				t.Errorf("%s=%s DATABASE_PLAINTEXT=%q: err = %v, want the TLS requirement", key, tc.url, tc.plaintext, err)
+			}
+		}
+	}
+}
+
+// loadWithURL loads serve's settings (DATABASE_URL) or migrate's (MIGRATE_DATABASE_URL) with url and, unless empty,
+// DATABASE_PLAINTEXT.
+func loadWithURL(key, url, plaintext string) error {
+	env := map[string]string{key: url, "DATABASE_PASSWORD": "pw", "MIGRATE_DATABASE_PASSWORD": "pw", "DB_APP_USER": "app"}
+	if plaintext != "" {
+		env["DATABASE_PLAINTEXT"] = plaintext
+	}
+	if key == "DATABASE_URL" {
+		_, err := Load(lookup(env))
+		return err
+	}
+	_, err := LoadMigrate(lookup(env))
+	return err
 }

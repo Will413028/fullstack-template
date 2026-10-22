@@ -206,6 +206,16 @@ func (e *env) databaseURL(key string) string {
 		e.fail("%s must not contain a password; set it in the matching _PASSWORD or _PASSWORD_FILE variable", key)
 		return ""
 	}
+	// The connection verifies the server's certificate (PostgreSQL's verify-full protects against eavesdropping
+	// and a man in the middle) unless DATABASE_PLAINTEXT=same-host declares that the traffic never leaves this host,
+	// as on the compose network or with a local database.
+	if u.Query().Get("sslmode") != "verify-full" {
+		if v, _ := e.get("DATABASE_PLAINTEXT"); v != "same-host" {
+			e.fail("%s must use sslmode=verify-full; set DATABASE_PLAINTEXT=same-host only when the database runs on "+
+				"this host", key)
+			return ""
+		}
+	}
 	return raw
 }
 
