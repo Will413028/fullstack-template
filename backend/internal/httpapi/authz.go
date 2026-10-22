@@ -58,6 +58,8 @@ var operationAccess = map[string]access{
 	"ListUsers":            accessAdmin,
 	"PatchUser":            accessAdmin,
 	"DeleteUser":           accessAdmin,
+	"GetSignInLock":        accessAdmin,
+	"DeleteSignInLock":     accessAdmin,
 }
 
 // adminOperations checks table against the generated interface and the contract, and returns the operations that

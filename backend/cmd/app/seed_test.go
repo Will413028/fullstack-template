@@ -59,7 +59,7 @@ func TestSeedAdminCreatesAdmin(t *testing.T) {
 	if !strings.Contains(out.String(), `"root" created`) {
 		t.Errorf("output %q", out.String())
 	}
-	if _, _, err := svc.SignIn(t.Context(), "root", adminPassword, ""); err != nil {
+	if _, _, err := svc.SignIn(t.Context(), "root", adminPassword, "", auth.Client{Address: "192.0.2.1"}); err != nil {
 		t.Errorf("sign in as the seeded admin: %v", err)
 	}
 }
@@ -124,7 +124,7 @@ func TestRecoverAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(t.Context(),
-		`INSERT INTO login_throttles (account_key, failures, next_allowed_at, updated_at) VALUES ('root', 9, now() + interval '1 hour', now())`); err != nil {
+		`INSERT INTO sign_in_throttles (account_key, client_key, failures, next_allowed_at, updated_at) VALUES ('root', '', 9, now() + interval '1 hour', now())`); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -134,7 +134,7 @@ func TestRecoverAdmin(t *testing.T) {
 	if !strings.Contains(out.String(), `"root" recovered`) {
 		t.Errorf("output %q", out.String())
 	}
-	if _, _, err := svc.SignIn(t.Context(), "root", newPassword, ""); err != nil {
+	if _, _, err := svc.SignIn(t.Context(), "root", newPassword, "", auth.Client{Address: "192.0.2.1"}); err != nil {
 		t.Fatalf("sign in with the new password: %v", err)
 	}
 	var action string

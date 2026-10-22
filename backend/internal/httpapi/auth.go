@@ -18,14 +18,24 @@ import (
 // requireSession for those, before it checks parameters and body, so an anonymous request gets 401 rather than a 422
 // about its body.
 
-// Cookie names the session cookie. Secure is false only for local http development, where the name drops the
-// __Host- prefix (it requires Secure); config.Config.CookieName decides the name.
+// Cookie names the session cookie and the device cookie (a browser trusted to sign in, auth.Device). Secure is false
+// only for local http development, where the names drop the __Host- prefix (it requires Secure);
+// config.Config.CookieName and DeviceCookieName decide them.
 type Cookie struct {
-	Name   string
-	Secure bool
+	Name       string
+	DeviceName string
+	Secure     bool
 }
 
 type sessionTokenKey struct{}
+
+type deviceTokenKey struct{}
+
+// deviceTokenFrom returns the device cookie the request carried, "" without one.
+func deviceTokenFrom(ctx context.Context) string {
+	v, _ := ctx.Value(deviceTokenKey{}).(string)
+	return v
+}
 
 type currentUserKey struct{}
 
@@ -59,12 +69,16 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		if d, err := r.Cookie(cookie.DeviceName); err == nil && d.Value != "" {
+			ctx = context.WithValue(ctx, deviceTokenKey{}, d.Value)
+		}
 		c, err := r.Cookie(cookie.Name)
 		if err != nil || c.Value == "" {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		ctx := context.WithValue(r.Context(), sessionTokenKey{}, c.Value)
+		ctx = context.WithValue(ctx, sessionTokenKey{}, c.Value)
 		u, sessionID, err := sessions.Authenticate(ctx, c.Value)
 		switch {
 		case err == nil:
@@ -98,6 +112,15 @@ func (c Cookie) set(sess auth.Session) string {
 	return (&http.Cookie{ //nolint:gosec // see above
 		Name: c.Name, Value: sess.Token, Path: "/", MaxAge: int(sess.MaxAge.Seconds()),
 		HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode,
+	}).String()
+}
+
+// device returns the Set-Cookie value for a newly trusted browser: like the session cookie, but SameSite=Strict, since
+// only a same-site sign-in reads it, and Max-Age the device's lifetime.
+func (c Cookie) device(d *auth.Device) string {
+	return (&http.Cookie{ //nolint:gosec // as in set
+		Name: c.DeviceName, Value: d.Token, Path: "/", MaxAge: int(d.MaxAge.Seconds()),
+		HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteStrictMode,
 	}).String()
 }
 

@@ -126,14 +126,14 @@ func sleep(ms int) { time.Sleep(time.Duration(ms) * time.Millisecond) }
 func TestLoginThrottleSchedule(t *testing.T) {
 	svc, clock, _ := newTestService(t)
 	for n := 1; n <= 12; n++ {
-		if _, _, err := svc.SignIn(t.Context(), "nobody", "wrong password", ""); !isCode(err, CodeInvalidCredentials) {
+		if _, _, err := svc.SignIn(t.Context(), "nobody", "wrong password", "", client); !isCode(err, CodeInvalidCredentials) {
 			t.Fatalf("attempt %d: err = %v, want invalid credentials", n, err)
 		}
 		if n < 5 {
 			continue
 		}
 		want := min(time.Duration(1<<(n-5))*time.Minute, time.Hour)
-		_, _, err := svc.SignIn(t.Context(), "nobody", "wrong password", "")
+		_, _, err := svc.SignIn(t.Context(), "nobody", "wrong password", "", client)
 		e, ok := apperr.As(err)
 		if !ok || e.Code != CodeLoginThrottled || e.RetryAfter != want {
 			t.Fatalf("after %d failures: err = %v, want a %s wait", n, err, want)
@@ -147,28 +147,44 @@ func isCode(err error, code string) bool {
 	return ok && e.Code == code
 }
 
+// client is where the service tests sign in from.
+var client = Client{Address: "192.0.2.1"}
+
 func TestCleanup(t *testing.T) {
 	svc, clock, pool := newTestService(t)
 	ctx := t.Context()
 	if _, _, err := svc.CreateUser(ctx, "idle", "a long enough password"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _ = svc.SignIn(ctx, "ghost", "wrong password", "")
+	_, _, _ = svc.SignIn(ctx, "ghost", "wrong password", "", client)
 	clock.Advance(25 * time.Hour)
 	if _, _, err := svc.CreateUser(ctx, "fresh", "a long enough password"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, _ = svc.SignIn(ctx, "ghost2", "wrong password", "")
-	sessions, throttles, err := svc.Cleanup(ctx)
+	_, _, _ = svc.SignIn(ctx, "ghost2", "wrong password", "", client)
+	n, err := svc.Cleanup(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sessions != 1 || throttles != 1 {
-		t.Errorf("deleted %d sessions and %d throttles, want 1 and 1 (the idle ones)", sessions, throttles)
+	// a failed sign-in keeps two rows: its client's and the account-wide count
+	if n.Sessions != 1 || n.Throttles != 2 {
+		t.Errorf("deleted %d sessions and %d throttles, want 1 and 2 (the idle ones)", n.Sessions, n.Throttles)
 	}
 	var left int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sessions`).Scan(&left); err != nil || left != 1 {
 		t.Errorf("sessions left = %d (%v), want 1", left, err)
+	}
+	// a trusted device lasts 180 days
+	if _, _, err := svc.SignIn(ctx, "fresh", "a long enough password", "", client); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(179 * 24 * time.Hour)
+	if n, err := svc.Cleanup(ctx); err != nil || n.Devices != 0 {
+		t.Errorf("after 179 days: deleted %d devices (%v), want 0", n.Devices, err)
+	}
+	clock.Advance(2 * 24 * time.Hour)
+	if n, err := svc.Cleanup(ctx); err != nil || n.Devices != 1 {
+		t.Errorf("after 181 days: deleted %d devices (%v), want 1", n.Devices, err)
 	}
 }
 

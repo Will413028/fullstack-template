@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/google/uuid"
 
@@ -82,15 +83,58 @@ func (s *apiServer) PatchUser(ctx context.Context, req gen.PatchUserRequestObjec
 }
 
 func (s *apiServer) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
-	u, sess, err := s.auth.SignIn(ctx, req.Body.Account, req.Body.Password, sessionTokenFrom(ctx))
+	client := auth.Client{Address: limitKey(clientIPFrom(ctx)).String(), DeviceToken: deviceTokenFrom(ctx)}
+	u, sess, err := s.auth.SignIn(ctx, req.Body.Account, req.Body.Password, sessionTokenFrom(ctx), client)
 	if err != nil {
 		return nil, err
 	}
 	location, cookie := "/api/sessions/"+sess.ID.String(), s.cookie.set(sess)
-	return gen.CreateSession201JSONResponse{
+	resp := gen.CreateSession201JSONResponse{
 		Body:    toSession(sess.SessionInfo, u, sess.ID),
 		Headers: gen.CreateSession201ResponseHeaders{Location: &location, SetCookie: &cookie},
-	}, nil
+	}
+	if sess.Device == nil {
+		return resp, nil
+	}
+	return withDeviceCookie{resp, s.cookie.device(sess.Device)}, nil
+}
+
+// withDeviceCookie is a 201 that also sets the device cookie. The generated response sets its one Set-Cookie with
+// Header().Set, so the device cookie is added after that, just before the status is written.
+type withDeviceCookie struct {
+	gen.CreateSession201JSONResponse
+	cookie string
+}
+
+func (r withDeviceCookie) VisitCreateSessionResponse(w http.ResponseWriter) error {
+	return r.CreateSession201JSONResponse.VisitCreateSessionResponse(addCookieOnWrite{ResponseWriter: w, cookie: r.cookie})
+}
+
+type addCookieOnWrite struct {
+	http.ResponseWriter
+	cookie string
+}
+
+func (w addCookieOnWrite) WriteHeader(code int) {
+	w.Header().Add("Set-Cookie", w.cookie)
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// GetSignInLock is admin-only (requireRole).
+func (s *apiServer) GetSignInLock(ctx context.Context, req gen.GetSignInLockRequestObject) (gen.GetSignInLockResponseObject, error) {
+	lock, err := s.auth.SignInLock(ctx, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetSignInLock200JSONResponse{Locked: lock.Locked, Failures: lock.Failures}, nil
+}
+
+// DeleteSignInLock is admin-only (requireRole).
+func (s *apiServer) DeleteSignInLock(ctx context.Context, req gen.DeleteSignInLockRequestObject) (gen.DeleteSignInLockResponseObject, error) {
+	if err := s.auth.UnlockSignIn(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return gen.DeleteSignInLock204Response{}, nil
 }
 
 func (s *apiServer) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSessionRequestObject) (gen.DeleteCurrentSessionResponseObject, error) {

@@ -84,6 +84,29 @@ export interface paths {
         patch: operations["patchUser"];
         trace?: never;
     };
+    "/users/{id}/sign-in-lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Whether the user's account refuses sign-ins from unknown clients (admin only). */
+        get: operations["getSignInLock"];
+        put?: never;
+        post?: never;
+        /**
+         * Unlock the user's sign-in (admin only).
+         * @description Forgets every failed sign-in counted for the account, from all clients.
+         */
+        delete: operations["deleteSignInLock"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions": {
         parameters: {
             query?: never;
@@ -101,8 +124,11 @@ export interface paths {
         /**
          * Sign in.
          * @description Always issues a new session and ends the one the request carried, if any. A wrong password, an unknown
-         *     account and a disabled account get the same 401. After repeated failures the account name waits before the
-         *     next attempt (429), whether or not the account exists.
+         *     account and a disabled account get the same 401. Throttling (429), whether or not the account exists: each
+         *     client (address, or a browser that signed in to the account before) waits after 5 failures in a row, and
+         *     after 100 failures from clients the account does not know, only such browsers may try until a sign-in
+         *     succeeds or an admin unlocks it. A sign-in from a browser that has no device cookie for the account also sets
+         *     one (a second Set-Cookie, `__Host-device`, HttpOnly, SameSite=Strict, 180 days).
          */
         post: operations["createSession"];
         /**
@@ -270,6 +296,15 @@ export interface components {
             /** @description Case-insensitive. */
             account: string;
             password: string;
+        };
+        SignInLock: {
+            /** @description Sign-ins from clients without a device cookie for the account are refused. */
+            locked: boolean;
+            /**
+             * Format: int64
+             * @description Failed sign-ins from such clients since the last successful one; the lock starts at 100.
+             */
+            failures: number;
         };
         UserPatch: {
             is_disabled?: boolean;
@@ -647,6 +682,58 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getSignInLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lock state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInLock"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteSignInLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlocked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
             500: components["responses"]["InternalError"];
         };

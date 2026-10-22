@@ -157,6 +157,15 @@ type SessionPage struct {
 	Sessions   []Session                 `json:"sessions"`
 }
 
+// SignInLock defines model for SignInLock.
+type SignInLock struct {
+	// Failures Failed sign-ins from such clients since the last successful one; the lock starts at 100.
+	Failures int64 `json:"failures"`
+
+	// Locked Sign-ins from clients without a device cookie for the account are refused.
+	Locked bool `json:"locked"`
+}
+
 // User defines model for User.
 type User struct {
 	// Account Lowercase; accounts are unique regardless of case.
@@ -346,6 +355,12 @@ type ServerInterface interface {
 	// PatchUser Change a user (admin only).
 	// (PATCH /users/{id})
 	PatchUser(w http.ResponseWriter, r *http.Request, id Id)
+	// DeleteSignInLock Unlock the user's sign-in (admin only).
+	// (DELETE /users/{id}/sign-in-lock)
+	DeleteSignInLock(w http.ResponseWriter, r *http.Request, id Id)
+	// GetSignInLock Whether the user's account refuses sign-ins from unknown clients (admin only).
+	// (GET /users/{id}/sign-in-lock)
+	GetSignInLock(w http.ResponseWriter, r *http.Request, id Id)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -815,6 +830,58 @@ func (siw *ServerInterfaceWrapper) PatchUser(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteSignInLock operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSignInLock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSignInLock(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSignInLock operation middleware
+func (siw *ServerInterfaceWrapper) GetSignInLock(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSignInLock(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -942,6 +1009,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{id}", wrapper.DeleteUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{id}", wrapper.GetUser)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/users/{id}", wrapper.PatchUser)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/users/{id}/sign-in-lock", wrapper.DeleteSignInLock)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/users/{id}/sign-in-lock", wrapper.GetSignInLock)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/sessions", wrapper.DeleteAllSessions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions", wrapper.ListSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions", wrapper.CreateSession)
@@ -2896,6 +2965,204 @@ func (response PatchUser500ApplicationProblemPlusJSONResponse) VisitPatchUserRes
 	return err
 }
 
+type DeleteSignInLockRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type DeleteSignInLockResponseObject interface {
+	VisitDeleteSignInLockResponse(w http.ResponseWriter) error
+}
+
+type DeleteSignInLock204Response struct {
+}
+
+func (response DeleteSignInLock204Response) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSignInLock401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteSignInLock401ApplicationProblemPlusJSONResponse) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSignInLock403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteSignInLock403ApplicationProblemPlusJSONResponse) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSignInLock404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteSignInLock404ApplicationProblemPlusJSONResponse) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSignInLock422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteSignInLock422ApplicationProblemPlusJSONResponse) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSignInLock500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteSignInLock500ApplicationProblemPlusJSONResponse) VisitDeleteSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLockRequestObject struct {
+	Id Id `json:"id"`
+}
+
+type GetSignInLockResponseObject interface {
+	VisitGetSignInLockResponse(w http.ResponseWriter) error
+}
+
+type GetSignInLock200JSONResponse SignInLock
+
+func (response GetSignInLock200JSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLock401ApplicationProblemPlusJSONResponse struct {
+	UnauthenticatedApplicationProblemPlusJSONResponse
+}
+
+func (response GetSignInLock401ApplicationProblemPlusJSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLock403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetSignInLock403ApplicationProblemPlusJSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLock404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetSignInLock404ApplicationProblemPlusJSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLock422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetSignInLock422ApplicationProblemPlusJSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSignInLock500ApplicationProblemPlusJSONResponse struct {
+	InternalErrorApplicationProblemPlusJSONResponse
+}
+
+func (response GetSignInLock500ApplicationProblemPlusJSONResponse) VisitGetSignInLockResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListItems The signed-in user's items, newest first.
@@ -2955,6 +3222,12 @@ type StrictServerInterface interface {
 	// PatchUser Change a user (admin only).
 	// (PATCH /users/{id})
 	PatchUser(ctx context.Context, request PatchUserRequestObject) (PatchUserResponseObject, error)
+	// DeleteSignInLock Unlock the user's sign-in (admin only).
+	// (DELETE /users/{id}/sign-in-lock)
+	DeleteSignInLock(ctx context.Context, request DeleteSignInLockRequestObject) (DeleteSignInLockResponseObject, error)
+	// GetSignInLock Whether the user's account refuses sign-ins from unknown clients (admin only).
+	// (GET /users/{id}/sign-in-lock)
+	GetSignInLock(ctx context.Context, request GetSignInLockRequestObject) (GetSignInLockResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -3502,6 +3775,58 @@ func (sh *strictHandler) PatchUser(w http.ResponseWriter, r *http.Request, id Id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PatchUserResponseObject); ok {
 		if err := validResponse.VisitPatchUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSignInLock operation middleware
+func (sh *strictHandler) DeleteSignInLock(w http.ResponseWriter, r *http.Request, id Id) {
+	var request DeleteSignInLockRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSignInLock(ctx, request.(DeleteSignInLockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSignInLock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSignInLockResponseObject); ok {
+		if err := validResponse.VisitDeleteSignInLockResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSignInLock operation middleware
+func (sh *strictHandler) GetSignInLock(w http.ResponseWriter, r *http.Request, id Id) {
+	var request GetSignInLockRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSignInLock(ctx, request.(GetSignInLockRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSignInLock")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSignInLockResponseObject); ok {
+		if err := validResponse.VisitGetSignInLockResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

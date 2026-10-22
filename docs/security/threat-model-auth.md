@@ -14,7 +14,7 @@
 | 密碼雜湊 | `users.password_hash`，argon2id PHC 字串（`auth/password.go`） |
 | Session token | cookie 裡的 32 個隨機 byte；資料庫只存它的 SHA-256（`sessions.token_hash`，`auth/sessions.go`） |
 | 角色 | `users.role`，`admin` 或 `user`；admin 只能由 `app seed-admin` 建立（`backend/cmd/app/seed.go`） |
-| 節流狀態 | `login_throttles`（`auth/schema.sql`） |
+| 節流狀態 | `sign_in_throttles`（`auth/schema.sql`） |
 
 **信任邊界**
 
@@ -42,7 +42,7 @@
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 對單一帳號線上猜密碼 | 以小寫帳號名為鍵的帳號節流，在比對密碼之前計數；第 5 次失敗起等待時間加倍，上限 1 小時（`auth/queries/login_throttles.sql`、`auth/sessions.go`）。測試：`TestLoginThrottlePerAccount`、`TestLoginThrottleConcurrent`、`TestLoginThrottleSchedule` | 已緩解 |
+| 對單一帳號線上猜密碼 | 每個「帳號＋來源」（位址，IPv6 以 /64；或信任的裝置）各自節流，在比對密碼之前計數，第 5 次失敗起等待時間加倍、上限 1 小時；沒有該帳號裝置 cookie 的來源另外合計，連續失敗 100 次（NIST SP 800-63B 3.2.2）起全部拒絕，直到登入成功、admin 解鎖或 24 小時沒有嘗試（`auth/devices.go`、`auth/queries/sign_in_throttles.sql`）。測試：`TestSignInThrottlePerClient`、`TestUntrustedClientsLockedTrustedDeviceNot`、`TestLoginThrottlePerAccount`、`TestLoginThrottleConcurrent`、`TestLoginThrottleSchedule` | 已緩解 |
 | 從同一位址對多個帳號噴灑密碼 | `CreateUser`、`CreateSession` 的每 IP token bucket，預設每分鐘 5 次，IPv6 以 /64 為鍵（`httpapi/ratelimit.go`）。測試：`TestRateLimitAuthOperations`、`TestIPLimiterKeysIPv6By64` | 單一副本內已緩解；見「已接受的風險」 |
 | 弱密碼或外洩過的密碼 | 15 到 128 字元（契約）、NFKC 正規化、內建常見密碼清單、可選的 HIBP 檢查（`auth/auth.go`、`auth/password.go`）。測試：`TestCreateUserPasswordTooShort`、`TestCreateUserCommonPassword`、`TestCreateUserBreachedPassword`、`TestPasswordNormalized` | 已緩解。HIBP 預設關閉，查詢失敗時放行：接受，外部服務故障不該擋住註冊 |
 | 猜 session token | `crypto/rand` 產生的 256-bit token（`auth/sessions.go`）。測試：`TestCreateUserSetsSessionCookie` | 已緩解 |
@@ -93,8 +93,8 @@
 |---|---|---|
 | 大量雜湊耗盡記憶體或 CPU | 同時最多 `runtime.NumCPU()` 個 argon2id 雜湊，等待者隨 context 結束（`auth/password.go`）。測試：`TestArgonConcurrencyBounded` | 已緩解 |
 | 過大或過慢的請求 | body 上限 1 MiB；header、讀、寫逾時（`httpapi/server.go`）。測試：`TestBodyTooLarge`、`TestSlowHeaderClosed` | 已緩解 |
-| 故意登入失敗把受害者鎖在門外 | 帳號節流也會擋住真正的擁有者，最長 1 小時；攻擊者只受每 IP 限流約束 | Open：帳號節流的取捨，ADR 沒討論 |
-| 用亂數帳號名塞滿 `login_throttles` | 不存在的帳號名也會建立紀錄；每 IP 限流限制速率，閒置 24 小時的紀錄每小時清掉。測試：`TestCleanup` | 單一副本內已緩解 |
+| 故意登入失敗把受害者鎖在門外 | 節流以「帳號＋來源」為單位，攻擊者的失敗只讓自己的來源等待；帳號層級的鎖只擋沒有該帳號裝置 cookie 的來源，本人曾登入過的瀏覽器照常登入（OWASP「Slow Down Online Guessing Attacks with Device Cookies」）；admin 可查看與解鎖（`GET`／`DELETE /api/users/{id}/sign-in-lock`，寫入稽核）。全部登出、停用、救援時忘掉該帳號的裝置。測試：`TestUntrustedClientsLockedTrustedDeviceNot`、`TestDeviceCookieIsPerAccount`、`TestSignOutEverywhereForgetsDevices`、`TestAdminUnlocksSignIn` | 已緩解。本人在新裝置上仍可能被鎖，要等 admin 解鎖；加了 email 之後改成鎖定期間可用重設密碼解鎖（ADR api-and-auth D6 的重新評估條件） |
+| 用亂數帳號名塞滿 `sign_in_throttles` | 不存在的帳號名也會建立紀錄（每次嘗試最多兩列：來源一列、帳號合計一列）；每 IP 限流限制速率，閒置 24 小時的紀錄每小時清掉。測試：`TestCleanup` | 單一副本內已緩解 |
 | Admin 停用最後一個 admin，包括自己 | 停用時先鎖住所有啟用中的 admin，目標是唯一一個就回 409 `last_admin`（`auth.ErrLastAdmin`）；兩個 admin 同時互相停用只會成功一個。所有 admin 都登不進來時，`make recover-admin` 在主機上替既有的 admin 設新密碼、啟用並清掉節流。測試：`TestLastAdminCannotBeDisabled`、`TestConcurrentAdminDisableLeavesOne`、`TestRecoverAdmin` | 已緩解 |
 | 其他 operation 不限次數 | 每 IP 限流只涵蓋 `CreateUser`、`CreateSession`；其他 operation 都要登入 | 範本接受；衍生專案依需要加進清單（`docs/rules/api-design.md` 限流） |
 
