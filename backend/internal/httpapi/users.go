@@ -174,3 +174,20 @@ func (s *apiServer) DeleteSession(ctx context.Context, req gen.DeleteSessionRequ
 	}
 	return resp, nil
 }
+
+// DeleteCurrentUser deletes the caller's account; the service requires a recent sign-in.
+func (s *apiServer) DeleteCurrentUser(ctx context.Context, _ gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
+	if err := s.auth.DeleteOwnAccount(ctx, currentSessionID(ctx)); err != nil {
+		return nil, err
+	}
+	cookie := s.cookie.clear()
+	return gen.DeleteCurrentUser204Response{Headers: gen.DeleteCurrentUser204ResponseHeaders{SetCookie: &cookie}}, nil
+}
+
+// DeleteUser is admin-only (requireRole).
+func (s *apiServer) DeleteUser(ctx context.Context, req gen.DeleteUserRequestObject) (gen.DeleteUserResponseObject, error) {
+	if err := s.auth.DeleteUser(ctx, req.Id); err != nil {
+		return nil, err
+	}
+	return gen.DeleteUser204Response{}, nil
+}

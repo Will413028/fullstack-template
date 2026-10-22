@@ -45,6 +45,12 @@ SET password_hash = @password_hash, is_disabled = false, updated_at = now()
 WHERE account = @account AND role = 'admin'
 RETURNING id;
 
+-- DeleteUser deletes the account; sessions and every module's rows that reference it go with it (ON DELETE CASCADE,
+-- docs/rules/database-design.md).
+-- name: DeleteUser :execrows
+DELETE FROM users
+WHERE id = @id;
+
 -- name: SetUserDisabled :one
 UPDATE users
 SET is_disabled = @is_disabled, updated_at = now()

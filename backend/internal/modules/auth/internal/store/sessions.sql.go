@@ -110,6 +110,25 @@ func (q *Queries) GetSession(ctx context.Context, tokenHash []byte) (GetSessionR
 	return i, err
 }
 
+const getSessionCreatedAt = `-- name: GetSessionCreatedAt :one
+SELECT created_at
+FROM sessions
+WHERE id = $1 AND user_id = $2
+`
+
+type GetSessionCreatedAtParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+}
+
+// GetSessionCreatedAt is when the user's session was issued, that is when they last signed in with it.
+func (q *Queries) GetSessionCreatedAt(ctx context.Context, arg GetSessionCreatedAtParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, getSessionCreatedAt, arg.ID, arg.UserID)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const getUserSession = `-- name: GetUserSession :one
 SELECT id, created_at, last_used_at, expires_at
 FROM sessions

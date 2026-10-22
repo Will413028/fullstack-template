@@ -94,6 +94,28 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "500":
           $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteCurrentUser
+      summary: Delete the signed-in user's account.
+      description: |
+        Deletes the account and everything it owns, ends all its sessions and clears the cookie. The session must
+        have signed in within the last 10 minutes: sign in again (POST /sessions) first, or the answer is 403
+        `reauthentication_required`. The only enabled admin cannot delete itself (409 `last_admin`).
+      tags: [auth]
+      responses:
+        "204":
+          description: Deleted.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/ClearSessionCookie"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /users/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -153,6 +175,28 @@ paths:
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteUser
+      summary: Delete a user (admin only).
+      description: |
+        Deletes the account and everything it owns and ends all its sessions. The only enabled admin cannot be
+        deleted (409 `last_admin`).
+      tags: [auth]
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/ValidationFailed"
         "500":
@@ -704,6 +748,7 @@ components:
             - invalid_credentials
             - login_throttled
             - last_admin
+            - reauthentication_required
             - session_invalid
             - insufficient_role
             - cross_origin_request

@@ -16,7 +16,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 
 ## Constraints
 
-- The schema comes only from Atlas: edit the module's `schema.sql` and generate the migration with `make generate-migration MSG=<name>`; never hand-write DDL (a pure data backfill with `atlas migrate new` is the one exception). A migration merged into `main` never changes; add a new one.
+- The schema comes only from Atlas: edit the module's `schema.sql` and generate the migration with `make generate-migration MSG=<name>`; never hand-write DDL, except a pure data backfill or lock-free steps replacing a generated change squawk flags (`docs/rules/database-design.md`; `make drift` must pass). A migration merged into `main` never changes; add a new one.
 - `make down-v` deletes the Postgres volume and all local data.
 - Never commit `.env` or `.secrets/`; add new variables to `.env-example`.
 - Agents do not add or upgrade dependencies on their own: list each package and version, confirm the package exists and was not registered recently (deps.dev shows publish dates), and wait for approval before installing.

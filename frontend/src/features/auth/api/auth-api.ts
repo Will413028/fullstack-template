@@ -24,4 +24,12 @@ export const authApi = {
   getMe(): Promise<User> {
     return unwrap(api.GET("/users/me"));
   },
+
+  // Deleting the account needs a sign-in from the last few minutes
+  // (reauthentication_required otherwise), so it signs in with the password
+  // first; the new session is the one the delete then ends.
+  async deleteAccount(credentials: Credentials): Promise<void> {
+    await unwrap(api.POST("/sessions", { body: credentials }));
+    await unwrap(api.DELETE("/users/me"));
+  },
 };

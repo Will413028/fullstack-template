@@ -39,7 +39,13 @@ export interface paths {
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete the signed-in user's account.
+         * @description Deletes the account and everything it owns, ends all its sessions and clears the cookie. The session must
+         *     have signed in within the last 10 minutes: sign in again (POST /sessions) first, or the answer is 403
+         *     `reauthentication_required`. The only enabled admin cannot delete itself (409 `last_admin`).
+         */
+        delete: operations["deleteCurrentUser"];
         options?: never;
         head?: never;
         patch?: never;
@@ -62,7 +68,12 @@ export interface paths {
         get: operations["getUser"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a user (admin only).
+         * @description Deletes the account and everything it owns and ends all its sessions. The only enabled admin cannot be
+         *     deleted (409 `last_admin`).
+         */
+        delete: operations["deleteUser"];
         options?: never;
         head?: never;
         /**
@@ -305,7 +316,7 @@ export interface components {
             /** @description Human-readable explanation for developers; clients must not parse it. */
             detail?: string;
             /** @description Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest. */
-            code?: "account_taken" | "invalid_credentials" | "login_throttled" | "last_admin" | "session_invalid" | "insufficient_role" | "cross_origin_request";
+            code?: "account_taken" | "invalid_credentials" | "login_throttled" | "last_admin" | "reauthentication_required" | "session_invalid" | "insufficient_role" | "cross_origin_request";
             /** @description The request's `X-Request-ID`, for matching a report with the server logs. */
             request_id?: string;
         };
@@ -530,6 +541,29 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    deleteCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    "Set-Cookie": components["headers"]["ClearSessionCookie"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getUser: {
         parameters: {
             query?: never;
@@ -552,6 +586,32 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationFailed"];
             500: components["responses"]["InternalError"];
         };

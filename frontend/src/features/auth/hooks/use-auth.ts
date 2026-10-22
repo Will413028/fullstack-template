@@ -34,6 +34,18 @@ export function useRegister() {
   });
 }
 
+export function useDeleteAccount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (credentials: Credentials) =>
+      authApi.deleteAccount(credentials),
+    onSuccess: () => {
+      queryClient.clear();
+    },
+  });
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
 

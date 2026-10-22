@@ -43,6 +43,7 @@ var operationAccess = map[string]access{
 	"DeleteCurrentSession": accessPublic,
 	"GetCurrentUser":       accessUser,
 	"GetUser":              accessUser,
+	"DeleteCurrentUser":    accessUser,
 	"ListSessions":         accessUser,
 	"DeleteAllSessions":    accessUser,
 	"GetCurrentSession":    accessUser,
@@ -55,6 +56,7 @@ var operationAccess = map[string]access{
 	"DeleteItem":           accessUser,
 	"ListUsers":            accessAdmin,
 	"PatchUser":            accessAdmin,
+	"DeleteUser":           accessAdmin,
 }
 
 // adminOperations checks table against the generated interface and the contract, and returns the operations that

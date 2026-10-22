@@ -61,6 +61,7 @@
       "invalid_credentials": "Incorrect account or password.",
       "login_throttled": "Too many failed sign-ins for this account. Please wait and try again.",
       "last_admin": "The only enabled admin cannot be disabled or deleted.",
+      "reauthentication_required": "For your security, enter your password again to continue.",
       "session_invalid": "Your session has ended. Please sign in again.",
       "insufficient_role": "Your account is not allowed to do this.",
       "cross_origin_request": "The request came from another site and was blocked."
@@ -79,5 +80,12 @@
       "invalid": "Invalid.",
       "password_too_common": "This password is too common or has appeared in a data breach. Choose another."
     }
+  },
+  "settings": {
+    "title": "Settings",
+    "deleteTitle": "Delete account",
+    "deleteDescription": "Deletes your account and everything in it, and signs you out on every device. This cannot be undone.",
+    "deletePassword": "Enter your password to confirm",
+    "deleteConfirm": "Delete my account"
   }
 }

@@ -9,7 +9,7 @@ const intlMiddleware = createMiddleware(routing);
 // "en" locale prefix.
 const localePrefix = new RegExp(`^/(${routing.locales.join("|")})(?=/|$)`);
 
-const protectedPaths = ["/overview"];
+const protectedPaths = ["/overview", "/settings"];
 
 // The backend names the cookie __Host-session, or session when it runs with
 // COOKIE_SECURE=false for local http (the __Host- prefix requires Secure).

@@ -43,6 +43,8 @@ const (
 	CodeInvalidCredentials = "invalid_credentials"
 	CodeLoginThrottled     = "login_throttled"
 	CodeLastAdmin          = "last_admin"
+	// CodeReauthenticationRequired asks the client to sign in again before a sensitive operation.
+	CodeReauthenticationRequired = "reauthentication_required"
 )
 
 // User is an account as the API shows it.
@@ -349,4 +351,56 @@ func (s *Service) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) 
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// ReauthenticateWithin is how recently the session must have signed in for an operation that cannot be undone, such
+// as deleting the account: a stolen or forgotten session alone is not enough (OWASP ASVS 5.0 V6, re-authentication
+// before sensitive operations).
+const ReauthenticateWithin = 10 * time.Minute
+
+// ErrReauthenticationRequired asks the client to sign in again (POST /sessions) and retry.
+var ErrReauthenticationRequired = apperr.New(apperr.Forbidden, CodeReauthenticationRequired,
+	"sign in again within the last 10 minutes to do this")
+
+// DeleteOwnAccount deletes the caller's account and everything it owns. The session the request carries
+// (sessionID) must have been issued within ReauthenticateWithin, and the only enabled admin cannot delete itself.
+func (s *Service) DeleteOwnAccount(ctx context.Context, sessionID uuid.UUID) error {
+	c, err := caller(ctx)
+	if err != nil {
+		return err
+	}
+	created, err := s.q().GetSessionCreatedAt(ctx, store.GetSessionCreatedAtParams{ID: sessionID, UserID: c.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionInvalid
+	}
+	if err != nil {
+		return fmt.Errorf("auth: get session: %w", err)
+	}
+	if s.now().Sub(created) > ReauthenticateWithin {
+		return ErrReauthenticationRequired
+	}
+	return s.deleteUser(ctx, c.ID)
+}
+
+// DeleteUser deletes a user and everything it owns; admins call it (internal/httpapi requireRole). The only enabled
+// admin cannot be deleted.
+func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	return s.deleteUser(ctx, id)
+}
+
+func (s *Service) deleteUser(ctx context.Context, id uuid.UUID) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := store.New(tx)
+		if err := keepAnAdmin(ctx, q, id); err != nil {
+			return err
+		}
+		n, err := q.DeleteUser(ctx, id)
+		if err != nil {
+			return fmt.Errorf("auth: delete user: %w", err)
+		}
+		if n == 0 {
+			return errUserNotFound
+		}
+		return nil
+	})
 }

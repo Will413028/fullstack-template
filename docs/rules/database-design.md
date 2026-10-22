@@ -24,7 +24,8 @@
 
 - 欄位名是 `<被參照的表單數>_id`（`user_id → users.id`），或表達角色的 `<角色>_id`（`owner_id → users.id`）。
 - 必須明確寫 `NOT NULL` 或允許 NULL。
-- 預設**不 cascade**：刪除仍被參照的 parent 會失敗，而不是靜默刪掉 child（`items.owner_id`）。只有純附屬資料才 `ON DELETE CASCADE`（`sessions.user_id`）。
+- 指向 `users` 的 FK 必須寫明刪除行為：使用者擁有的資料 `ON DELETE CASCADE`（`sessions.user_id`、`items.owner_id`），帳號刪除時一起刪掉；比帳號活得久的參照用 `ON DELETE SET NULL`。沒寫（`NO ACTION`）或 `RESTRICT` 會讓刪除帳號失敗，`TestForeignKeysToUsersAllowDeletion` 擋下。
+- 其他 FK 預設不 cascade：刪除仍被參照的 parent 會失敗，而不是靜默刪掉 child；只有純附屬資料才 `ON DELETE CASCADE`。
 
 ### Index
 
@@ -115,7 +116,9 @@ RETURNING ...;
 - 套用：root `make migration`（compose 的 `migrate` service 執行 `app migrate`）。
 - 產生 migration 與漂移檢查用 Atlas standard 版（`make -C backend tools` 下載到 `bin/atlas`）；image 內套用用 community 版（ADR go-backend D2）。
 - `make -C backend drift` 檢查 `schema.sql` 與 `migrations/` 一致。
-- **NEVER** 手寫 DDL migration。唯一的例外是純資料的 backfill（對既有表走 expand 步驟時）：在 `backend/` 下用 `bin/atlas migrate new <name> --env dev` 建立後手寫，一樣經 squawk 與 immutable 檢查（ADR go-backend D2）。
+- **NEVER** 手寫 DDL migration。例外只有兩種，都在 `backend/` 下用 `bin/atlas migrate new <name> --env dev` 建立後手寫，一樣經 squawk、drift 與 immutable 檢查（ADR go-backend D2）：
+  - 純資料的 backfill（對既有表走 expand 步驟時）。
+  - Atlas 產生的 DDL 會被 squawk 擋下（掃表時持有阻擋寫入的鎖）時，改寫成不鎖表的步驟：先改 `schema.sql` 並產生 migration，刪掉產生的檔案（`bin/atlas migrate hash --env dev`），再手寫等價的步驟，`make drift` 證明結果與 `schema.sql` 相同。例：FK 先 `ADD CONSTRAINT … NOT VALID`，下一支 `VALIDATE CONSTRAINT`（`migrations/*_items_owner_cascade_*`）。
 
 ### 不可修改
 
@@ -127,7 +130,7 @@ RETURNING ...;
 - `make -C backend squawk` 用 squawk 檢查每支 migration 會不會長時間鎖表（設定在 `backend/.squawk.toml`）。Atlas 的 migration lint 是付費功能，所以用 squawk（ADR go-backend D2）。
 - 對既有的表建或刪索引一律 `CONCURRENTLY`：`atlas.hcl` 的 `concurrent_index` 讓 Atlas 自動產生，並在檔頭加 `-- atlas:txmode none`。
 - 對已有資料的表加帶常數 default 的 `NOT NULL` 欄位（`ADD COLUMN n bigint NOT NULL DEFAULT 0`）是安全的：PostgreSQL 11 起不重寫表，squawk 也放行。會重寫表或讓既有列違反約束的是 volatile default（例如 `DEFAULT uuidv7()`）與沒有 default 的 `NOT NULL` 欄位，squawk 會擋下。這兩種改走 expand 步驟，每一步是一支 migration：先在 `schema.sql` 加 nullable、沒有 default 的欄位並產生 migration → `atlas migrate new` 手寫 backfill（ADR go-backend Review Notes）。需要 default 時，backfill 之後再在 `schema.sql` 加上：`ALTER COLUMN … SET DEFAULT` 只影響之後的新列，不重寫表。
-- 對已有資料的表補 `NOT NULL` 目前沒有不鎖表的做法：不鎖表的寫法是 `CHECK (x IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL`，但 Atlas 從 `schema.sql` 產生不了 `NOT VALID`（v1.3.3 實測：`schema.sql` 寫了 `NOT VALID`，產生的仍是一般的 `ADD CONSTRAINT … CHECK`），而手寫 DDL 違反 ADR go-backend D2。遇到時先修訂該 ADR，再動手。
+- 對已有資料的表補 `NOT NULL` 或加 FK、CHECK：Atlas 產生不了 `NOT VALID`（v1.3.3 實測：`schema.sql` 寫了 `NOT VALID`，產生的仍是一般的 `ADD CONSTRAINT`），照上面的例外手寫不鎖表的步驟。`NOT NULL` 的步驟是 `CHECK (x IS NOT NULL) NOT VALID` → 下一支 `VALIDATE CONSTRAINT` → 再下一支 `SET NOT NULL` 並 `DROP CONSTRAINT` 那個 CHECK（PostgreSQL 12 起 `SET NOT NULL` 會用已驗證的 CHECK 跳過掃表）。
 - **NEVER** 在 migration 裡寫 `SET lock_timeout`：`app migrate` 已在連線上設定 `lock_timeout` 5s（`internal/platform/migrate`），每支檔案在自己的 transaction 裡執行。
 
 ## DB 角色與權限
@@ -189,7 +192,7 @@ err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 
 ## 禁止事項
 
-- **NEVER** 手寫 DDL migration，或修改、刪除、改名已合併進 `main` 的 migration
+- **NEVER** 手寫 DDL migration（不鎖表的改寫與 backfill 例外），或修改、刪除、改名已合併進 `main` 的 migration
 - **NEVER** 繞過 sqlc：在 Go 裡組 SQL 字串、用 ORM、手改生成碼
 - **NEVER** 在模組的查詢讀其他模組的表；**NEVER** 新增指向 `users` 以外的跨模組 FK
 - **NEVER** 用 `serial` 或 `int` 自增當主鍵；主鍵一律 `uuid DEFAULT uuidv7()`
