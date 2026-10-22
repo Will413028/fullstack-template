@@ -29,16 +29,6 @@ CREATE UNIQUE INDEX sessions_id_key ON sessions (id);
 -- A user's sessions newest first (keyset on id), and deleting them all.
 CREATE INDEX sessions_user_id_id_idx ON sessions (user_id, id DESC);
 
--- Replaced by sign_in_throttles; nothing reads or writes it any more. It stays for one release so the previous
--- backend, which still writes it with ON CONFLICT (account_key), keeps working while a deploy or a rollback runs
--- (expand and contract, docs/rules/database-design.md); the next release drops it.
-CREATE TABLE login_throttles (
-  account_key     text        PRIMARY KEY,
-  failures        bigint      NOT NULL DEFAULT 0 CHECK (failures >= 0),
-  next_allowed_at timestamptz,
-  updated_at      timestamptz NOT NULL
-);
-
 -- Sign-in throttling, keyed by the normalized account name whether or not the account exists, and by the client the
 -- attempt came from: client_key is 'ip:<address, or its /64 for IPv6>' or 'device:<trusted device id>'. Each pair
 -- has its own backoff, so one client's failures do not lock out another. The row with client_key '' counts failures

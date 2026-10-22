@@ -129,7 +129,7 @@ RETURNING ...;
 
 - 每支 migration 都要讓**上一版的 backend** 照常運作：部署是先跑 `app migrate` 再換 backend（`docs/deploy-vps.md`），這段時間跑的是舊程式；Atlas 只往前套用，回退也是舊 image 配新 schema。
 - 舊程式還在用的結構不能在同一版刪除或改形：刪或改名欄位與表、換主鍵或 `ON CONFLICT` 依賴的唯一約束、把欄位改成舊程式寫不進去的型別或約束。做法是拆成兩版（Martin Fowler「Parallel Change」、GitLab「Avoiding downtime in migrations」）：
-  - **expand**：新增新結構，新程式只用它，舊結構原封不動（例：`sign_in_throttles` 取代 `login_throttles`）。
+  - **expand**：新增新結構，新程式只用它，舊結構原封不動（例：`sign_in_throttles` 取代 `login_throttles`，舊表在下一個 PR 以 `migrations/*_drop_login_throttles.sql` 刪除）。
   - **contract**：新程式上線之後的下一版，才刪掉舊結構。範本的「一版」就是合併進 `main` 的一個 PR。
 - squawk 擋下這類變更（`ban-drop-constraint`、`ban-drop-column`、`ban-drop-table`、`renaming-*`）。只有兩種情況可以在那一行上方寫 `-- squawk-ignore <rule>`，並在上一行寫理由：contract 步驟（寫出舊程式在哪一版停止使用它），或同一個 statement 立刻補回等價的約束。ignore 的數量鎖在 `scripts/quality-locks.json`。
 

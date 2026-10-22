@@ -20,13 +20,6 @@ type AuditEvent struct {
 	RequestID *string
 }
 
-type LoginThrottle struct {
-	AccountKey    string
-	Failures      int64
-	NextAllowedAt *time.Time
-	UpdatedAt     time.Time
-}
-
 type Session struct {
 	TokenHash  []byte
 	ID         uuid.UUID
