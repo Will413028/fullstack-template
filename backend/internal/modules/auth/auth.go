@@ -1,4 +1,5 @@
-// Package auth owns accounts, sessions and login throttling: the users, sessions and login_throttles tables
+// Package auth owns accounts, sessions and sign-in throttling: the users, sessions, sign_in_throttles,
+// trusted_devices and audit_events tables
 // (schema.sql) and the queries over them (queries/, generated into internal/store by sqlc).
 //
 // Sessions are opaque (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the cookie holds 32 random bytes, the
@@ -71,6 +72,8 @@ type Session struct {
 	Token string
 	// MaxAge is the absolute lifetime, for the cookie's Max-Age.
 	MaxAge time.Duration
+	// Device is set when the sign-in trusted the browser for the first time; it goes in the device cookie.
+	Device *Device
 }
 
 // UserPage is one page of users, newest first. NextCursor is empty on the last page.
@@ -246,11 +249,11 @@ func (s *Service) RecoverAdmin(ctx context.Context, account, password string) er
 		if err != nil {
 			return fmt.Errorf("auth: recover admin: %w", err)
 		}
-		if err := q.DeleteUserSessions(ctx, id); err != nil {
-			return fmt.Errorf("auth: revoke sessions: %w", err)
+		if err := endEverywhere(ctx, q, id); err != nil {
+			return err
 		}
-		if err := q.ClearLoginThrottle(ctx, key); err != nil {
-			return fmt.Errorf("auth: clear throttle: %w", err)
+		if err := q.ClearLoginThrottles(ctx, key); err != nil {
+			return fmt.Errorf("auth: clear throttles: %w", err)
 		}
 		return s.audit(ctx, q, AuditAdminRecovered, id)
 	})
@@ -373,8 +376,8 @@ func (s *Service) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) 
 		if !disabled {
 			return s.audit(ctx, q, AuditUserEnabled, id)
 		}
-		if err := q.DeleteUserSessions(ctx, id); err != nil {
-			return fmt.Errorf("auth: revoke sessions: %w", err)
+		if err := endEverywhere(ctx, q, id); err != nil {
+			return err
 		}
 		return s.audit(ctx, q, AuditUserDisabled, id)
 	})

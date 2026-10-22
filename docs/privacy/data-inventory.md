@@ -24,12 +24,13 @@
 | 角色、停用狀態、建立與更新時間 | `users.role`、`is_disabled`、`created_at`、`updated_at` | 授權、帳號狀態 | 直到該列被刪 | `updated_at` 只有 DB 角色；其餘本人與 admin 可透過 API 讀 |
 | Session token | 只在 cookie；資料庫存 token 的 SHA-256（`sessions.token_hash`） | 驗證請求 | cookie 的 `Max-Age` 是絕對期限。這些情況會刪掉該列：登出、全部登出、撤銷單一 session、帶著它重新登入、使用者被停用、使用者被刪（`ON DELETE CASCADE`）、每小時清理過期的 session（`auth/sessions.go`） | 原始 token 只有瀏覽器（HttpOnly）；雜湊只有 DB 角色 |
 | Session 中繼資料 | `sessions.id`、`user_id`、`created_at`、`last_used_at`（最多每分鐘寫一次）、`expires_at` | 列出與撤銷 session；idle 與絕對期限 | 同 session 那列。超過 `expires_at` 或閒置超過 `SESSION_IDLE` 的列每小時清掉（`backend/cmd/app/main.go` 的 cleanup）。測試：`TestCleanup` | 本人，只限自己的 session；admin 沒有 session API；DB 角色 |
-| 登入嘗試紀錄 | `login_throttles.account_key` = 送出的帳號名轉小寫，不論帳號是否存在；另有 `failures`、`next_allowed_at`、`updated_at` | 帳號節流 | 登入成功時刪除，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | 只有 DB 角色，沒有 API。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
+| 登入嘗試紀錄 | `sign_in_throttles`：`account_key` = 送出的帳號名轉小寫，不論帳號是否存在；`client_key` = 來源位址（IPv6 截到 /64）或信任裝置的 id，帳號合計那列為空字串；另有 `failures`、`next_allowed_at`、`updated_at` | 依「帳號＋來源」節流，與帳號層級的鎖 | 登入成功或 admin 解鎖時刪掉該帳號的所有列，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | DB 角色；admin 經 `GET /api/users/{id}/sign-in-lock` 只看得到是否鎖定與失敗次數。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
 | Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `deleteItem` 刪除；帳號刪除時一起刪（`ON DELETE CASCADE`） | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
 | Client IP | backend access log 的 `client_ip`；每 IP 限流放在程式記憶體，IPv6 截到 /64（`httpapi/ratelimit.go`） | 追蹤、限流 | 日誌：見「日誌」。記憶體：閒置 1 分鐘的 bucket 會丟掉，重啟就全部消失 | 讀得到日誌的人 |
 | Request id、method、path、status、處理時間 | backend access log；同一個請求的每行日誌都帶 `request_id` | 追蹤 | 見「日誌」 | 讀得到日誌的人 |
 | User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
 | 送給 HIBP 的密碼雜湊前綴 | 只在 `PASSWORD_HIBP_CHECK=true`（預設 false）時：正規化後密碼的 SHA-1 前 5 個 hex 字元，帶 `Add-Padding: true`（`backend/internal/platform/hibp/hibp.go`）。測試：`TestBreached` | 註冊與 `seed-admin` 時的外洩密碼檢查 | backend 不儲存；處理者端的保留依它的政策 | Have I Been Pwned |
+| 信任的裝置 | `trusted_devices`：裝置 cookie token 的 SHA-256、id、user id、建立與到期時間 | 本人曾登入過的瀏覽器不受帳號層級的鎖影響 | 180 天後到期並由每小時的清理刪除；全部登出、停用、救援、刪除帳號時刪除。測試：`TestCleanup`、`TestSignOutEverywhereForgetsDevices` | 原始 token 只有瀏覽器（HttpOnly）；雜湊只有 DB 角色 |
 | 稽核紀錄 | `audit_events`：時間、執行者的 user id（主機上的指令為空）、動作、對象的 user id、request id；不存帳號名 | 追查誰停用、啟用、刪除、解鎖了哪個帳號 | 只能新增與讀取（app 角色沒有 UPDATE、DELETE），保留 365 天，每次 `app migrate` 刪掉更舊的列（表的 comment，`internal/platform/migrate`）；帳號刪除後紀錄仍在，只剩 id | 只有 DB 角色，沒有 API |
 | 建立 admin 時的帳號名 | `seed-admin` 印到 stdout（`backend/cmd/app/seed.go`） | 回饋給操作者 | 看操作者的終端機或 job 輸出存到哪 | 操作者 |
 
@@ -38,6 +39,7 @@
 | 項目 | 由誰設定 | 內容 | 存活時間 |
 |---|---|---|---|
 | `__Host-session`（`COOKIE_SECURE=false` 時是 `session`） | backend（`httpapi/auth.go`） | Session token | Session 絕對期限，預設 7 天；登出或 server 判定無效時清除 |
+| `__Host-device`（`COOKIE_SECURE=false` 時是 `device`） | backend，登入成功且瀏覽器還沒有這個帳號的裝置 cookie 時 | 信任裝置的 token | 180 天；全部登出、停用或刪除帳號後失效 |
 | 語系 cookie | next-intl middleware（`frontend/src/proxy.ts`、`frontend/src/i18n/routing.ts`） | 選擇的語系（推論，next-intl 預設；routing 沒設 cookie 選項） | 函式庫預設 |
 
 前端程式碼沒有使用 `localStorage`、`sessionStorage`、IndexedDB 或 `document.cookie`（搜尋 `frontend/src`）。Next 的 server 端讀請求 cookie，只為了轉送給 `GET /api/users/me`（`frontend/src/features/auth/server.ts`）。
@@ -64,7 +66,7 @@
 |---|---|---|
 | 查閱 | 本人可讀自己的帳號（`getCurrentUser`）與 session（`listSessions`） | 沒有一次匯出 items 或其他模組資料的方式 |
 | 更正 | 沒有：沒有改帳號名或密碼的 operation | 使用者需要更正資料時，衍生專案要補 |
-| 刪除 | 本人在設定頁輸入密碼後刪除帳號（重新登入，再 `DELETE /api/users/me`；session 必須是 10 分鐘內登入的）；admin 用 `DELETE /api/users/{id}`。資料庫刪掉帳號、session 與每個模組擁有的列（指向 `users` 的 FK 都是 `CASCADE` 或 `SET NULL`，`TestForeignKeysToUsersAllowDeletion`）。`login_throttles` 以帳號名為鍵，24 小時內過期。測試：`TestDeleteCurrentUser`、`TestAdminDeletesUser` | 備份保留 7 天，期間仍有被刪帳號的資料；日誌依輪替設定過期。衍生專案在 PostgreSQL 以外存放使用者資料（檔案、搜尋索引）時，要在刪除帳號時一併處理 |
+| 刪除 | 本人在設定頁輸入密碼後刪除帳號（重新登入，再 `DELETE /api/users/me`；session 必須是 10 分鐘內登入的）；admin 用 `DELETE /api/users/{id}`。資料庫刪掉帳號、session 與每個模組擁有的列（指向 `users` 的 FK 都是 `CASCADE` 或 `SET NULL`，`TestForeignKeysToUsersAllowDeletion`）。`sign_in_throttles` 以帳號名為鍵，24 小時內過期。測試：`TestDeleteCurrentUser`、`TestAdminDeletesUser` | 備份保留 7 天，期間仍有被刪帳號的資料；日誌依輪替設定過期。衍生專案在 PostgreSQL 以外存放使用者資料（檔案、搜尋索引）時，要在刪除帳號時一併處理 |
 | 限制處理 | admin 停用（`patchUser`） | 範本無 |
 
 ## 何時更新這份文件

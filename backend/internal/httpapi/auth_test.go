@@ -126,7 +126,7 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 	}
 	cfg := auth.Config{SessionAbsolute: 7 * 24 * time.Hour, SessionIdle: 24 * time.Hour, Hasher: a.hasher, Now: a.clock.Now}
 	deps := Deps{Ready: ok, Logger: discard, Now: a.clock.Now, RateLimitPerMin: 1000,
-		Cookie: Cookie{Name: cookieName, Secure: true}, Items: items.New(pool)}
+		Cookie: Cookie{Name: cookieName, DeviceName: deviceCookieName, Secure: true}, Items: items.New(pool)}
 	for _, o := range opts {
 		o(&cfg, &deps)
 	}
@@ -205,14 +205,19 @@ func (a *authAPI) me(token string) *httptest.ResponseRecorder {
 	return a.do(http.MethodGet, "/api/users/me", token, "", "")
 }
 
-// sessionCookie returns the one session cookie rec sets.
+// sessionCookie returns the one session cookie rec sets (a sign-in may also set the device cookie).
 func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
 	t.Helper()
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != cookieName {
+	var found []*http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cookieName {
+			found = append(found, c)
+		}
+	}
+	if len(found) != 1 {
 		t.Fatalf("Set-Cookie = %v, want exactly one %s", rec.Header().Values("Set-Cookie"), cookieName)
 	}
-	return cookies[0]
+	return found[0]
 }
 
 // mustSignUp creates an account and returns its user and session token.

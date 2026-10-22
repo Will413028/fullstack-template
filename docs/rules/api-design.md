@@ -150,7 +150,7 @@ http.Error(w, "conflict", http.StatusConflict)
 
 - per-IP 限流以 operation 套用：把 operation 加到 `NewHandler` 的 `limitOperations(limiter, limited...)` 清單，次數由 `AUTH_RATE_LIMIT_PER_MIN` 設定。清單用生成的方法名稱（`operationId: createUser` → `CreateUser`），經 `operations(...)` 檢查名稱存在。
 - 超限回 429 `/problems/rate-limited` 加 `Retry-After`（`apperr.RateLimited` 的 `RetryAfter`）。
-- 登入另有依帳號的節流（`login_throttles`），不論帳號是否存在都記錄（ADR api-and-auth D6）。
+- 登入另有依「帳號＋來源」的節流與帳號層級的上限（`sign_in_throttles`），不論帳號是否存在都記錄（ADR api-and-auth D6、ADR account-abuse-and-lifecycle D4）。
 
 ## Query 參數
 

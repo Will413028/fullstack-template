@@ -201,14 +201,59 @@ paths:
           $ref: "#/components/responses/ValidationFailed"
         "500":
           $ref: "#/components/responses/InternalError"
+  /users/{id}/sign-in-lock:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getSignInLock
+      summary: Whether the user's account refuses sign-ins from unknown clients (admin only).
+      tags: [auth]
+      responses:
+        "200":
+          description: The lock state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInLock"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteSignInLock
+      summary: Unlock the user's sign-in (admin only).
+      description: Forgets every failed sign-in counted for the account, from all clients.
+      tags: [auth]
+      responses:
+        "204":
+          description: Unlocked.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /sessions:
     post:
       operationId: createSession
       summary: Sign in.
       description: |
         Always issues a new session and ends the one the request carried, if any. A wrong password, an unknown
-        account and a disabled account get the same 401. After repeated failures the account name waits before the
-        next attempt (429), whether or not the account exists.
+        account and a disabled account get the same 401. Throttling (429), whether or not the account exists: each
+        client (address, or a browser that signed in to the account before) waits after 5 failures in a row, and
+        after 100 failures from clients the account does not know, only such browsers may try until a sign-in
+        succeeds or an admin unlocks it. A sign-in from a browser that has no device cookie for the account also sets
+        one (a second Set-Cookie, `__Host-device`, HttpOnly, SameSite=Strict, 180 days).
       tags: [auth]
       security: []
       requestBody:
@@ -645,6 +690,18 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+    SignInLock:
+      type: object
+      required: [locked, failures]
+      properties:
+        locked:
+          type: boolean
+          description: Sign-ins from clients without a device cookie for the account are refused.
+        failures:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Failed sign-ins from such clients since the last successful one; the lock starts at 100.
     UserPatch:
       type: object
       additionalProperties: false

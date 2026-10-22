@@ -107,12 +107,13 @@ func serve(ctx context.Context) error {
 		return err
 	}
 	go runEvery(ctx, cleanupEvery, func(ctx context.Context) {
-		sessions, throttles, err := authSvc.Cleanup(ctx)
+		n, err := authSvc.Cleanup(ctx)
 		if err != nil {
 			logger.ErrorContext(ctx, "auth cleanup", "error", err)
 			return
 		}
-		logger.InfoContext(ctx, "auth cleanup", "sessions_deleted", sessions, "throttles_deleted", throttles)
+		logger.InfoContext(ctx, "auth cleanup", "sessions_deleted", n.Sessions, "throttles_deleted", n.Throttles,
+			"devices_deleted", n.Devices)
 	})
 
 	h, err := httpapi.NewHandler(ctx, httpapi.Deps{
@@ -124,7 +125,7 @@ func serve(ctx context.Context) error {
 		RateLimitPerMin: cfg.AuthRateLimitPerMin,
 		Auth:            authSvc,
 		Items:           items.New(pool),
-		Cookie:          httpapi.Cookie{Name: cfg.CookieName(), Secure: cfg.CookieSecure},
+		Cookie:          httpapi.Cookie{Name: cfg.CookieName(), DeviceName: cfg.DeviceCookieName(), Secure: cfg.CookieSecure},
 	})
 	if err != nil {
 		return err

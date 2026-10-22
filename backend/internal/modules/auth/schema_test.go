@@ -39,7 +39,7 @@ func TestBaselineAppliesWithCommunity(t *testing.T) {
 	if revSchema != "atlas_schema_revisions" {
 		t.Errorf("revision table in schema %q, want atlas_schema_revisions", revSchema)
 	}
-	for _, table := range []string{"users", "sessions", "login_throttles"} {
+	for _, table := range []string{"users", "sessions", "sign_in_throttles", "trusted_devices"} {
 		var ok bool
 		err := c.QueryRow(t.Context(), `SELECT has_table_privilege($1, 'public.'||$2, 'SELECT,INSERT,UPDATE,DELETE')`,
 			dbtest.AppRole, table).Scan(&ok)
@@ -75,7 +75,7 @@ func TestSchemaChecks(t *testing.T) {
 	assertCheckViolation(t, err, "2-character account")
 	_, err = c.Exec(ctx, insertUser, "alice", "guest")
 	assertCheckViolation(t, err, "unknown role")
-	_, err = c.Exec(ctx, `INSERT INTO login_throttles (account_key, failures, updated_at) VALUES ('a', -1, now())`)
+	_, err = c.Exec(ctx, `INSERT INTO sign_in_throttles (account_key, client_key, failures, updated_at) VALUES ('a', '', -1, now())`)
 	assertCheckViolation(t, err, "negative failures")
 	_, err = c.Exec(ctx, `INSERT INTO sessions (token_hash, user_id, created_at, last_used_at, expires_at)
 		VALUES ('\x00', uuidv7(), now(), now(), now())`)

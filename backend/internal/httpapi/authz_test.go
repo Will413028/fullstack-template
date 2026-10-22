@@ -26,7 +26,7 @@ func TestAdminOperationsChecksTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"DeleteUser", "ListUsers", "PatchUser"}; !slices.Equal(admin, want) {
+	if want := []string{"DeleteSignInLock", "DeleteUser", "GetSignInLock", "ListUsers", "PatchUser"}; !slices.Equal(admin, want) {
 		t.Errorf("admin operations = %v, want %v", admin, want)
 	}
 
@@ -139,6 +139,9 @@ func TestAdminChangesAreAudited(t *testing.T) {
 		}},
 		"DeleteUser": {auth.AuditUserDeleted, func(id uuid.UUID) *httptest.ResponseRecorder {
 			return a.do(http.MethodDelete, "/api/users/"+id.String(), admin, "", "")
+		}},
+		"DeleteSignInLock": {auth.AuditUserUnlocked, func(id uuid.UUID) *httptest.ResponseRecorder {
+			return a.do(http.MethodDelete, "/api/users/"+id.String()+"/sign-in-lock", admin, "", "")
 		}},
 	}
 	for _, name := range stateChangingAdminOperations(spec) {

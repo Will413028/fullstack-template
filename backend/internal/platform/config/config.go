@@ -50,6 +50,14 @@ func (c Config) CookieName() string {
 	return "session"
 }
 
+// DeviceCookieName is the device cookie name (a browser trusted to sign in), with the same prefix rule as CookieName.
+func (c Config) DeviceCookieName() string {
+	if c.CookieSecure {
+		return "__Host-device"
+	}
+	return "device"
+}
+
 // MigrateConfig holds the settings migrate needs: it connects as the owner role, which owns the schema, and grants
 // DML to the app role that serve connects as.
 type MigrateConfig struct {

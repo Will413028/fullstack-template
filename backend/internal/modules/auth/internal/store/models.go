@@ -36,6 +36,22 @@ type Session struct {
 	ExpiresAt  time.Time
 }
 
+type SignInThrottle struct {
+	AccountKey    string
+	ClientKey     string
+	Failures      int64
+	NextAllowedAt *time.Time
+	UpdatedAt     time.Time
+}
+
+type TrustedDevice struct {
+	TokenHash []byte
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
 type User struct {
 	ID           uuid.UUID
 	Account      string
