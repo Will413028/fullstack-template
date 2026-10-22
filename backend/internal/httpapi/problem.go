@@ -54,13 +54,12 @@ const problemContentType = "application/problem+json"
 
 // writeProblem writes a problem of type p. detail and code are omitted when empty.
 func writeProblem(w http.ResponseWriter, p problemType, detail, code string) {
-	body := gen.Problem{Type: gen.ProblemType(p.uri()), Title: p.title, Status: p.status, RequestId: requestIDOf(w)}
+	body := gen.Problem{Type: p.uri(), Title: p.title, Status: p.status, RequestId: requestIDOf(w)}
 	if detail != "" {
 		body.Detail = &detail
 	}
 	if code != "" {
-		c := gen.ProblemCode(code)
-		body.Code = &c
+		body.Code = &code
 	}
 	writeProblemBody(w, p.status, body)
 }
@@ -69,7 +68,7 @@ func writeProblem(w http.ResponseWriter, p problemType, detail, code string) {
 func writeValidation(w http.ResponseWriter, fields []gen.FieldError) {
 	p := problemValidation
 	writeProblemBody(w, p.status, gen.ValidationProblem{
-		Type: gen.ValidationProblemType(p.uri()), Title: p.title, Status: p.status, Errors: fields, RequestId: requestIDOf(w),
+		Type: p.uri(), Title: p.title, Status: p.status, Errors: fields, RequestId: requestIDOf(w),
 	})
 }
 
@@ -107,7 +106,7 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 		}
 		switch e.Kind {
 		case apperr.Validation:
-			writeValidation(w, []gen.FieldError{{Pointer: e.Pointer, Code: gen.FieldErrorCode(e.Code), Detail: e.Detail}})
+			writeValidation(w, []gen.FieldError{{Pointer: e.Pointer, Code: e.Code, Detail: e.Detail}})
 			return
 		case apperr.RateLimited:
 			if e.RetryAfter > 0 {

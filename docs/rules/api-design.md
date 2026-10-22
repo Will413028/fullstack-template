@@ -98,8 +98,8 @@ SET title       = coalesce(sqlc.narg('title'), title),
 - 所有錯誤回 `application/problem+json`，欄位 `type`、`title`、`status`，選填 `detail`、`code`、`request_id`（ADR api-and-auth D3）。
 - `type` 是固定的相對 URI `/problems/<slug>`，每種 problem 一個（`problem.go` 的 `problemType`）。`code` 是細分 `type` 的穩定機器碼，例如 `account_taken`、`insufficient_role`。
 - 驗證錯誤是 422 `/problems/validation`，附 `errors: [{pointer, code, detail}]`；`pointer` 是 JSON Pointer（query 或 path 參數為 `/<name>`），`code` 是 `FieldError.code` 的值，例如 `too_short`、`password_too_common`。
-- `Problem.type`、`Problem.code`、`FieldError.code` 的可用值在契約裡宣告成 enum。後端由 `TestProblemValuesInContract` 與 `checkProblems`（`problem_contract_test.go`）檢查送出的值都在 enum 內；前端由 `messages.test.ts` 在編譯期檢查 `frontend/messages/*.json` 的 `problems.types`、`problems.codes`、`problems.fields` 涵蓋每個值（ADR api-and-auth D3）。
-- 新增 code 的順序：契約 enum → `make -C backend gen` 與 `pnpm gen:api` → 每個語系的 `problems.*` 翻譯 → 後端送出。
+- `Problem.type`、`Problem.code`、`FieldError.code` 的可用值在契約裡用 `x-extensible-enum` 列出：清單會增加，新增不算 breaking change，用戶端翻譯認得的值、其餘退回 `type` 的訊息。不要改回 `enum`（封閉清單，新增會被 `make api-breaking` 擋下）。後端由 `TestProblemValuesInContract` 與 `checkProblems`（`problem_contract_test.go`）檢查送出的值都在清單內；前端由 `messages.test.ts` 在編譯期檢查 `frontend/messages/*.json` 的 `problems.types`、`problems.codes`、`problems.fields` 涵蓋每個值（ADR api-and-auth D3）。
+- 新增 code 的順序：契約的 `x-extensible-enum` → `make -C backend gen` 與 `pnpm gen:api` → 每個語系的 `problems.*` 翻譯 → 後端送出。
 - 前端依 `code`、再依 `type` 選訊息（`errors.ts` 的 `problemMessage`、`fieldMessage`），**NEVER** 解析或顯示 `detail`。
 - 改 slug 或 code 是 breaking change。
 
@@ -207,7 +207,7 @@ await fetch("/api/users", { method: "POST", body: JSON.stringify(credentials) })
 - **NEVER** 回傳指向沒有 GET 的路徑的 `Location`；**NEVER** 新增有寫入端卻沒有 GET 的 path
 - **NEVER** 在 service 決定 HTTP 狀態碼或寫 response；service 只回 `apperr`
 - **NEVER** 把非 `apperr` 的錯誤內容送給 client；**NEVER** 讓前端解析 `detail`
-- **NEVER** 送出契約 enum 沒有列的 `type` 或 `code`
+- **NEVER** 送出契約清單沒有列的 `type` 或 `code`
 - **NEVER** 在 URL 用動詞、用角色切路徑或帶版本
 - **NEVER** 查詢使用者擁有的資源而不帶 owner 條件；**NEVER** 對別人的資源回 403
 - **NEVER** 接受 Bearer token，或讓 JS 讀得到 session token

@@ -156,7 +156,7 @@ type collector struct {
 }
 
 func (c *collector) add(pointer, code, detail string) {
-	c.fields = append(c.fields, gen.FieldError{Pointer: pointer, Code: gen.FieldErrorCode(code), Detail: detail})
+	c.fields = append(c.fields, gen.FieldError{Pointer: pointer, Code: code, Detail: detail})
 }
 
 func (c *collector) walk(err error, base string) {
