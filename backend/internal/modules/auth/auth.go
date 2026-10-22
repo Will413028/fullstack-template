@@ -401,27 +401,41 @@ var ErrReauthenticationRequired = apperr.New(apperr.Forbidden, CodeReauthenticat
 // DeleteOwnAccount deletes the caller's account and everything it owns. The session the request carries
 // (sessionID) must have been issued within ReauthenticateWithin, and the only enabled admin cannot delete itself.
 func (s *Service) DeleteOwnAccount(ctx context.Context, sessionID uuid.UUID) error {
-	c, err := caller(ctx)
+	c, err := s.recentlySignedIn(ctx, sessionID)
 	if err != nil {
 		return err
-	}
-	created, err := s.q().GetSessionCreatedAt(ctx, store.GetSessionCreatedAtParams{ID: sessionID, UserID: c.ID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSessionInvalid
-	}
-	if err != nil {
-		return fmt.Errorf("auth: get session: %w", err)
-	}
-	if s.now().Sub(created) > ReauthenticateWithin {
-		return ErrReauthenticationRequired
 	}
 	return s.deleteUser(ctx, c.ID)
 }
 
-// DeleteUser deletes a user and everything it owns; admins call it (internal/httpapi requireRole). The only enabled
-// admin cannot be deleted.
-func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
+// DeleteUser deletes a user and everything it owns; admins call it (internal/httpapi requireRole). Like
+// DeleteOwnAccount it needs a session issued within ReauthenticateWithin, and the only enabled admin cannot be
+// deleted.
+func (s *Service) DeleteUser(ctx context.Context, sessionID, id uuid.UUID) error {
+	if _, err := s.recentlySignedIn(ctx, sessionID); err != nil {
+		return err
+	}
 	return s.deleteUser(ctx, id)
+}
+
+// recentlySignedIn returns the caller when sessionID, the caller's current session, was issued within
+// ReauthenticateWithin: an operation that cannot be undone needs the password again, not just a session.
+func (s *Service) recentlySignedIn(ctx context.Context, sessionID uuid.UUID) (authctx.User, error) {
+	c, err := caller(ctx)
+	if err != nil {
+		return authctx.User{}, err
+	}
+	created, err := s.q().GetSessionCreatedAt(ctx, store.GetSessionCreatedAtParams{ID: sessionID, UserID: c.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authctx.User{}, ErrSessionInvalid
+	}
+	if err != nil {
+		return authctx.User{}, fmt.Errorf("auth: get session: %w", err)
+	}
+	if s.now().Sub(created) > ReauthenticateWithin {
+		return authctx.User{}, ErrReauthenticationRequired
+	}
+	return c, nil
 }
 
 func (s *Service) deleteUser(ctx context.Context, id uuid.UUID) error {

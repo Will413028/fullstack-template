@@ -83,7 +83,13 @@ func (s *apiServer) PatchUser(ctx context.Context, req gen.PatchUserRequestObjec
 }
 
 func (s *apiServer) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
-	client := auth.Client{Address: limitKey(clientIPFrom(ctx)).String(), DeviceToken: deviceTokenFrom(ctx)}
+	// withRequestInfo always finds an address on a TCP listener; without one (a unix socket) every client would share
+	// the "unknown" bucket, so serve listens on TCP only.
+	address := "unknown"
+	if ip := clientIPFrom(ctx); ip.IsValid() {
+		address = limitKey(ip).String()
+	}
+	client := auth.Client{Address: address, DeviceToken: deviceTokenFrom(ctx)}
 	u, sess, err := s.auth.SignIn(ctx, req.Body.Account, req.Body.Password, sessionTokenFrom(ctx), client)
 	if err != nil {
 		return nil, err
@@ -228,9 +234,9 @@ func (s *apiServer) DeleteCurrentUser(ctx context.Context, _ gen.DeleteCurrentUs
 	return gen.DeleteCurrentUser204Response{Headers: gen.DeleteCurrentUser204ResponseHeaders{SetCookie: &cookie}}, nil
 }
 
-// DeleteUser is admin-only (requireRole).
+// DeleteUser is admin-only (requireRole); the service also requires a recent sign-in.
 func (s *apiServer) DeleteUser(ctx context.Context, req gen.DeleteUserRequestObject) (gen.DeleteUserResponseObject, error) {
-	if err := s.auth.DeleteUser(ctx, req.Id); err != nil {
+	if err := s.auth.DeleteUser(ctx, currentSessionID(ctx), req.Id); err != nil {
 		return nil, err
 	}
 	return gen.DeleteUser204Response{}, nil

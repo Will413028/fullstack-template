@@ -70,8 +70,9 @@ export interface paths {
         post?: never;
         /**
          * Delete a user (admin only).
-         * @description Deletes the account and everything it owns and ends all its sessions. The only enabled admin cannot be
-         *     deleted (409 `last_admin`).
+         * @description Deletes the account and everything it owns and ends all its sessions. Like deleting one's own account, the
+         *     admin's session must have signed in within the last 10 minutes (403 `reauthentication_required`). The only
+         *     enabled admin cannot be deleted (409 `last_admin`).
          */
         delete: operations["deleteUser"];
         options?: never;
