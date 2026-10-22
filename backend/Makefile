@@ -1,6 +1,6 @@
 # Backend commands. Needs Go (version in go.mod) and Docker (Atlas dev database, integration tests).
-# Tool versions are pinned only here and in tools/go.mod; CI runs `make check` too, so local and CI use the same
-# versions.
+# Tool versions are pinned here (release binaries, with checksums) and in tools/ (go.mod, package.json,
+# requirements.txt, which Dependabot updates); CI runs `make check` too, so local and CI use the same versions.
 
 # golangci-lint is installed from its release binary: the project does not support building it with go run/install.
 GOLANGCI_LINT_VERSION := 2.14.0
@@ -16,7 +16,9 @@ GO_TOOL        = go tool -modfile=tools/go.mod $(1)
 GOVULNCHECK   := $(call GO_TOOL,govulncheck)
 # sqlc builds with cgo (libpg_query); the first run compiles it, later runs use the Go build cache.
 SQLC          := $(call GO_TOOL,sqlc)
-SQUAWK        := npx --yes squawk-cli@2.70.0
+# squawk and diff-cover are pinned in tools/package.json and tools/requirements.txt, which Dependabot reads; the
+# release binaries above and Atlas below are checked weekly by scripts/tool_versions.py (tool-versions workflow).
+SQUAWK        := tools/node_modules/.bin/squawk
 OAPI_CODEGEN  := $(call GO_TOOL,oapi-codegen)
 OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
 GEN_OUT       := internal/httpapi/gen/api.gen.go
@@ -24,7 +26,7 @@ OASDIFF       := $(call GO_TOOL,oasdiff)
 COBERTURA     := $(call GO_TOOL,gocover-cobertura)
 GOTESTSUM     := $(call GO_TOOL,gotestsum)
 DEADCODE      := $(call GO_TOOL,deadcode)
-DIFF_COVER    := pipx run diff-cover==10.5.1
+DIFF_COVER    := pipx run diff-cover==$(shell sed -n 's/^diff-cover==//p' tools/requirements.txt)
 # Base for the existing-migrations check; CI passes the PR base or, on push, the previous main commit.
 BASE ?= origin/main
 
@@ -95,7 +97,7 @@ deadcode:
 
 # The git-diff checks and the detecting tools still fail on a planted violation (scripts/selftest-checks.sh).
 .PHONY: tools-selftest
-tools-selftest:
+tools-selftest: $(SQUAWK)
 	./scripts/selftest-checks.sh
 
 .PHONY: gen
@@ -128,8 +130,13 @@ drift: $(ATLAS) ## Needs Docker: schema.sql files and migrations/ must match
 	./scripts/check-schema-drift.sh $(ATLAS)
 
 .PHONY: squawk
-squawk: ## Lock and safety checks for migrations (needs Node)
+squawk: $(SQUAWK) ## Lock and safety checks for migrations (needs Node)
 	./scripts/squawk.sh $(SQUAWK)
+
+# --ignore-scripts: squawk-cli ships its binary as a platform package and runs no install script.
+$(SQUAWK): tools/package-lock.json
+	npm ci --prefix tools --ignore-scripts --no-audit --no-fund
+	@touch $@
 
 .PHONY: migrations-immutable
 migrations-immutable: ## Migrations already on BASE must not change

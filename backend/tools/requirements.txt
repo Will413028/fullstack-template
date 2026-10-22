@@ -1,0 +1,2 @@
+# Python CLIs the backend Makefile runs through pipx; Dependabot keeps them current.
+diff-cover==10.5.1

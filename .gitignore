@@ -2,6 +2,7 @@
 .secrets/
 .DS_Store
 backend/bin/
+backend/tools/node_modules/
 backend/coverage.out
 frontend/test-report.json
 backend/test-report.json
