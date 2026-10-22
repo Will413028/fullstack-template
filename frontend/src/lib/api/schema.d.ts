@@ -293,9 +293,8 @@ export interface components {
         Problem: {
             /**
              * Format: uri-reference
-             * @description Fixed per kind of problem. Adding a value is a change clients must translate.
+             * @description Fixed per kind of problem. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
              * @example /problems/not-found
-             * @enum {string}
              */
             type: "/problems/bad-request" | "/problems/unauthenticated" | "/problems/forbidden" | "/problems/not-found" | "/problems/method-not-allowed" | "/problems/conflict" | "/problems/payload-too-large" | "/problems/unsupported-media-type" | "/problems/validation" | "/problems/rate-limited" | "/problems/internal" | "/problems/unavailable";
             /** @description Fixed per `type`. */
@@ -304,10 +303,7 @@ export interface components {
             status: number;
             /** @description Human-readable explanation for developers; clients must not parse it. */
             detail?: string;
-            /**
-             * @description Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-             * @enum {string}
-             */
+            /** @description Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest. */
             code?: "account_taken" | "invalid_credentials" | "login_throttled" | "session_invalid" | "insufficient_role" | "cross_origin_request";
             /** @description The request's `X-Request-ID`, for matching a report with the server logs. */
             request_id?: string;
@@ -325,9 +321,8 @@ export interface components {
             pointer: string;
             /**
              * @description Stable machine-readable code: a failed contract rule, or a business rule such as `password_too_common`.
-             *     Adding a value is a change clients must translate.
+             *     The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
              * @example too_short
-             * @enum {string}
              */
             code: "required" | "too_short" | "too_long" | "pattern" | "enum" | "format" | "out_of_range" | "invalid_type" | "null_not_allowed" | "additional_property" | "invalid" | "password_too_common";
             /** @description Human-readable explanation for developers; clients must not parse it. */

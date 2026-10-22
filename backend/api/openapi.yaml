@@ -669,8 +669,8 @@ components:
         type:
           type: string
           format: uri-reference
-          description: Fixed per kind of problem. Adding a value is a change clients must translate.
-          enum:
+          description: Fixed per kind of problem. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
+          x-extensible-enum:
             - /problems/bad-request
             - /problems/unauthenticated
             - /problems/forbidden
@@ -695,8 +695,8 @@ components:
           description: Human-readable explanation for developers; clients must not parse it.
         code:
           type: string
-          description: Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-          enum:
+          description: Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
+          x-extensible-enum:
             - account_taken
             - invalid_credentials
             - login_throttled
@@ -731,8 +731,8 @@ components:
           type: string
           description: |
             Stable machine-readable code: a failed contract rule, or a business rule such as `password_too_common`.
-            Adding a value is a change clients must translate.
-          enum:
+            The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
+          x-extensible-enum:
             - required
             - too_short
             - too_long

@@ -19,132 +19,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for FieldErrorCode.
-const (
-	AdditionalProperty FieldErrorCode = "additional_property"
-	Enum               FieldErrorCode = "enum"
-	Format             FieldErrorCode = "format"
-	Invalid            FieldErrorCode = "invalid"
-	InvalidType        FieldErrorCode = "invalid_type"
-	NullNotAllowed     FieldErrorCode = "null_not_allowed"
-	OutOfRange         FieldErrorCode = "out_of_range"
-	PasswordTooCommon  FieldErrorCode = "password_too_common"
-	Pattern            FieldErrorCode = "pattern"
-	Required           FieldErrorCode = "required"
-	TooLong            FieldErrorCode = "too_long"
-	TooShort           FieldErrorCode = "too_short"
-)
-
-// Valid indicates whether the value is a known member of the FieldErrorCode enum.
-func (e FieldErrorCode) Valid() bool {
-	switch e {
-	case AdditionalProperty:
-		return true
-	case Enum:
-		return true
-	case Format:
-		return true
-	case Invalid:
-		return true
-	case InvalidType:
-		return true
-	case NullNotAllowed:
-		return true
-	case OutOfRange:
-		return true
-	case PasswordTooCommon:
-		return true
-	case Pattern:
-		return true
-	case Required:
-		return true
-	case TooLong:
-		return true
-	case TooShort:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ProblemCode.
-const (
-	ProblemCodeAccountTaken       ProblemCode = "account_taken"
-	ProblemCodeCrossOriginRequest ProblemCode = "cross_origin_request"
-	ProblemCodeInsufficientRole   ProblemCode = "insufficient_role"
-	ProblemCodeInvalidCredentials ProblemCode = "invalid_credentials"
-	ProblemCodeLoginThrottled     ProblemCode = "login_throttled"
-	ProblemCodeSessionInvalid     ProblemCode = "session_invalid"
-)
-
-// Valid indicates whether the value is a known member of the ProblemCode enum.
-func (e ProblemCode) Valid() bool {
-	switch e {
-	case ProblemCodeAccountTaken:
-		return true
-	case ProblemCodeCrossOriginRequest:
-		return true
-	case ProblemCodeInsufficientRole:
-		return true
-	case ProblemCodeInvalidCredentials:
-		return true
-	case ProblemCodeLoginThrottled:
-		return true
-	case ProblemCodeSessionInvalid:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ProblemType.
-const (
-	ProblemTypeProblemsbadRequest           ProblemType = "/problems/bad-request"
-	ProblemTypeProblemsconflict             ProblemType = "/problems/conflict"
-	ProblemTypeProblemsforbidden            ProblemType = "/problems/forbidden"
-	ProblemTypeProblemsinternal             ProblemType = "/problems/internal"
-	ProblemTypeProblemsmethodNotAllowed     ProblemType = "/problems/method-not-allowed"
-	ProblemTypeProblemsnotFound             ProblemType = "/problems/not-found"
-	ProblemTypeProblemspayloadTooLarge      ProblemType = "/problems/payload-too-large"
-	ProblemTypeProblemsrateLimited          ProblemType = "/problems/rate-limited"
-	ProblemTypeProblemsunauthenticated      ProblemType = "/problems/unauthenticated"
-	ProblemTypeProblemsunavailable          ProblemType = "/problems/unavailable"
-	ProblemTypeProblemsunsupportedMediaType ProblemType = "/problems/unsupported-media-type"
-	ProblemTypeProblemsvalidation           ProblemType = "/problems/validation"
-)
-
-// Valid indicates whether the value is a known member of the ProblemType enum.
-func (e ProblemType) Valid() bool {
-	switch e {
-	case ProblemTypeProblemsbadRequest:
-		return true
-	case ProblemTypeProblemsconflict:
-		return true
-	case ProblemTypeProblemsforbidden:
-		return true
-	case ProblemTypeProblemsinternal:
-		return true
-	case ProblemTypeProblemsmethodNotAllowed:
-		return true
-	case ProblemTypeProblemsnotFound:
-		return true
-	case ProblemTypeProblemspayloadTooLarge:
-		return true
-	case ProblemTypeProblemsrateLimited:
-		return true
-	case ProblemTypeProblemsunauthenticated:
-		return true
-	case ProblemTypeProblemsunavailable:
-		return true
-	case ProblemTypeProblemsunsupportedMediaType:
-		return true
-	case ProblemTypeProblemsvalidation:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for UserRole.
 const (
 	UserRoleAdmin UserRole = "admin"
@@ -157,84 +31,6 @@ func (e UserRole) Valid() bool {
 	case UserRoleAdmin:
 		return true
 	case UserRoleUser:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ValidationProblemCode.
-const (
-	ValidationProblemCodeAccountTaken       ValidationProblemCode = "account_taken"
-	ValidationProblemCodeCrossOriginRequest ValidationProblemCode = "cross_origin_request"
-	ValidationProblemCodeInsufficientRole   ValidationProblemCode = "insufficient_role"
-	ValidationProblemCodeInvalidCredentials ValidationProblemCode = "invalid_credentials"
-	ValidationProblemCodeLoginThrottled     ValidationProblemCode = "login_throttled"
-	ValidationProblemCodeSessionInvalid     ValidationProblemCode = "session_invalid"
-)
-
-// Valid indicates whether the value is a known member of the ValidationProblemCode enum.
-func (e ValidationProblemCode) Valid() bool {
-	switch e {
-	case ValidationProblemCodeAccountTaken:
-		return true
-	case ValidationProblemCodeCrossOriginRequest:
-		return true
-	case ValidationProblemCodeInsufficientRole:
-		return true
-	case ValidationProblemCodeInvalidCredentials:
-		return true
-	case ValidationProblemCodeLoginThrottled:
-		return true
-	case ValidationProblemCodeSessionInvalid:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ValidationProblemType.
-const (
-	ValidationProblemTypeProblemsbadRequest           ValidationProblemType = "/problems/bad-request"
-	ValidationProblemTypeProblemsconflict             ValidationProblemType = "/problems/conflict"
-	ValidationProblemTypeProblemsforbidden            ValidationProblemType = "/problems/forbidden"
-	ValidationProblemTypeProblemsinternal             ValidationProblemType = "/problems/internal"
-	ValidationProblemTypeProblemsmethodNotAllowed     ValidationProblemType = "/problems/method-not-allowed"
-	ValidationProblemTypeProblemsnotFound             ValidationProblemType = "/problems/not-found"
-	ValidationProblemTypeProblemspayloadTooLarge      ValidationProblemType = "/problems/payload-too-large"
-	ValidationProblemTypeProblemsrateLimited          ValidationProblemType = "/problems/rate-limited"
-	ValidationProblemTypeProblemsunauthenticated      ValidationProblemType = "/problems/unauthenticated"
-	ValidationProblemTypeProblemsunavailable          ValidationProblemType = "/problems/unavailable"
-	ValidationProblemTypeProblemsunsupportedMediaType ValidationProblemType = "/problems/unsupported-media-type"
-	ValidationProblemTypeProblemsvalidation           ValidationProblemType = "/problems/validation"
-)
-
-// Valid indicates whether the value is a known member of the ValidationProblemType enum.
-func (e ValidationProblemType) Valid() bool {
-	switch e {
-	case ValidationProblemTypeProblemsbadRequest:
-		return true
-	case ValidationProblemTypeProblemsconflict:
-		return true
-	case ValidationProblemTypeProblemsforbidden:
-		return true
-	case ValidationProblemTypeProblemsinternal:
-		return true
-	case ValidationProblemTypeProblemsmethodNotAllowed:
-		return true
-	case ValidationProblemTypeProblemsnotFound:
-		return true
-	case ValidationProblemTypeProblemspayloadTooLarge:
-		return true
-	case ValidationProblemTypeProblemsrateLimited:
-		return true
-	case ValidationProblemTypeProblemsunauthenticated:
-		return true
-	case ValidationProblemTypeProblemsunavailable:
-		return true
-	case ValidationProblemTypeProblemsunsupportedMediaType:
-		return true
-	case ValidationProblemTypeProblemsvalidation:
 		return true
 	default:
 		return false
@@ -269,11 +65,11 @@ type CreateUserRequest struct {
 // FieldError defines model for FieldError.
 type FieldError struct {
 	// Code Stable machine-readable code: a failed contract rule, or a business rule such as `password_too_common`.
-	// Adding a value is a change clients must translate.
+	// The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
 	//
 	//
 	// Example: too_short
-	Code FieldErrorCode `json:"code"`
+	Code string `json:"code"`
 
 	// Detail Human-readable explanation for developers; clients must not parse it.
 	Detail string `json:"detail"`
@@ -285,12 +81,6 @@ type FieldError struct {
 	// Example: /title
 	Pointer string `json:"pointer"`
 }
-
-// FieldErrorCode Stable machine-readable code: a failed contract rule, or a business rule such as `password_too_common`.
-// Adding a value is a change clients must translate.
-//
-// Example: too_short
-type FieldErrorCode string
 
 // Item defines model for Item.
 type Item struct {
@@ -323,8 +113,8 @@ type ItemTitle = string
 
 // Problem RFC 9457 problem details.
 type Problem struct {
-	// Code Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-	Code *ProblemCode `json:"code,omitempty"`
+	// Code Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
+	Code *string `json:"code,omitempty"`
 
 	// Detail Human-readable explanation for developers; clients must not parse it.
 	Detail *string `json:"detail,omitempty"`
@@ -338,19 +128,11 @@ type Problem struct {
 	// Title Fixed per `type`.
 	Title string `json:"title"`
 
-	// Type Fixed per kind of problem. Adding a value is a change clients must translate.
+	// Type Fixed per kind of problem. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
 	//
 	// Example: /problems/not-found
-	Type ProblemType `json:"type"`
+	Type string `json:"type"`
 }
-
-// ProblemCode Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-type ProblemCode string
-
-// ProblemType Fixed per kind of problem. Adding a value is a change clients must translate.
-//
-// Example: /problems/not-found
-type ProblemType string
 
 // Session A signed-in session. The token is only in the cookie and never part of the resource.
 type Session struct {
@@ -402,8 +184,8 @@ type UserPatch struct {
 
 // ValidationProblem A problem with type `/problems/validation`, listing each invalid input.
 type ValidationProblem struct {
-	// Code Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-	Code *ValidationProblemCode `json:"code,omitempty"`
+	// Code Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
+	Code *string `json:"code,omitempty"`
 
 	// Detail Human-readable explanation for developers; clients must not parse it.
 	Detail *string      `json:"detail,omitempty"`
@@ -418,19 +200,11 @@ type ValidationProblem struct {
 	// Title Fixed per `type`.
 	Title string `json:"title"`
 
-	// Type Fixed per kind of problem. Adding a value is a change clients must translate.
+	// Type Fixed per kind of problem. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest.
 	//
 	// Example: /problems/not-found
-	Type ValidationProblemType `json:"type"`
+	Type string `json:"type"`
 }
-
-// ValidationProblemCode Stable machine-readable code refining `type`. Adding a value is a change clients must translate.
-type ValidationProblemCode string
-
-// ValidationProblemType Fixed per kind of problem. Adding a value is a change clients must translate.
-//
-// Example: /problems/not-found
-type ValidationProblemType string
 
 // Cursor defines model for Cursor.
 type Cursor = string

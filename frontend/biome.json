@@ -13,6 +13,7 @@
       "*.ts",
       "*.mjs",
       "*.cjs",
+      "scripts/**/*.mjs",
       "!**/dist",
       "!**/.next",
       "!**/node_modules",

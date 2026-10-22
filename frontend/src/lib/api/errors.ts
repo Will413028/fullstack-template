@@ -3,7 +3,8 @@ import type { components } from "./schema";
 type FieldError = components["schemas"]["FieldError"];
 type ContractProblem = components["schemas"]["Problem"];
 
-// The values the contract declares as enums; messages/*.json must translate
+// The values the contract lists (x-extensible-enum, made unions by
+// scripts/gen-api.mjs); messages/*.json must translate
 // each of them, which messages.test.ts checks at compile time.
 export type ProblemTypeSlug =
   ContractProblem["type"] extends `/problems/${infer Slug}` ? Slug : never;

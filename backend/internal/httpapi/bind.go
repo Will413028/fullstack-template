@@ -39,7 +39,7 @@ func writeParamError(w http.ResponseWriter, r *http.Request, logger *slog.Logger
 }
 
 func writeParamField(w http.ResponseWriter, name, code, detail string) {
-	writeValidation(w, []gen.FieldError{{Pointer: "/" + escapePointerToken(name), Code: gen.FieldErrorCode(code), Detail: detail}})
+	writeValidation(w, []gen.FieldError{{Pointer: "/" + escapePointerToken(name), Code: code, Detail: detail}})
 }
 
 // writeBodyDecodeError handles a body the generated code could not decode into its request type.
