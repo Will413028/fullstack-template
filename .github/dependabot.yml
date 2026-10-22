@@ -67,6 +67,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # @types/node follows the Node.js major the frontend runs on (frontend/Dockerfile, CI); its major moves with the
+    # Node.js upgrade, not on its own.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend-minor-patch:
         update-types: [minor, patch]
