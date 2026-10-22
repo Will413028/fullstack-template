@@ -368,4 +368,11 @@ func TestAdminDeletesUser(t *testing.T) {
 	p := assertProblem(t, a.do(http.MethodDelete, "/api/users/"+adminUser.Id.String(), admin, "", ""),
 		http.StatusConflict, "/problems/conflict")
 	assertCode(t, p, auth.CodeLastAdmin)
+
+	// a stale admin session cannot delete accounts either
+	bob, _ := a.mustSignUp("bob")
+	a.clock.Advance(11 * time.Minute)
+	p = assertProblem(t, a.do(http.MethodDelete, "/api/users/"+bob.Id.String(), admin, "", ""),
+		http.StatusForbidden, "/problems/forbidden")
+	assertCode(t, p, auth.CodeReauthenticationRequired)
 }

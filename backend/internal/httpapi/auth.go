@@ -105,29 +105,26 @@ func requireSession(ctx context.Context, _ *openapi3filter.AuthenticationInput) 
 	return nil
 }
 
-// set returns the Set-Cookie value for a new session: HttpOnly so scripts cannot read it, SameSite=Lax, Path=/, no
-// Domain, and Max-Age the session's absolute lifetime.
+// set returns the Set-Cookie value for a new session: SameSite=Lax and Max-Age the session's absolute lifetime.
 func (c Cookie) set(sess auth.Session) string {
-	// Secure is false only with COOKIE_SECURE=false, for local development over http.
-	return (&http.Cookie{ //nolint:gosec // see above
-		Name: c.Name, Value: sess.Token, Path: "/", MaxAge: int(sess.MaxAge.Seconds()),
-		HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode,
-	}).String()
+	return c.cookie(c.Name, sess.Token, int(sess.MaxAge.Seconds()), http.SameSiteLaxMode)
 }
 
-// device returns the Set-Cookie value for a newly trusted browser: like the session cookie, but SameSite=Strict, since
-// only a same-site sign-in reads it, and Max-Age the device's lifetime.
+// device returns the Set-Cookie value for a newly trusted browser: SameSite=Strict, since only a same-site sign-in
+// reads it, and Max-Age the device's lifetime.
 func (c Cookie) device(d *auth.Device) string {
-	return (&http.Cookie{ //nolint:gosec // as in set
-		Name: c.DeviceName, Value: d.Token, Path: "/", MaxAge: int(d.MaxAge.Seconds()),
-		HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteStrictMode,
-	}).String()
+	return c.cookie(c.DeviceName, d.Token, int(d.MaxAge.Seconds()), http.SameSiteStrictMode)
 }
 
 // clear expires the session cookie (Max-Age=0).
 func (c Cookie) clear() string {
-	return (&http.Cookie{ //nolint:gosec // as in set
-		Name: c.Name, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, Secure: c.Secure, SameSite: http.SameSiteLaxMode,
+	return c.cookie(c.Name, "", -1, http.SameSiteLaxMode)
+}
+
+// cookie is every cookie the API sets: HttpOnly so scripts cannot read it, Path=/ and no Domain (the __Host- prefix
+// requires both), Secure unless COOKIE_SECURE=false for local development over http.
+func (c Cookie) cookie(name, value string, maxAge int, sameSite http.SameSite) string {
+	return (&http.Cookie{ //nolint:gosec // Secure comes from COOKIE_SECURE, false only for local http
+		Name: name, Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: c.Secure, SameSite: sameSite,
 	}).String()
 }
