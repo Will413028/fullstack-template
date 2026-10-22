@@ -175,4 +175,4 @@ make restart          # 重啟服務
 make migration        # 手動套用 migration（make up 已會自動執行）
 ```
 
-本指南假設資料庫是 compose 內的 PostgreSQL：角色由 `deploy/postgres/initdb/10-roles.sh` 在 volume 第一次初始化時建立。改用 managed PostgreSQL 時這支腳本不會執行，owner 與 app 角色要先以 superuser 照該腳本的內容建立。
+本指南假設資料庫是 compose 內的 PostgreSQL：角色由 `deploy/postgres/initdb/10-roles.sh` 在 volume 第一次初始化時建立。改用 managed PostgreSQL 時這支腳本不會執行，owner 與 app 角色要先以 superuser 照該腳本的內容建立。連線也要加密：`DATABASE_URL` 與 `MIGRATE_DATABASE_URL` 改用 `sslmode=verify-full`，並拿掉 compose 裡的 `DATABASE_PLAINTEXT=same-host`；沒加密時 backend 與 migrate 拒絕啟動。
