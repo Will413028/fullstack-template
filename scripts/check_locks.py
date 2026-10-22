@@ -27,6 +27,8 @@ SUPPRESSIONS = {
         re.compile(r"biome-ignore|@ts-expect-error|@ts-ignore|@ts-nocheck|eslint-disable"),
         (".ts", ".tsx", ".js", ".mjs", ".cjs"),
     ),
+    # migrations: squawk's per-statement ignore (an excluded rule belongs in backend/.squawk.toml, a gate file)
+    "sql": (re.compile(r"squawk-ignore"), (".sql",)),
 }
 
 

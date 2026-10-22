@@ -15,7 +15,7 @@
 
 ### Table 與 Column
 
-- 表名用**複數 snake_case**：`users`、`sessions`、`login_throttles`、`order_items`。
+- 表名用**複數 snake_case**：`users`、`sessions`、`sign_in_throttles`、`order_items`。
 - 欄位名用 **snake_case**：`created_at`、`owner_id`、`is_disabled`。
 - Boolean 欄位用 `is_` / `has_` 前綴：`is_disabled`、`has_paid`。
 - 時間欄位用 `_at` 後綴：`created_at`、`last_used_at`、`expires_at`。
@@ -97,7 +97,7 @@ CREATE TABLE orders (
 
 - 對外的資源表（API 回傳 `updated_at` 的）都有 `created_at`、`updated_at timestamptz NOT NULL DEFAULT now()`。
 - **這些表的每個 UPDATE 查詢都明寫 `updated_at = now()`**，不靠 trigger，也不由 Go 傳值；並有測試覆蓋（`TestUpdatedAtChanges`）（ADR go-backend D3）。
-- 例外：內部的狀態表可以由 service 傳入時間，讓測試控制時鐘（`login_throttles.updated_at` 與 `sessions.last_used_at` 由 `@now` 傳入，限流與 idle 期限的測試因此不用等真實時間）。
+- 例外：內部的狀態表可以由 service 傳入時間，讓測試控制時鐘（`sign_in_throttles.updated_at` 與 `sessions.last_used_at` 由 `@now` 傳入，限流與 idle 期限的測試因此不用等真實時間）。
 - 連線的 `TimeZone` 固定為 UTC。
 
 ```sql
@@ -124,6 +124,14 @@ RETURNING ...;
 
 - 已合併進 `main` 的 migration 只能新增，**NEVER** 修改、刪除或改名；要改就新增一支。`make -C backend migrations-immutable` 以 `main`（`BASE`，預設 `origin/main`）的 `atlas.sum` 為基準檢查（ADR go-backend D2）。
 - 還沒合併進 `main` 的 migration 可以刪掉重新產生。
+
+### 與上一版相容（expand／contract）
+
+- 每支 migration 都要讓**上一版的 backend** 照常運作：部署是先跑 `app migrate` 再換 backend（`docs/deploy-vps.md`），這段時間跑的是舊程式；Atlas 只往前套用，回退也是舊 image 配新 schema。
+- 舊程式還在用的結構不能在同一版刪除或改形：刪或改名欄位與表、換主鍵或 `ON CONFLICT` 依賴的唯一約束、把欄位改成舊程式寫不進去的型別或約束。做法是拆成兩版（Martin Fowler「Parallel Change」、GitLab「Avoiding downtime in migrations」）：
+  - **expand**：新增新結構，新程式只用它，舊結構原封不動（例：`sign_in_throttles` 取代 `login_throttles`）。
+  - **contract**：新程式上線之後的下一版，才刪掉舊結構。範本的「一版」就是合併進 `main` 的一個 PR。
+- squawk 擋下這類變更（`ban-drop-constraint`、`ban-drop-column`、`ban-drop-table`、`renaming-*`）。只有兩種情況可以在那一行上方寫 `-- squawk-ignore <rule>`，並在上一行寫理由：contract 步驟（寫出舊程式在哪一版停止使用它），或同一個 statement 立刻補回等價的約束。ignore 的數量鎖在 `scripts/quality-locks.json`。
 
 ### 鎖與安全（squawk）
 
