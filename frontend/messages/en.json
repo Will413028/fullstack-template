@@ -60,6 +60,7 @@
       "account_taken": "This account name is already taken.",
       "invalid_credentials": "Incorrect account or password.",
       "login_throttled": "Too many failed sign-ins for this account. Please wait and try again.",
+      "last_admin": "The only enabled admin cannot be disabled or deleted.",
       "session_invalid": "Your session has ended. Please sign in again.",
       "insufficient_role": "Your account is not allowed to do this.",
       "cross_origin_request": "The request came from another site and was blocked."

@@ -124,6 +124,7 @@ paths:
       summary: Change a user (admin only).
       description: |
         JSON Merge Patch (RFC 7396): omitted fields are left unchanged. Disabling a user signs them out everywhere.
+        Disabling the only enabled admin is refused with 409 `last_admin`.
       tags: [auth]
       requestBody:
         required: true
@@ -146,6 +147,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -700,6 +703,7 @@ components:
             - account_taken
             - invalid_credentials
             - login_throttled
+            - last_admin
             - session_invalid
             - insufficient_role
             - cross_origin_request

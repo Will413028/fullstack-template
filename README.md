@@ -71,6 +71,7 @@ make logs-backend                   # Tail backend logs only
 make migration                      # Apply migrations
 make generate-migration MSG=<name>  # Generate a migration from the modules' schema.sql
 make seed ADMIN_ACCOUNT=<name>      # Create the admin user
+make recover-admin ADMIN_ACCOUNT=<name>  # Regain an admin that is disabled, locked out or lost its password
 make reset-db ADMIN_ACCOUNT=<name>  # Reset DB (clear volumes + migrate + seed)
 ```
 

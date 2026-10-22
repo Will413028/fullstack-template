@@ -107,7 +107,7 @@ type SeedConfig struct {
 	AdminPassword string
 }
 
-// LoadSeed reads the settings seed-admin needs through lookup (normally os.LookupEnv). ADMIN_PASSWORD_FILE can be
+// LoadSeed reads the settings seed-admin and recover-admin need through lookup (normally os.LookupEnv). ADMIN_PASSWORD_FILE can be
 // /dev/stdin, so the password never appears in an environment or on a command line (root Makefile, make seed).
 func LoadSeed(lookup func(string) (string, bool)) (SeedConfig, error) {
 	cfg, err := Load(lookup)

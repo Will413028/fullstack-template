@@ -40,6 +40,26 @@ func seedAdmin(ctx context.Context, svc *auth.Service, account, password string,
 	return nil
 }
 
+// recoverAdmin gives an existing admin a new password and enables it (auth.Service.RecoverAdmin): the way back when
+// every admin is disabled, locked out or has lost the password. The input is checked like seedAdmin's.
+func recoverAdmin(ctx context.Context, svc *auth.Service, account, password string, out io.Writer) error {
+	if err := validateAdminInput(ctx, account, password); err != nil {
+		return err
+	}
+	err := svc.RecoverAdmin(ctx, account, password)
+	if e, ok := apperr.As(err); ok && e.Kind == apperr.Validation {
+		return fmt.Errorf("ADMIN_PASSWORD: %s (%s)", e.Detail, e.Code)
+	}
+	if errors.Is(err, auth.ErrNoSuchAdmin) {
+		return fmt.Errorf("no admin account %q: recover-admin changes only an existing admin", strings.ToLower(account))
+	}
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "admin account %q recovered: new password set, enabled, signed out everywhere\n", strings.ToLower(account))
+	return nil
+}
+
 // validateAdminInput checks the input against CreateUserRequest from the embedded contract. Messages name the
 // variable and the rule, never the value.
 func validateAdminInput(ctx context.Context, account, password string) error {

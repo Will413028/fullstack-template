@@ -17,7 +17,7 @@ make migration name=<name>   # generate a migration from the modules' schema.sql
 make fmt                     # gofmt -w
 ```
 
-The binary is one command with subcommands: `app serve`, `app migrate` (applies `migrations/` as the owner role, then grants the app role), `app seed-admin`, `app healthcheck`.
+The binary is one command with subcommands: `app serve`, `app migrate` (applies `migrations/` as the owner role, then grants the app role), `app seed-admin`, `app recover-admin` (new password for an existing admin, enabled, sessions ended, throttle cleared: the way back when no admin can sign in), `app healthcheck`. The only enabled admin cannot be disabled or deleted (`auth.ErrLastAdmin`).
 
 ## Layout
 

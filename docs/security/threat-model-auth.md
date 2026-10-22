@@ -94,7 +94,7 @@
 | 過大或過慢的請求 | body 上限 1 MiB；header、讀、寫逾時（`httpapi/server.go`）。測試：`TestBodyTooLarge`、`TestSlowHeaderClosed` | 已緩解 |
 | 故意登入失敗把受害者鎖在門外 | 帳號節流也會擋住真正的擁有者，最長 1 小時；攻擊者只受每 IP 限流約束 | Open：帳號節流的取捨，ADR 沒討論 |
 | 用亂數帳號名塞滿 `login_throttles` | 不存在的帳號名也會建立紀錄；每 IP 限流限制速率，閒置 24 小時的紀錄每小時清掉。測試：`TestCleanup` | 單一副本內已緩解 |
-| Admin 停用最後一個 admin，包括自己 | 停用沒有檢查自己或最後一個 admin（`auth/auth.go`、`httpapi/users.go`）；救回要直接改資料庫，因為 `seed-admin` 不改已存在的帳號 | Open |
+| Admin 停用最後一個 admin，包括自己 | 停用時先鎖住所有啟用中的 admin，目標是唯一一個就回 409 `last_admin`（`auth.ErrLastAdmin`）；兩個 admin 同時互相停用只會成功一個。所有 admin 都登不進來時，`make recover-admin` 在主機上替既有的 admin 設新密碼、啟用並清掉節流。測試：`TestLastAdminCannotBeDisabled`、`TestConcurrentAdminDisableLeavesOne`、`TestRecoverAdmin` | 已緩解 |
 | 其他 operation 不限次數 | 每 IP 限流只涵蓋 `CreateUser`、`CreateSession`；其他 operation 都要登入 | 範本接受；衍生專案依需要加進清單（`docs/rules/api-design.md` 限流） |
 
 ## Elevation of privilege（權限提升）

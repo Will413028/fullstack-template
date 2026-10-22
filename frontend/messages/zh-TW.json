@@ -60,6 +60,7 @@
       "account_taken": "這個帳號名稱已被使用。",
       "invalid_credentials": "帳號或密碼錯誤。",
       "login_throttled": "這個帳號登入失敗次數過多，請稍後再試。",
+      "last_admin": "唯一啟用中的管理員不能被停用或刪除。",
       "session_invalid": "登入已失效，請重新登入。",
       "insufficient_role": "你的帳號沒有權限執行這個動作。",
       "cross_origin_request": "來自其他網站的請求已被擋下。"
