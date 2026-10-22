@@ -1,10 +1,16 @@
-FROM node:24.22.0-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+FROM node:26.11.1-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
 
-FROM base AS deps
+# Node.js 25 and newer ship without corepack: install the pnpm that package.json's packageManager names, so that field
+# stays the one place the version is set. pnpm's own install script links its native binary in place of a
+# shebang-less placeholder, which an exec-form CMD cannot run, so it is the one install here that runs scripts. The
+# runner stage starts from base and carries no pnpm.
+FROM base AS pnpm
 WORKDIR /app
+COPY package.json ./
+RUN npm install --global --no-audit --no-fund \
+      "pnpm@$(node -p 'require("./package.json").packageManager.replace(/^pnpm@/, "")')"
+
+FROM pnpm AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
@@ -15,7 +21,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 CMD ["pnpm", "dev"]
 
-FROM base AS builder
+FROM pnpm AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
