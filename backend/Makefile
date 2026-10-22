@@ -16,7 +16,7 @@ GO_TOOL        = go tool -modfile=tools/go.mod $(1)
 GOVULNCHECK   := $(call GO_TOOL,govulncheck)
 # sqlc builds with cgo (libpg_query); the first run compiles it, later runs use the Go build cache.
 SQLC          := $(call GO_TOOL,sqlc)
-SQUAWK        := npx --yes squawk-cli@2.65.0
+SQUAWK        := npx --yes squawk-cli@2.70.0
 OAPI_CODEGEN  := $(call GO_TOOL,oapi-codegen)
 OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
 GEN_OUT       := internal/httpapi/gen/api.gen.go

@@ -52,7 +52,7 @@ tags: [fullstack-template, decision, auth, security, privacy]
 - **D4**：OWASP Authentication Cheat Sheet 指出鎖定不能變成阻斷服務；NIST SP 800-63B 3.2.2 的上限是連續失敗 100 次；OWASP「Slow Down Online Guessing Attacks with Device Cookies」讓本人在用過的瀏覽器不受鎖定影響。裝置 token 存雜湊，而不是 OWASP 原文的 HMAC，因為和 session 一樣、不需要新的金鑰，也能在全部登出時作廢。代價：本人在新裝置上仍可能被鎖，要等 admin 解鎖；多一張表與一個 cookie（已記在個資盤點）。
 - **D5**：PostgreSQL 文件說明只有 `verify-full` 同時防竊聽與中間人；雲端代管資料庫都要求或預設 TLS。同一台主機的 Docker 網路資料不出主機，所以 compose 內不加密是可接受的取捨。用明確的設定，而不是判斷主機名稱，因為 `make rename`、別名或 IP 都會讓名稱判斷出錯。
 - **錯誤碼清單**（實作時發現）：契約把 `Problem.code` 寫成封閉的 `enum`，照 api-design 規則新增 code 一定被 `make api-breaking` 擋下。改用 `x-extensible-enum`（ADR api-and-auth D3 2026-10-22 修訂）。
-- **Migration**（實作時發現）：改 FK 與主鍵時 Atlas 產生的 DDL 會鎖表，ADR go-backend D2 修訂為允許手寫不鎖表的步驟。
+- **Migration**（實作時發現）：改 FK 與主鍵時 Atlas 產生的 DDL 會鎖表，ADR go-backend D2 修訂為允許手寫不鎖表的步驟。獨立 review 再指出：把 `login_throttles` 的主鍵換成兩欄，上一版 backend 的 `ON CONFLICT (account_key)` 就失效，部署空窗與回退時登入回 500。業界做法是每支 migration 都與上一版相容，拆成 expand 與 contract（Martin Fowler「Parallel Change」、GitLab「Avoiding downtime in migrations」、Stripe「Online migrations at scale」）。根因是 squawk 釘在 2.65.0：2.68.0 起的 `ban-drop-constraint` 就會擋下這支（實測）。所以升 squawk 到 2.70.0、把規則寫進 `docs/rules/database-design.md`，這次改成新表 `sign_in_throttles`，舊表在下一個 PR 刪除。不選「在 CI 用上一版的測試跑新 schema」：只有 GitLab 的未完成提案，CI 時間加倍，且會因與相容無關的原因失敗；改用多副本或零停機部署時再評估。
 
 ## Expected Outcome
 
