@@ -2,6 +2,7 @@
 .env
 .env.*
 bin
+tools/node_modules
 *.md
 **/*_test.go
 **/testdata

@@ -69,6 +69,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      # the Atlas build the image applies migrations with is the one the tests use (backend/Makefile, Dockerfile)
+      - run: python3 scripts/tool_versions.py verify
       - name: Check the commits being added
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}

@@ -12,6 +12,8 @@
 # - check-openapi-breaking.sh: removing a response property fails.
 # - govulncheck: a module that calls a known-vulnerable function fails.
 # - deadcode.sh: a function nothing calls fails.
+# - squawk.sh: dropping a constraint the previous release may rely on fails (ban-drop-constraint), with the squawk
+#   tools/package.json pins.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 unset GIT_DIR GIT_WORK_TREE
@@ -108,6 +110,14 @@ deadcheck() { (cd "$dead" && "$scripts/deadcode.sh" "$deadcode"); }
 expect pass "deadcode: a module whose functions are all called passes" deadcheck
 printf '\nfunc unused() {}\n' >>"$dead/main.go"
 expect fail "deadcode: a function nothing calls fails" "unreachable func: unused" deadcheck
+
+squawk_dir=$tmp/squawk
+mkdir -p "$squawk_dir/scripts" "$squawk_dir/migrations"
+cp "$scripts/squawk.sh" "$squawk_dir/scripts/"
+cp .squawk.toml "$squawk_dir/"
+printf 'ALTER TABLE "t" DROP CONSTRAINT "t_pkey", ADD PRIMARY KEY ("a", "b");\n' >"$squawk_dir/migrations/1_pk.sql"
+squawkcheck() { "$squawk_dir/scripts/squawk.sh" "$PWD/tools/node_modules/.bin/squawk"; }
+expect fail "squawk: dropping a constraint the previous release relies on fails" "ban-drop-constraint" squawkcheck
 
 if ((failures > 0)); then
   echo "$failures self-test case(s) failed" >&2

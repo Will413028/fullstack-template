@@ -1,0 +1,58 @@
+name: Tool versions
+
+# The release binaries pinned in Makefiles (golangci-lint, hadolint, Atlas) are outside Dependabot's reach. This
+# compares them weekly with the newest releases past the 7-day cooldown and keeps one issue open while any is behind;
+# `python3 scripts/tool_versions.py bump <tool>` rewrites the version and checksums, and CI verifies the result.
+on:
+  schedule:
+    - cron: "30 3 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tool-versions
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Pinned tool versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open or update the one tracking issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare pins with the latest releases
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          status=0
+          python3 scripts/tool_versions.py check > report.txt || status=$?
+          cat report.txt
+          if [ "$status" != 0 ] && [ "$status" != 10 ]; then exit "$status"; fi
+          echo "outdated=$([ "$status" = 10 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Open or update the issue
+        if: steps.check.outputs.outdated == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Pinned tools have newer releases"
+          {
+            echo "Weekly scripts/tool_versions.py check:"
+            echo
+            echo '```'
+            cat report.txt
+            echo '```'
+            echo
+            echo "Run each bump command, commit, and let CI verify the new checksums."
+          } > body.md
+          number="$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file body.md
+          else
+            gh issue create --title "$title" --body-file body.md
+          fi

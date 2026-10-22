@@ -61,6 +61,19 @@ updates:
     cooldown:
       default-days: 7
 
+  # CLIs the backend Makefile runs (squawk, diff-cover)
+  - package-ecosystem: npm
+    directory: /backend/tools
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+  - package-ecosystem: pip
+    directory: /backend/tools
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /frontend
     schedule:
