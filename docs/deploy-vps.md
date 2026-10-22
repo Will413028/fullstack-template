@@ -74,6 +74,9 @@ make up
 
 # 建立管理員帳號；密碼從終端機讀取，不會回顯
 make seed ADMIN_ACCOUNT=admin
+
+# 管理員全被停用、被節流鎖住或忘記密碼時：替既有的管理員設新密碼、啟用並登出所有裝置
+make recover-admin ADMIN_ACCOUNT=admin
 ```
 
 驗證運行狀態：

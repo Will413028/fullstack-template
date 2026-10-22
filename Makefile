@@ -82,6 +82,20 @@ seed:
 	printf '%s' "$$pw" | $(COMPOSE) exec -T -e ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)" -e ADMIN_PASSWORD_FILE=/dev/stdin \
 		backend /usr/local/bin/app seed-admin
 
+# The way back when every admin is disabled, locked out or has lost the password (app recover-admin): sets a new
+# password for an existing admin, enables it, signs it out everywhere and clears its sign-in throttle. The password is
+# read like make seed's.
+#   make recover-admin ADMIN_ACCOUNT=admin
+.PHONY: recover-admin
+recover-admin:
+	@test -n "$(ADMIN_ACCOUNT)" || { echo "usage: make recover-admin ADMIN_ACCOUNT=<name> (the new password is read from the terminal or stdin)"; exit 1; }
+	@if [ -t 0 ]; then \
+		trap 'stty echo' EXIT INT TERM; printf 'New password for %s: ' "$(ADMIN_ACCOUNT)" >&2; stty -echo; \
+		IFS= read -r pw; stty echo; echo >&2; \
+	else IFS= read -r pw; fi; \
+	printf '%s' "$$pw" | $(COMPOSE) exec -T -e ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)" -e ADMIN_PASSWORD_FILE=/dev/stdin \
+		backend /usr/local/bin/app recover-admin
+
 # --- Rename ---
 
 # Renames images, packages, database names, branding and the Go module path (default

@@ -1,6 +1,6 @@
 // Command app is the backend's single binary. Subcommands: serve (HTTP API), migrate (apply migrations as the owner
-// role and grant the app role), seed-admin (create the admin account from ADMIN_ACCOUNT and ADMIN_PASSWORD) and
-// healthcheck (the container health probe; the distroless image has no shell or curl).
+// role and grant the app role), seed-admin (create the admin account from ADMIN_ACCOUNT and ADMIN_PASSWORD),
+// recover-admin (give an existing admin a new password and enable it, same variables) and healthcheck (the container health probe; the distroless image has no shell or curl).
 // This is the composition root: settings are read and validated once here, and platform and modules are wired.
 package main
 
@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -29,7 +30,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = "usage: app serve|migrate|seed-admin|healthcheck"
+const usage = "usage: app serve|migrate|seed-admin|recover-admin|healthcheck"
 
 // Where the image puts the Atlas community build and the migrations (Dockerfile).
 const (
@@ -65,7 +66,9 @@ func run(ctx context.Context, command string) error {
 	case "migrate":
 		return runMigrate(ctx)
 	case "seed-admin":
-		return runSeedAdmin(ctx)
+		return runAdminCommand(ctx, seedAdmin)
+	case "recover-admin":
+		return runAdminCommand(ctx, recoverAdmin)
 	case "healthcheck":
 		addr := os.Getenv("HTTP_ADDR")
 		if addr == "" {
@@ -135,8 +138,9 @@ func serve(ctx context.Context) error {
 	return httpapi.Serve(ctx, ln, srv, shutdownTimeout, logger)
 }
 
-// runSeedAdmin connects as the app role, like serve: creating a row needs no more.
-func runSeedAdmin(ctx context.Context) error {
+// runAdminCommand runs seed-admin or recover-admin with ADMIN_ACCOUNT and ADMIN_PASSWORD. It connects as the app
+// role, like serve: changing a row needs no more.
+func runAdminCommand(ctx context.Context, command func(context.Context, *auth.Service, string, string, io.Writer) error) error {
 	cfg, err := config.LoadSeed(os.LookupEnv)
 	if err != nil {
 		return err
@@ -162,7 +166,7 @@ func runSeedAdmin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return seedAdmin(ctx, svc, cfg.AdminAccount, cfg.AdminPassword, os.Stdout)
+	return command(ctx, svc, cfg.AdminAccount, cfg.AdminPassword, os.Stdout)
 }
 
 func runMigrate(ctx context.Context) error {

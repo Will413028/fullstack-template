@@ -68,6 +68,7 @@ export interface paths {
         /**
          * Change a user (admin only).
          * @description JSON Merge Patch (RFC 7396): omitted fields are left unchanged. Disabling a user signs them out everywhere.
+         *     Disabling the only enabled admin is refused with 409 `last_admin`.
          */
         patch: operations["patchUser"];
         trace?: never;
@@ -304,7 +305,7 @@ export interface components {
             /** @description Human-readable explanation for developers; clients must not parse it. */
             detail?: string;
             /** @description Stable machine-readable code refining `type`. The list grows (x-extensible-enum), so clients translate the values they know and fall back for the rest. */
-            code?: "account_taken" | "invalid_credentials" | "login_throttled" | "session_invalid" | "insufficient_role" | "cross_origin_request";
+            code?: "account_taken" | "invalid_credentials" | "login_throttled" | "last_admin" | "session_invalid" | "insufficient_role" | "cross_origin_request";
             /** @description The request's `X-Request-ID`, for matching a report with the server logs. */
             request_id?: string;
         };
@@ -583,6 +584,7 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["ValidationFailed"];

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -108,5 +109,44 @@ func TestSeedAdminExistingAccountUnchanged(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "already exists") {
 		t.Errorf("output %q", out.String())
+	}
+}
+
+// recover-admin is the way back when every admin is disabled or locked out: it sets a new password, enables the
+// account, ends its sessions and clears its sign-in throttle. It never touches a non-admin or creates an account.
+func TestRecoverAdmin(t *testing.T) {
+	svc, pool := newSeedService(t)
+	if err := seedAdmin(t.Context(), svc, "root", adminPassword, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	const newPassword = "another long enough phrase"
+	if _, err := pool.Exec(t.Context(), `UPDATE users SET is_disabled = true WHERE account = 'root'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(),
+		`INSERT INTO login_throttles (account_key, failures, next_allowed_at, updated_at) VALUES ('root', 9, now() + interval '1 hour', now())`); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := recoverAdmin(t.Context(), svc, "Root", newPassword, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"root" recovered`) {
+		t.Errorf("output %q", out.String())
+	}
+	if _, _, err := svc.SignIn(t.Context(), "root", newPassword, ""); err != nil {
+		t.Fatalf("sign in with the new password: %v", err)
+	}
+
+	if _, _, err := svc.CreateUser(t.Context(), "alice", adminPassword); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"alice", "nobody"} {
+		if err := recoverAdmin(t.Context(), svc, account, newPassword, io.Discard); err == nil || !strings.Contains(err.Error(), "no admin account") {
+			t.Errorf("recover %s: error = %v, want no admin account", account, err)
+		}
+	}
+	if n := countUsers(t, pool); n != 2 {
+		t.Errorf("users = %d, want 2 (recover never creates one)", n)
 	}
 }

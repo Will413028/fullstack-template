@@ -644,6 +644,54 @@ func TestAdminDisablesUserRevokesSessions(t *testing.T) {
 	assertProblem(t, a.patchUser(admin, uuid.Must(uuid.NewV7()), `{"is_disabled":true}`), http.StatusNotFound, "/problems/not-found")
 }
 
+// The only enabled admin cannot be disabled, by themselves or anyone; with a second admin, either may be disabled.
+func TestLastAdminCannotBeDisabled(t *testing.T) {
+	a := newAuthAPI(t)
+	root := a.mustAdmin()
+	rootUser := a.currentSession(root).User
+	p := assertProblem(t, a.patchUser(root, rootUser.Id, `{"is_disabled":true}`), http.StatusConflict, "/problems/conflict")
+	assertCode(t, p, auth.CodeLastAdmin)
+	if _, err := a.svc.EnsureAdmin(t.Context(), "second", goodPassword); err != nil {
+		t.Fatal(err)
+	}
+	if rec := a.patchUser(root, rootUser.Id, `{"is_disabled":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("disable self with another admin = %d %s", rec.Code, rec.Body)
+	}
+	second := a.mustSignIn("second", goodPassword)
+	secondUser := a.currentSession(second).User
+	assertProblem(t, a.patchUser(second, secondUser.Id, `{"is_disabled":true}`), http.StatusConflict, "/problems/conflict")
+}
+
+// Two admins disabling each other at the same moment: the admin rows are locked first, so exactly one succeeds. The
+// other gets 409, or 401 when its session was already revoked by the winner.
+func TestConcurrentAdminDisableLeavesOne(t *testing.T) {
+	a := newAuthAPI(t)
+	root := a.mustAdmin()
+	if _, err := a.svc.EnsureAdmin(t.Context(), "second", goodPassword); err != nil {
+		t.Fatal(err)
+	}
+	second := a.mustSignIn("second", goodPassword)
+	targets := map[string]uuid.UUID{root: a.currentSession(second).User.Id, second: a.currentSession(root).User.Id}
+	codes := make(chan int, 2)
+	var wg sync.WaitGroup
+	for token, target := range targets {
+		wg.Go(func() { codes <- a.patchUser(token, target, `{"is_disabled":true}`).Code })
+	}
+	wg.Wait()
+	close(codes)
+	got := map[int]int{}
+	for c := range codes {
+		got[c]++
+	}
+	if got[http.StatusOK] != 1 || got[http.StatusConflict]+got[http.StatusUnauthorized] != 1 {
+		t.Errorf("status counts = %v, want one 200 and one 409 or 401", got)
+	}
+	var enabled int
+	if err := a.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE role = 'admin' AND NOT is_disabled`).Scan(&enabled); err != nil || enabled != 1 {
+		t.Errorf("enabled admins = %d (%v), want 1", enabled, err)
+	}
+}
+
 func TestNonAdminCannotPatchUser(t *testing.T) {
 	a := newAuthAPI(t)
 	victim, victimToken := a.mustSignUp("alice")

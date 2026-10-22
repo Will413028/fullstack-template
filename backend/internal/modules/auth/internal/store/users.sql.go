@@ -185,6 +185,56 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 	return items, nil
 }
 
+const lockEnabledAdmins = `-- name: LockEnabledAdmins :many
+SELECT id
+FROM users
+WHERE role = 'admin' AND NOT is_disabled
+ORDER BY id
+FOR UPDATE
+`
+
+// LockEnabledAdmins locks every enabled admin, so changes that could leave none (disabling, deleting) run one after
+// another and each sees the others' result.
+func (q *Queries) LockEnabledAdmins(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockEnabledAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recoverAdmin = `-- name: RecoverAdmin :one
+UPDATE users
+SET password_hash = $1, is_disabled = false, updated_at = now()
+WHERE account = $2 AND role = 'admin'
+RETURNING id
+`
+
+type RecoverAdminParams struct {
+	PasswordHash string
+	Account      string
+}
+
+// RecoverAdmin gives an existing admin a new password and enables it; it returns no row for any other account.
+func (q *Queries) RecoverAdmin(ctx context.Context, arg RecoverAdminParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, recoverAdmin, arg.PasswordHash, arg.Account)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const setUserDisabled = `-- name: SetUserDisabled :one
 UPDATE users
 SET is_disabled = $1, updated_at = now()

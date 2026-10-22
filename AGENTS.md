@@ -53,6 +53,7 @@ make restart                        # Restart all services
 make migration                      # Apply migrations (rebuilds the backend image, runs migrate)
 make generate-migration MSG=<name>  # Generate a migration from the modules' schema.sql
 make seed ADMIN_ACCOUNT=<name>      # Create the admin user (password read from the terminal)
+make recover-admin ADMIN_ACCOUNT=<name>  # New password for an existing admin, enabled, signed out everywhere
 make reset-db ADMIN_ACCOUNT=<name>  # Delete all local data, restart, seed
 make rename NAME=<name>             # Rename a fresh clone (optional MODULE=<go module path>)
 make lint-docker                    # hadolint over both Dockerfiles

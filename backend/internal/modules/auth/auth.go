@@ -42,6 +42,7 @@ const (
 	CodePasswordTooCommon  = "password_too_common"
 	CodeInvalidCredentials = "invalid_credentials"
 	CodeLoginThrottled     = "login_throttled"
+	CodeLastAdmin          = "last_admin"
 )
 
 // User is an account as the API shows it.
@@ -218,6 +219,54 @@ func (s *Service) EnsureAdmin(ctx context.Context, account, password string) (cr
 
 var errUserNotFound = apperr.New(apperr.NotFound, "", "user not found")
 
+// ErrNoSuchAdmin is returned by RecoverAdmin for an account that does not exist or is not an admin.
+var ErrNoSuchAdmin = errors.New("auth: no admin account with that name")
+
+// RecoverAdmin is the break-glass path for an admin who is disabled, locked out or has lost the password: it sets a
+// new password, enables the account, deletes its sessions and clears its sign-in throttle. It changes only an
+// existing admin; it never creates or promotes an account.
+func (s *Service) RecoverAdmin(ctx context.Context, account, password string) error {
+	hash, err := s.newPasswordHash(ctx, password)
+	if err != nil {
+		return err
+	}
+	key := accountKey(account)
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := store.New(tx)
+		id, err := q.RecoverAdmin(ctx, store.RecoverAdminParams{Account: key, PasswordHash: hash})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoSuchAdmin
+		}
+		if err != nil {
+			return fmt.Errorf("auth: recover admin: %w", err)
+		}
+		if err := q.DeleteUserSessions(ctx, id); err != nil {
+			return fmt.Errorf("auth: revoke sessions: %w", err)
+		}
+		if err := q.ClearLoginThrottle(ctx, key); err != nil {
+			return fmt.Errorf("auth: clear throttle: %w", err)
+		}
+		return nil
+	})
+}
+
+// ErrLastAdmin refuses to disable or delete the only enabled admin: nobody could administer users afterwards, and
+// seed-admin does not change an existing account.
+var ErrLastAdmin = apperr.New(apperr.Conflict, CodeLastAdmin, "the only enabled admin cannot be disabled or deleted")
+
+// keepAnAdmin fails with ErrLastAdmin when id is the only enabled admin. It locks the enabled admins until q's
+// transaction ends.
+func keepAnAdmin(ctx context.Context, q *store.Queries, id uuid.UUID) error {
+	admins, err := q.LockEnabledAdmins(ctx)
+	if err != nil {
+		return fmt.Errorf("auth: lock admins: %w", err)
+	}
+	if len(admins) == 1 && admins[0] == id {
+		return ErrLastAdmin
+	}
+	return nil
+}
+
 // caller is the signed-in user. The HTTP layer requires a session for every operation that calls a method using it,
 // so a missing user is a wiring bug, not a client error.
 func caller(ctx context.Context) (authctx.User, error) {
@@ -268,11 +317,16 @@ func (s *Service) ListUsers(ctx context.Context, limit int, cursor *string) (Use
 }
 
 // SetDisabled disables or re-enables a user. Disabling deletes all of the user's sessions in the same transaction,
-// so re-enabling later does not bring them back.
+// so re-enabling later does not bring them back, and is refused for the only enabled admin (ErrLastAdmin).
 func (s *Service) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) (User, error) {
 	var u User
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := store.New(tx)
+		if disabled {
+			if err := keepAnAdmin(ctx, q, id); err != nil {
+				return err
+			}
+		}
 		row, err := q.SetUserDisabled(ctx, store.SetUserDisabledParams{ID: id, IsDisabled: disabled})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errUserNotFound

@@ -123,7 +123,7 @@ func TestProblemValuesInContract(t *testing.T) {
 		}
 	}
 
-	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled,
+	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled, auth.CodeLastAdmin,
 		auth.ErrSessionInvalid.Code, errInsufficientRole.Code, codeCrossOrigin}
 	for _, c := range codes {
 		if !inContract("code", c) {
