@@ -19,11 +19,11 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # ATLAS_COMMUNITY_SHA256_* in backend/Makefile, which the integration tests use.
 FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:1896654cfc5c2b5ad74c07f29cb36f5d2d1cbed42e3054070fbfe444e521e83c AS atlas
 ARG TARGETARCH
-ARG ATLAS_VERSION=v1.3.3
+ARG ATLAS_VERSION=v1.3.4
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN case "$TARGETARCH" in \
-      amd64) sum=7bddc9a0cebbb1f3e21cdd5f5811d346850e481e3b7c85e31206613d1f63f068 ;; \
-      arm64) sum=546de518d9875e4fed991b917295395dc5400aa26922fa4cd3fbce33afdb75be ;; \
+      amd64) sum=746868e056299897e2da3b7a4b02546b665a7566c53d1fc2efa8636b5fd144f5 ;; \
+      arm64) sum=4716df1c7bbb991dee7b3056a61e5c91d4a19b96add12623f87f710f019ed702 ;; \
       *) echo "unsupported architecture $TARGETARCH"; exit 1 ;; \
     esac \
  && curl -sSfL -o /atlas "https://release.ariga.io/atlas/atlas-community-linux-${TARGETARCH}-${ATLAS_VERSION}" \
