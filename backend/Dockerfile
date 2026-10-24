@@ -30,7 +30,7 @@ RUN case "$TARGETARCH" in \
  && echo "$sum  /atlas" | sha256sum -c - \
  && chmod 0555 /atlas
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 WORKDIR /app
 COPY --from=build /out/app /usr/local/bin/app
 COPY --from=atlas /atlas /usr/local/bin/atlas
