@@ -4,6 +4,7 @@ version: 2
 # to be caught and yanked before it lands here.
 updates:
   - package-ecosystem: github-actions
+    target-branch: dev
     directory: /
     schedule:
       interval: weekly
@@ -14,6 +15,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: gomod
+    target-branch: dev
     directory: /backend
     schedule:
       interval: weekly
@@ -26,6 +28,7 @@ updates:
   # the Go-built dev tools (backend/tools/go.mod, backend/Makefile). Every require there is marked indirect, which
   # version updates skip by default, so allow all dependency types.
   - package-ecosystem: gomod
+    target-branch: dev
     directory: /backend/tools
     schedule:
       interval: weekly
@@ -39,6 +42,7 @@ updates:
 
   # the Go toolchain and distroless base images, pinned by digest in backend/Dockerfile
   - package-ecosystem: docker
+    target-branch: dev
     directory: /backend
     schedule:
       interval: weekly
@@ -47,6 +51,7 @@ updates:
 
   # node in frontend/Dockerfile, pinned by digest
   - package-ecosystem: docker
+    target-branch: dev
     directory: /frontend
     schedule:
       interval: weekly
@@ -55,6 +60,7 @@ updates:
 
   # postgres and caddy in docker-compose.yml, pinned by digest
   - package-ecosystem: docker-compose
+    target-branch: dev
     directory: /
     schedule:
       interval: weekly
@@ -63,18 +69,21 @@ updates:
 
   # CLIs the backend Makefile runs (squawk, diff-cover)
   - package-ecosystem: npm
+    target-branch: dev
     directory: /backend/tools
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
   - package-ecosystem: pip
+    target-branch: dev
     directory: /backend/tools
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
   - package-ecosystem: npm
+    target-branch: dev
     directory: /frontend
     schedule:
       interval: weekly
