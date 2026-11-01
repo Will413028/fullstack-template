@@ -2,10 +2,10 @@ name: Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
-  # new advisories land without any commit here, so main is rescanned weekly
+    branches: [main, dev]
+  # new advisories land without any commit here, so the default branch (dev, which contains all of main) is rescanned weekly
   schedule:
     - cron: "0 3 * * 1"
   # Other repositories run the same checks by calling this workflow at a pinned commit:

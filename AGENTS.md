@@ -4,6 +4,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 
 ## Verification
 
+- Branch model: daily work goes to `dev`; `main` changes only through a `dev`→`main` PR merged with a merge commit (no squash, no rebase); never push to `main` directly. The pre-push hook and `backend/Makefile` compare against `origin/main` (the released code) on purpose.
 - Backend tests are Go integration tests (testcontainers, PostgreSQL 18), frontend tests use `vitest`; a task is complete only when `make -C backend test` (backend) and `pnpm test` (frontend) pass. CI also runs `make -C backend check` (lint, generated-code, schema and contract checks); run it before pushing backend changes.
 - `make lint-docker` (hadolint, pinned in the root `Makefile`) checks both Dockerfiles; every finding fails, infos included.
 - `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job, except its `make lint-docker`); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
@@ -20,7 +21,7 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 - `make down-v` deletes the Postgres volume and all local data.
 - Never commit `.env` or `.secrets/`; add new variables to `.env-example`.
 - Agents do not add or upgrade dependencies on their own: list each package and version, confirm the package exists and was not registered recently (deps.dev shows publish dates), and wait for approval before installing.
-- Fix known vulnerabilities (`osv-scanner` over every lockfile, `pnpm audit`, `govulncheck`, Dependabot alerts; the Security workflow rescans `main` every Monday) by severity: critical within 7 days, high within 30 days, medium within 90 days, low at the next routine upgrade. osv-scanner blocks any finding; an advisory that cannot be fixed at once goes into an `osv-scanner.toml` next to that lockfile as `[[IgnoredVulns]]` with `ignoreUntil` set to its deadline and a `reason`, so the scan fails again when the deadline passes. Dev tools are dependencies too: a vulnerable dependency of a backend tool is upgraded in `backend/tools/go.mod`.
+- Fix known vulnerabilities (`osv-scanner` over every lockfile, `pnpm audit`, `govulncheck`, Dependabot alerts; the Security workflow rescans the default branch `dev`, which contains all of `main`, every Monday) by severity: critical within 7 days, high within 30 days, medium within 90 days, low at the next routine upgrade. osv-scanner blocks any finding; an advisory that cannot be fixed at once goes into an `osv-scanner.toml` next to that lockfile as `[[IgnoredVulns]]` with `ignoreUntil` set to its deadline and a `reason`, so the scan fails again when the deadline passes. Dev tools are dependencies too: a vulnerable dependency of a backend tool is upgraded in `backend/tools/go.mod`.
 
 ## Monorepo Structure
 

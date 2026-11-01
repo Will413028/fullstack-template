@@ -9,3 +9,7 @@ allowBuilds:
 # Skip versions published less than a day ago. Setting it explicitly also makes
 # pnpm fail instead of silently falling back to a younger version.
 minimumReleaseAge: 1440
+
+# Security fix for a transitive dev dependency (jsdom); drop once jsdom pins >= 8.12.2.
+overrides:
+  undici: 8.12.2
