@@ -158,7 +158,7 @@ jobs:
           persist-credentials: false
       # Node.js 26 and the pnpm version in package.json's packageManager, then pnpm install --frozen-lockfile with the
       # store cached. pnpm/setup succeeds pnpm/action-setup for pnpm 11 and newer.
-      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+      - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
         with:
           working-directory: frontend
           runtime: node@26
