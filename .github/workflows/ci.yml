@@ -177,3 +177,20 @@ jobs:
       - run: python3 scripts/check_locks.py --vitest-report frontend/test-report.json
         working-directory: .
       - run: pnpm build
+
+  gate:
+    # The only required check on main: it passes when every other job in this workflow succeeded or was skipped.
+    name: gate (ci)
+    if: always()
+    needs: [backend, policy, rename, stack, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "a needed job ended with: $r"; exit 1 ;; esac
+          done
