@@ -15,11 +15,11 @@
     "dashboard": "儀表板"
   },
   "home": {
-    "title": "Fullstack Template",
+    "title": "template-go-nextjs",
     "description": "使用 Next.js、Go 和 Docker Compose 建構的 Production-ready 全端範本。"
   },
   "footer": {
-    "brand": "Fullstack Template",
+    "brand": "template-go-nextjs",
     "home": "首頁",
     "copyright": "保留所有權利。"
   },

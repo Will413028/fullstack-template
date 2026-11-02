@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/Will413028/fullstack-template/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/api"
 )
 
 // docsHTML is Swagger UI for the embedded contract. swagger-ui-dist is loaded from jsDelivr pinned to one version

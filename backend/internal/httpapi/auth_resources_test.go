@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
 // The user and session resources (docs/adr/2026-10-18-api-and-auth-baseline.md D9): reading users, and listing,

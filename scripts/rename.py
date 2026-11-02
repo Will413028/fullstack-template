@@ -14,8 +14,10 @@ import subprocess
 import sys
 
 DEFAULT_MODULE = "github.com/Will413028/{name}/backend"
-BRAND = "Fullstack Template"
-# Files that hold the database, role and image names. After the replacements none of them may still say "fullstack".
+BRAND = "template-go-nextjs"
+OLD_NAME = "template-go-nextjs"
+OLD_DB = "template_go_nextjs"
+# Files that hold the database, role and image names. After the replacements none of them may still name OLD_DB.
 STACK_FILES = ("docker-compose.yml", ".env-example", "backend/.env-example", ".github/workflows/ci.yml")
 BRAND_FILES = (
     "frontend/src/app/layout.tsx",
@@ -41,9 +43,9 @@ def update(path: pathlib.Path, change) -> bool:
 
 
 def rename_stack(text: str, name: str, db: str) -> str:
-    text = text.replace("fullstack-template-backend", f"{name}-backend")
-    # fullstack, fullstack_owner, fullstack_app: the database and its roles (unquoted identifiers, no hyphens)
-    return re.sub(r"\bfullstack(?=_owner\b|_app\b|\b)", db, text)
+    text = text.replace(f"{OLD_NAME}-backend", f"{name}-backend")
+    # OLD_DB, OLD_DB_owner, OLD_DB_app: the database and its roles (unquoted identifiers, no hyphens)
+    return re.sub(rf"\b{OLD_DB}(?=_owner\b|_app\b|\b)", db, text)
 
 
 def rename_module(backend: pathlib.Path, old: str, new: str) -> list[pathlib.Path]:
@@ -83,14 +85,14 @@ def main() -> int:
     for rel in STACK_FILES:
         path = root / rel
         update(path, lambda t: rename_stack(t, name, db))
-        if re.search(r"fullstack", path.read_text(encoding="utf-8"), re.I):
-            print(f"error: {rel} still names fullstack; update scripts/rename.py", file=sys.stderr)
+        if OLD_DB in path.read_text(encoding="utf-8"):
+            print(f"error: {rel} still names {OLD_DB}; update scripts/rename.py", file=sys.stderr)
             return 1
-    update(root / "frontend/package.json", lambda t: t.replace("fullstack-template-frontend", f"{name}-frontend"))
-    update(backend / "internal/platform/config/config.go", lambda t: t.replace('"fullstack-template"', f'"{name}"'))
+    update(root / "frontend/package.json", lambda t: t.replace(f"{OLD_NAME}-frontend", f"{name}-frontend"))
+    update(backend / "internal/platform/config/config.go", lambda t: t.replace(f'"{OLD_NAME}"', f'"{name}"'))
     repo = re.match(r"github\.com/[^/]+/[^/]+", module)
     if repo:
-        update(root / "SECURITY.md", lambda t: t.replace("github.com/Will413028/fullstack-template", repo.group()))
+        update(root / "SECURITY.md", lambda t: t.replace(f"github.com/Will413028/{OLD_NAME}", repo.group()))
     else:
         print("note: the module path is not on github.com; update the advisory link in SECURITY.md by hand")
     for rel in BRAND_FILES:

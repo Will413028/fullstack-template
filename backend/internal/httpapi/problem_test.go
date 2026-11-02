@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // assertProblem checks rec is an RFC 9457 problem with the given status and type, and returns it.

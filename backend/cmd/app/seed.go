@@ -10,9 +10,9 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"github.com/Will413028/fullstack-template/backend/api"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // The environment variable each CreateUserRequest property comes from, for error messages.

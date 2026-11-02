@@ -28,7 +28,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/goleak"
 
-	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/migrate"
 )
 
 // Image is the PostgreSQL image compose runs, pinned by digest; TestImageMatchesCompose keeps the two equal, since
@@ -37,10 +37,10 @@ const Image = "postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb
 
 // Role names and passwords inside the test container.
 const (
-	templateDB = "fullstack"
+	templateDB = "template_go_nextjs"
 	superuser  = "postgres"
-	OwnerRole  = "fullstack_owner"
-	AppRole    = "fullstack_app"
+	OwnerRole  = "template_go_nextjs_owner"
+	AppRole    = "template_go_nextjs_app"
 )
 
 // Server is one test PostgreSQL container.

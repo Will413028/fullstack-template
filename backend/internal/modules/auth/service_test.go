@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // cheapArgon2 keeps tests fast, under the race detector too; production uses DefaultArgon2Params.

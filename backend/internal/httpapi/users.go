@@ -6,9 +6,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // The auth operations: accounts (/users) and sessions (/sessions).

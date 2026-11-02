@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/internal/store"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth/internal/store"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // Sign-in throttling beyond one client (docs/adr/2026-10-22-account-abuse-and-lifecycle.md D4). Each client, an

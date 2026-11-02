@@ -8,8 +8,8 @@
 
 | 讀取者 | 權限 | 出處 |
 |---|---|---|
-| App 角色（`DB_APP_USER`，預設 `fullstack_app`） | `public` 每張表的 SELECT、INSERT、UPDATE、DELETE；`serve` 與 `seed-admin` 使用 | `deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go` |
-| Owner 角色（`DB_OWNER_USER`，預設 `fullstack_owner`） | 擁有資料庫與 `public`；只有 `app migrate` 使用 | `10-roles.sh` |
+| App 角色（`DB_APP_USER`，預設 `template_go_nextjs_app`） | `public` 每張表的 SELECT、INSERT、UPDATE、DELETE；`serve` 與 `seed-admin` 使用 | `deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go` |
+| Owner 角色（`DB_OWNER_USER`，預設 `template_go_nextjs_owner`） | 擁有資料庫與 `public`；只有 `app migrate` 使用 | `10-roles.sh` |
 | Superuser（`POSTGRES_USER`） | 全部；初始化、維護與 `docs/deploy-vps.md` 第 7 節的備份腳本 | `10-roles.sh`、`docker-compose.yml` |
 | 主機上能操作 Docker 的人 | 容器日誌與 volume | `docker-compose.yml` |
 

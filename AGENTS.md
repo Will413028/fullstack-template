@@ -1,4 +1,4 @@
-# Fullstack Template
+# template-go-nextjs
 
 Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Docker Compose deployment behind Caddy on one origin.
 

@@ -15,7 +15,7 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 )
 
 // Without a validator kin-openapi accepts any string as format: uuid; RFC 9562 covers the UUIDv7 primary keys. It is

@@ -94,7 +94,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - run: make rename NAME=ci-probe
       - name: No file still names the template's module path
-        run: '! git grep -n "github.com/Will413028/fullstack-template/backend" -- backend'
+        run: '! git grep -n "github.com/Will413028/template-go-nextjs/backend" -- backend'
       - run: go vet ./...
         working-directory: backend
 
@@ -140,7 +140,7 @@ jobs:
           test -n "$id" && test "$id" != client-chosen
       - name: The app role cannot change the schema
         run: |
-          out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fullstack_app -d fullstack -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
+          out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U template_go_nextjs_app -d template_go_nextjs -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
           echo "$out"
           grep -q 'permission denied for schema public' <<< "$out"
       - if: failure()

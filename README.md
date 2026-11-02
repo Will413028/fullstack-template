@@ -1,4 +1,4 @@
-# Fullstack Template
+# template-go-nextjs
 
 Production-ready fullstack monorepo for new web projects.
 

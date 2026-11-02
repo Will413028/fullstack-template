@@ -12,8 +12,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"github.com/Will413028/fullstack-template/backend/api"
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 )
 
 // newStubAPI assembles the full handler chain around testdata/test-openapi.yaml with stub operations: POST

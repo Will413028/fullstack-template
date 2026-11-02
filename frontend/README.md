@@ -1,6 +1,6 @@
 # Frontend — Next.js 16
 
-Part of the [fullstack template](../README.md). Uses **pnpm** (not npm/yarn/bun).
+Part of the [template-go-nextjs](../README.md). Uses **pnpm** (not npm/yarn/bun).
 
 ```bash
 pnpm install        # install dependencies

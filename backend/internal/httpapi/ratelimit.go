@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // ipLimiter is an in-memory token bucket per client: perMin requests a minute, bursting up to perMin. An IPv6

@@ -16,10 +16,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Will413028/fullstack-template/backend/internal/modules/items/internal/store"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items/internal/store"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
 )
 
 // Item is an item as the API shows it.

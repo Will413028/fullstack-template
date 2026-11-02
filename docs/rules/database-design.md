@@ -146,8 +146,8 @@ RETURNING ...;
 照 OWASP 最小權限（ADR go-backend D5）：
 
 - `POSTGRES_USER`（superuser）只用於初始化與容器內維運，app **NEVER** 用它連線。
-- migrate 用 owner 角色（`DB_OWNER_USER`，例如 `fullstack_owner`）：擁有 database 與 `public` schema，不是 superuser，經 `MIGRATE_DATABASE_URL` 連線。
-- `serve` 與 `seed-admin` 用 app 角色（`DB_APP_USER`，例如 `fullstack_app`），只有 DML，經 `DATABASE_URL` 連線。
+- migrate 用 owner 角色（`DB_OWNER_USER`，例如 `template_go_nextjs_owner`）：擁有 database 與 `public` schema，不是 superuser，經 `MIGRATE_DATABASE_URL` 連線。
+- `serve` 與 `seed-admin` 用 app 角色（`DB_APP_USER`，例如 `template_go_nextjs_app`），只有 DML，經 `DATABASE_URL` 連線。
 - 角色由 `deploy/postgres/initdb/10-roles.sh` 建立；授權（含 `ALTER DEFAULT PRIVILEGES`）由 `app migrate` 每次套用後冪等執行，所以新表自動給 app 角色 DML。
 - 密碼不放在 URL 或環境變數：用 `*_FILE`（compose secrets 掛檔）傳入，URL 只寫使用者名稱。
 - 整合測試（testcontainers，PostgreSQL 18）使用同一套角色。

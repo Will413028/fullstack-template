@@ -1,4 +1,4 @@
-module github.com/Will413028/fullstack-template/backend
+module github.com/Will413028/template-go-nextjs/backend
 
 go 1.27.3
 

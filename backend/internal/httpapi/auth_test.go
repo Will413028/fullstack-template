@@ -20,12 +20,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
-	platformdb "github.com/Will413028/fullstack-template/backend/internal/platform/db"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/dbtest"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
+	platformdb "github.com/Will413028/template-go-nextjs/backend/internal/platform/db"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/dbtest"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/logx"
 )
 
 var pg *dbtest.Server

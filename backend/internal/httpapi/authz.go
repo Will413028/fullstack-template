@@ -13,10 +13,10 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
 
 // Authorization (docs/adr/2026-10-18-api-and-auth-baseline.md D7): resources a user owns are scoped in their queries

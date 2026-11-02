@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/logx"
 )
 
 var proxies = []netip.Prefix{netip.MustParsePrefix("172.30.0.0/24")}

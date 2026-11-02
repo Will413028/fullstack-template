@@ -9,8 +9,8 @@ import (
 	"runtime/debug"
 	"strconv"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // problemType is one kind of RFC 9457 problem. type and title are fixed per kind; clients choose messages by type

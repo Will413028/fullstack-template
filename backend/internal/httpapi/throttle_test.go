@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
 const deviceCookieName = "__Host-device"

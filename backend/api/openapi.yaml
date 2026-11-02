@@ -4,7 +4,7 @@
 # its 3.1 support as initial.
 openapi: 3.0.3
 info:
-  title: Fullstack Template API
+  title: template-go-nextjs API
   version: 0.1.0
   description: |
     Errors are RFC 9457 problem details (`application/problem+json`). Clients choose messages by `type` and `code`

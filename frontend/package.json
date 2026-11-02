@@ -1,5 +1,5 @@
 {
-  "name": "fullstack-template-frontend",
+  "name": "template-go-nextjs-frontend",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@12.14.0",

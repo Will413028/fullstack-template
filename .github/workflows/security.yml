@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: "0 3 * * 1"
   # Other repositories run the same checks by calling this workflow at a pinned commit:
-  #   uses: Will413028/fullstack-template/.github/workflows/security.yml@<sha> # <tag>
+  #   uses: Will413028/template-go-nextjs/.github/workflows/security.yml@<sha> # <tag>
   # A caller's scheduled run gets only the vulnerability scan, as here. Projects made from this template keep their
   # own copy of this file instead of calling it.
   workflow_call:
