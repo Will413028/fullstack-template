@@ -23,7 +23,7 @@
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 || exit 0; lefthook install || echo 'warning: lefthook install failed, git hooks are not active' >&2"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.9.2",
+    "@hookform/resolvers": "^6.0.0",
     "@tanstack/react-query": "^5.105.0",
     "@tanstack/react-query-devtools": "^5.105.0",
     "clsx": "^2.1.1",
