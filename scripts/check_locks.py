@@ -32,12 +32,31 @@ SUPPRESSIONS = {
 }
 
 
+# Languages whose generated files (frontend/src/generated) carry their generator's suppressions.
+SKIP_GENERATED = {"typescript"}
+
+
+def generated_files(files: list[str]) -> set[str]:
+    """The files .gitattributes marks linguist-generated: their generator writes the suppressions (for example
+    protoc-gen-es's eslint-disable header), and nobody edits them by hand."""
+    out = subprocess.run(
+        ["git", "check-attr", "-z", "--stdin", "linguist-generated"],
+        input="\0".join(files), check=True, capture_output=True, text=True,
+    ).stdout.split("\0")
+    # -z output is path, attribute, value, each NUL-terminated
+    return {out[i] for i in range(0, len(out) - 2, 3) if out[i + 2] == "true"}
+
+
 def count_suppressions(language: str) -> int:
     pattern, suffixes = SUPPRESSIONS[language]
     files = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True, text=True).stdout.split("\0")
+    files = [f for f in files if f.endswith(suffixes) and f != "scripts/check_locks.py"]
+    # Only TypeScript skips generated files: the migrations are marked generated for their diff size, but a
+    # squawk-ignore in one is written by hand.
+    skip = generated_files(files) if language in SKIP_GENERATED else set()
     total = 0
     for name in files:
-        if not name.endswith(suffixes) or name == "scripts/check_locks.py":
+        if name in skip:
             continue
         path = pathlib.Path(name)
         if path.is_file():

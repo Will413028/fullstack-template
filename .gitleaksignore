@@ -1,2 +1,4 @@
 # Test-only SECRET_KEY placeholder in an early CI workflow; not a real credential.
 d0acaa1460d81792ce4ef060828198c25db402a9:.github/workflows/ci.yml:generic-api-key:39
+# googleapis' commit id on the Buf Schema Registry, pinning the version of google/rpc/error_details.proto; public, not a credential.
+387014aedaafac4b0ee53fa161fb8d016e939705:frontend/buf.gen.yaml:generic-api-key:14
