@@ -107,6 +107,8 @@ tags: [fullstack-template, decision, rest, auth, security]
 
 - 2026-11-03：前端改由 Vercel 部署，D1 的拓樸由 [前端改由 Vercel 部署](2026-11-03-frontend-on-vercel.md) 取代：Caddy 只服務 API，Vercel 轉送 `/api/*` 並以共用密鑰證明來源，dev 不走 Caddy。D1 的同源理由與「不信任 Next」仍成立；D8 的 `lb_try_duration` 只涵蓋 API。
 
+- 2026-11-03：對外契約改用 Protobuf＋Connect，D2（REST 形狀、spec-first 的 `openapi.yaml`）、D3（RFC 9457）、D9（`Location` 與 GET 的規則）與不變量「`openapi.yaml` 是 API 形狀與限制的唯一來源」由 [對外 API 的契約改用 Protobuf＋Connect](2026-11-03-api-contract-protobuf-connect.md) 取代；D9 的目的改寫成「每個 Create 與 Update 都回傳資源，而且有對應的 Get」。D6 的「長度與格式只寫在契約」也被取代：限制改寫在模組的 service 裡，HTTP 與 `seed-admin` 經由同一個方法共用。D1、D4、D5、D7、D8 與 D6 的其他部分照舊。
+
 ## Related
 
 - 來源：2026-10-18 一個沒參與規劃的 subagent 從零查證業界基準（來源見上方各連結），repo 擁有者回覆「照建議」拍板。本 ADR 即原始紀錄。

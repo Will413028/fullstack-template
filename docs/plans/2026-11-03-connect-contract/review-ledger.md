@@ -1,0 +1,97 @@
+# Plan review ledger
+
+Cumulative findings across review rounds (Review protocol, `.agents/global/delegation.md` in the author's notes). Each row: round, severity, finding, handling, the check that proves it.
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| 1 | 1 | blocking | `check-plan.py tests` used `\w`/`\s` with `git grep -E`, matched 0 Go tests | fixed: reads files with `git show`, Python regex, whole-word match | `check-plan.py tests` reports 138 missing before a map exists; items glob reports 16; mapping `TestGetOtherUsersItemX` still reports `TestGetOtherUsersItem` |
+| 2 | 1 | should | no per-file mode; scope beyond httpapi unclear; substring match | fixed: `tests [GLOB]`; scope `GO_DIRS` = httpapi + cmd/app + frontend test files; word match | same as #1 |
+| 3 | 1 | blocking | Connect paths would hit the kin-openapi validator; one CSRF deny handler for two protocols | regressed in round 2 (#19), fixed again by #19; originally: step 1 transition mux splits on `/api/<root>.` after `authenticate`; deny/MaxBytes choose format by `ErrorWriter.IsSupported` | step 1 acceptance: test service reachable through `NewHandler`; REST CSRF still problem, Connect CSRF a Connect error |
+| 4 | 1 | blocking | connect-go decodes before interceptors, so "auth before validation" is not kept by interceptor order | fixed: premise + invariant: net/http check by procedure class before the Connect handler | step 1 mutation: unauthenticated bad JSON to an App method → `unauthenticated` |
+| 5 | 1 | blocking | `backend/Dockerfile` `COPY api api` breaks once `backend/api/` is deleted | fixed: step 5 scope + `make lint-docker`; `COPY api` in the step 5 grep | step 5 acceptance |
+| 6 | 1 | blocking | step 1 mutations had no service to act on; descriptor test passes on empty set | fixed: `api/<root>/testing/v1alpha1/testing.proto` (Public/App/Admin, Get+Update), kept to step 6; count > 0 assertion | step 1 mutations |
+| 7 | 1 | should | moving validation into modules would make invalid requests spend rate-limit tokens | fixed: premise + invariant: handler validates, then limits, then calls service | step 3+4 mutation: limit-before-validate fails the "no token" test |
+| 8 | 1 | should | step 1 renamed gen targets while saying old generation stays; drift unguarded in steps 2-4 | fixed: old targets renamed `gen-openapi*` / `gen:openapi*`, kept in check until step 5 | step 1 scope |
+| 9 | 1 | should | step 3 alone fails the push gate (frontend no longer compiles) | fixed: steps 3 and 4 merged into one push "3＋4" | step heading |
+| 10 | 1 | should | proto package root under rename: hyphens, directory match, descriptor bytes | decided: D5-A (fixed root `app`), Will 2026-11-03; option text corrected (#20) | plan 決定 D5 |
+| 11 | 1 | should | frontend CI job and lefthook cannot get buf; generated TS commit; error_details.proto for TS | fixed: `api/.buf-version` + `scripts/fetch-buf.sh`; generated code committed; `frontend/buf.gen.yaml` includes error_details | step 1 acceptance: Frontend job runs `gen:api:check` |
+| 12 | 1 | should | quality locks move every step, plan only said step 5 | fixed: lock update listed in steps 1, 2, 3＋4, 5 | step scopes |
+| 13 | 1 | should | no mutation for silently dropped limits; `recover-admin` missing | fixed: mutations for title length, password 128, seed-admin; `recoverAdmin` in consumers | step 2, 3＋4 acceptance |
+| 14 | 1 | should | no E2E in CI; SSR cookie forwarding and GET path unverified; `useHttpGet` missing | fixed: `server.test.ts` asserts GET path + cookie header; compose job curl probe with cookie; browser walk-through as 需要人做的事; `useHttpGet: true` | step 3＋4 acceptance |
+| 15 | 1 | nit | items rg evidence wrong | fixed: replaced with `rg -n "/items|listItems|createItem"` | premise |
+| 16 | 1 | should | files not marked new/modified/deleted | fixed: markers in steps 1, 2, 3＋4, 5 | step scopes |
+| 17 | 1 | nit | step 5 grep: use tracked files, ADR exception format | fixed: `git grep` with pathspec excludes; ADR hits listed as `file:line` | step 5 acceptance |
+| 18 | 1 | nit | CI baseline run not verified by reviewer (no network) | accepted: author ran `gh run view 41586205101` earlier (all jobs success) | session record |
+
+## Round 2 (stopped: #19 is a new blocking caused by the round-1 fix of #3; per Review protocol no further fixes, ledger handed to Will)
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| 19 | 2 | blocking | `ErrorWriter.IsSupported` treats any POST `application/*` and any GET as Connect, so REST CSRF denials would become Connect errors; connect-go already maps MaxBytes to `resource_exhausted` | fixed after Will approved (2026-11-03, 「照建議」): deny handler chooses by the same path test as the mux split (`/api/<root>.`); drop the MaxBytes half; note `resource_exhausted` is HTTP 429 like rate limiting, distinguished by `RetryInfo` | `connect@v1.21.1/error_writer.go:79-88`, `protocol_connect.go:50`, `items_test.go:347` |
+| 20 | 2 | blocking | D5 option A claims rename needs no regeneration; false for both options: `rename.py` rewrites the module path inside generated `.pb.go`, whose raw descriptor stores `go_package` with a length prefix | fixed after Will approved (2026-11-03, 「照建議」): both options regenerate after rename (or rename skips `internal/gen` then `buf generate`), rename CI job installs buf and loads descriptors; fix inventory T24; A must address go-backend D4 | `scripts/rename.py:31,55-63`; hawkr `media.pb.go:2184`; `ci.yml:95-99` (inferred from code, rename not run) |
+| 21 | 2 | should | inventory B2, B9 destinations still say "interceptor" for the unauthenticated check | fixed after Will approved (2026-11-03, 「照建議」): "net/http check by procedure class (step 1); admin check in interceptor" | inventory B2, B9 |
+| 22 | 2 | should | rows B12, B15, B17, B26, B27 say step 1 but step 1 scope omits them; B27 (field names instead of JSON Pointer) would change REST output during step 1 | fixed after Will approved (2026-11-03, 「照建議」): assign each; B27 moves to step 3＋4 | `rg -n "step 1" inventory.md` |
+| 23 | 2 | should | step 1 mutation for the breaking selftest has the wrong direction | fixed after Will approved (2026-11-03, 「照建議」): make `check-buf-breaking.sh` miss the break (e.g. exit 0), `make tools-selftest` must fail | `selftest-checks.sh:31-39` |
+| 24 | 2 | should | no existing test proves "invalid requests use no token"; premise depends on D2 and needs an exported pure check | fixed after Will approved (2026-11-03, 「照建議」): new test in step 3＋4; premise marked "depends on D2" | `ratelimit_test.go` test list; `ratelimit.go:92` |
+| 25 | 2 | should | step 0 tests-map mutation impossible before step 2 | fixed after Will approved (2026-11-03, 「照建議」): move to step 2 | `check-plan.py tests` = 138 lines |
+| 26 | 2 | should | step 5 `git grep` excludes only root `go.sum`/`pnpm-lock.yaml`; new ADR not historical | fixed after Will approved (2026-11-03, 「照建議」): `':(glob,exclude)**/go.sum'` etc.; list new ADR as exception | `backend/tools/go.sum:52-55,175-176` |
+| 27 | 2 | should | Connect GET + cookie curl probe has no cookie source or expected result | fixed after Will approved (2026-11-03, 「照建議」): CreateUser via Caddy, keep Set-Cookie, GET GetCurrentUser with `connect=v1&encoding=json&message=%7B%7D` → 200 with account; without cookie → 401 | `ci.yml` probes |
+| 28 | 2 | nit | unknown procedure under a known prefix: unauthenticated or not_found unspecified | fixed after Will approved (2026-11-03): applied as described | `server_test.go:221` |
+| 29 | 2 | nit | handler wording implies it does sign-in throttling (lives in `auth.Service.SignIn`) | fixed after Will approved (2026-11-03): applied as described | `sessions.go:93` |
+| 30 | 2 | nit | 被擋於 misses D3 on step 1 and D2 on step 3＋4 | fixed after Will approved (2026-11-03): applied as described | plan headings |
+| 31 | 2 | nit | a few files still lack new/modified/deleted markers | fixed after Will approved (2026-11-03): applied as described | plan steps 1, 3＋4, 5 |
+| 32 | 2 | nit | `check-plan.py` keys tests by name (two `TestMain` merge) and counts `TestMain`; scale table says 7 frontend files, script requires 9 | fixed after Will approved (2026-11-03): applied as described | `check-plan.py:51-64` |
+
+Round 1 rows re-verified in round 2: #1, #2, #4 (plan text), #5, #6, #8, #9, #11, #12, #13, #15 still fixed; #3 regressed (#19); #7 partly (#24); #14 partly (#27); #16 mostly (#31); #17 partly regressed (#26); #18 accepted.
+
+Count: findings 32; fixed 15; recorded 1 (#18); raised 1 (#10); open after round 2: 14 (#19–#32), plus #3 regressed.
+
+After round 2: Will approved all proposed fixes and D1–D5 as recommended (2026-11-03). No third review round (Review protocol: at most two); the design-review skill reviews the plan and the ADR next.
+
+Count after fixes: findings 32; fixed 30; recorded 1 (#18); raised and decided 1 (#10); rejected 0.
+
+## Design review, start of migration (design-review skill, round 1, 2026-11-03)
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| 33 | DR1 | blocking | oasdiff kept until step 5 would fail every push once steps 2–3 delete paths | fixed: oasdiff, its script and selftest case removed in step 1 with `Quality-Gate:` | plan step 1 閘門; inventory T4–T7 |
+| 34 | DR1 | should | `WIRE_JSON` does not block deleting an RPC or service | fixed: `RPC_NO_DELETE` + `PACKAGE_SERVICE_NO_DELETE`; selftest "delete an RPC" case and mutation | reviewer ran `buf config ls-breaking-rules` (buf 1.50.0); plan step 1; ADR Decision |
+| 35 | DR1 | should | "invalid requests use no token" had no ADR/threat-model source; hawkr limits at the entry | raised → Will: entry limiting like hawkr (2026-11-03); invariant removed, intentional change recorded | plan premise, step 1, step 3＋4; ADR Rationale |
+| 36 | DR1 | should | Go `errdetails` source undecided; genproto not approved; `field_behavior` unused | raised → Will approved `google.golang.org/genproto/googleapis/rpc`; managed mode skips googleapis for Go; `field_behavior` dropped | plan deps, step 1 |
+| 37 | DR1 | should | test proto under `api/` leaks into frontend, breaking and derived projects | fixed: separate buf module in `backend/internal/httpapi/rpc/testdata/`, Go only | plan step 1 |
+| 38 | DR1 | should | unhandled-error logging not carried over | fixed: conversion interceptor logs internal errors; HTTP layer logs pre-interceptor errors; mutation added | plan step 1; inventory B6 |
+| 39 | DR1 | should | unknown JSON fields silently discarded, not listed as intentional change | fixed: listed in step 2 intentional changes; inventory B3, B4; ADR Decision | `connect@v1.21.1/codec.go:180` |
+| 40 | DR1 | should | baseline ADR D6 "limits only in contract" superseded but not listed | fixed: ADR `supersedes` and Related; baseline Review Note; plan step 0 不能動 | ADRs |
+| 41 | DR1 | should | inventory lacked why/still-holds/from-scratch for carried mechanisms | fixed: inventory §7 carry-over audit (16 rows) | inventory §7 |
+| 42 | DR1 | nit | re-auth rationale (no DELETE body) gone; claimed noted in ADR but was not | fixed: ADR Decision restates the remaining reason; inventory D8 | ADR |
+| 43 | DR1 | nit | D5 reversibility text stale after D1-B; ADR and plan numbering differ | fixed: plan D5 可逆性; ADR uses D5 for the package root and notes D4 lives in the plan | plan D5; ADR |
+| 44 | DR1 | nit | service-class checked in three places | fixed: startup check is the only class check (with its test); descriptor "three classes" test dropped; net/http `not_found` only for procedures absent from the table | plan step 1 |
+| 45 | DR1 | nit | Connect GET puts the request in `?message=`, logged by Caddy/Vercel; hawkr §三 rule missing | fixed: premise + inventory D11 + step 5 api-design | plan |
+| 46 | DR1 | nit | two buf download paths; T3 wording | fixed: `scripts/fetch-buf.sh` is the single download point; T3 rewritten | plan step 1; inventory T3 |
+| 47 | DR1 | nit | 401 redirect keyed on a procedure list | fixed: redirect unless `ErrorInfo.reason` is `INVALID_CREDENTIALS` (default, overridable); mutation updated | plan step 1, step 3＋4 |
+
+Count: findings 15; fixed 13; raised 2 (both decided by Will); recorded 0; rejected 0. Instruction-file reconciliation: 0 changes (the three `AGENTS.md` still describe the current code; they change in step 5).
+
+## Design review round 2 (2026-11-03)
+
+No blocking; no finding caused by a round-1 fix. Per Review protocol only fixes proven by a test or a run were applied; the rest are open and handed to Will.
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| 48 | DR2 | should | breaking rules miss deleting or renaming a whole package | fixed: `PACKAGE_NO_DELETE` added; selftest "delete a package" case + mutation | buf 1.50.0 fixture in scratchpad: without the rule deleting `app.b.v1` exit 0; with it exit 100, renaming `app.a.v1`→`app.c.v1` exit 100 |
+| 49 | DR2 | should | `api/buf.yaml` googleapis deps + `buf.lock` have no importer after `field_behavior` was dropped | fixed after Will approved (2026-11-03): drop deps and lock; `frontend/buf.gen.yaml` takes googleapis as a pinned `module:` input (as hawkr's TS config); no Go `disable` needed | hawkr `packages/hawkr-api-ts/buf.gen.yaml` |
+| 50 | DR2 | should | HTTP-layer logging of pre-interceptor errors has no necessity: those are 4xx and `accessLog` already records procedure + status | fixed after Will approved (2026-11-03): drop it, keep only "internal errors logged by the interceptor" | `middleware.go:109-139`; old system logged only unknown errors (`problem.go:126`) |
+| 51 | DR2 | should | `fetch-buf.sh` + `.buf-version` duplicates the repo's Go-free download pattern (root `Makefile` hadolint with checksum, stamp, `tool_versions.py`); checksum location contradictory | fixed after Will approved (2026-11-03): `BUF_VERSION` + `BUF_SHA256_<platform>` in the root `Makefile`, everyone calls `make bin/buf`; or keep hawkr's `.buf-version` (Will's call) | root `Makefile:127-150`; `scripts/tool_versions.py:119-151` |
+| 52 | DR2 | should | only the CSRF deny handler chooses Connect vs problem by path; `authenticate` DB errors and outer panic recovery still write problems on the Connect path, and lose their writer in step 5 | fixed after Will approved (2026-11-03): one HTTP-layer error writer choosing by the same path test, used by CSRF, authenticate, recover, unauthenticated check, rate limit; mutation for authenticate DB error → Connect `internal` | `auth.go:91`, `problem.go:149` |
+| 53 | DR2 | should | descriptor test scans a hand-written package list; a new module outside the list escapes the `NO_SIDE_EFFECTS` rule | fixed after Will approved (2026-11-03): derive the scope from the mounted services (`NewHandler`'s procedure table) or fold the naming check into the startup check | plan step 1 |
+| 54 | DR2 | should | apperr `Kind`→Connect code: `Conflict` maps to two codes (`account_taken` already_exists, `last_admin` failed_precondition); §7 lacks apperr, B11, B19, B15 | fixed after Will approved (2026-11-03): fix the mapping table in step 1 (split the Kind or let the reason pick the code), add the four rows to §7 | `apperr.go:11`; hawkr error model ADR |
+| 55 | DR2 | nit | inventory F1, O10 still described the procedure-list redirect | fixed | inventory F1, O10 |
+| 56 | DR2 | nit | `updateMask` example wrong (it is the official JSON name) | fixed: examples `update_masks`, `updatemask` | protojson JSON mapping |
+
+Ledger re-check from round 2: #33, #35, #37, #39, #40, #42, #44, #45 still fixed; #34 completed by #48; #36 leaves #49; #38 leaves #50; #41 leaves #54; #43 depended on #48 (now holds); #46 not fixed → #51; #47 regressed in inventory → fixed by #55.
+
+Count (design review): findings 24; fixed 16; raised 2 (decided by Will); open 6 (#49–#54); rejected 0.
+
+After design review round 2: Will approved #49, #50, #52, #53, #54 as proposed and chose the root `Makefile` for buf (#51), 2026-11-03. No third round (Review protocol: at most two).
+
+Count (design review, final): findings 24; fixed 22; raised 2 (decided by Will); open 0; rejected 0.
