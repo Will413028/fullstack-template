@@ -117,7 +117,7 @@
 |---|---|---|
 | 每 IP 限流的狀態在程式記憶體裡，每個 backend 副本各有一份額度（`httpapi/ratelimit.go`） | 範本只跑一個 backend 副本 | 跑超過一個 backend 副本，或改用 Kamal、Swarm 部署：把限流移到資料庫或 proxy（ADR 基準的 Revocation Triggers） |
 | 所有模組共用一個 app 角色與 `public` schema，app 角色能寫每張表（`migrate.go`） | 單一程序的模組化單體；分層由程式碼檢查（`backend/AGENTS.md` 規則 2、`internal/archtest`） | 某個模組拆成獨立服務，或需要自己的資料庫帳密 |
-| origin secret 是共用的靜態密鑰，Caddy 只接受一個值 | Vercel 沒有能驗證來源的機制，也沒有固定的出口 IP；輪替時有短暫的 403 | Vercel 提供 mTLS 或簽章，或輪替的空窗不可接受（ADR 前端改由 Vercel 部署） |
+| origin secret 是共用的靜態密鑰，只在外洩或人員異動時手動輪替（Caddy 輪替期間同時接受新舊兩個值） | Vercel 沒有能驗證來源的機制，也沒有固定的出口 IP | Vercel 提供 mTLS 或簽章（ADR 前端改由 Vercel 部署） |
 | 外洩密碼檢查查詢失敗時放行，且預設關閉 | 外部服務故障不該擋住註冊；內建清單一律檢查 | 產品要求外洩檢查是硬性規則 |
 | 註冊會透露帳號名稱已被使用 | 用帳號名而不是 email，沒有 email 服務（ADR D6） | 加入 email 驗證或密碼找回 |
 | 沒有改密碼、重設或找回密碼的 operation | 沒有 email 服務（ADR D6） | 同上；新 operation 必須撤銷 session（後端規則 8） |

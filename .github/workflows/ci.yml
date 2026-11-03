@@ -114,7 +114,7 @@ jobs:
           docker compose config --format json > /tmp/compose.json
           test "$(jq -c '.services.backend.secrets | map(.source)' /tmp/compose.json)" = '["db_app_password"]'
           test "$(jq -c '.services.migrate.secrets | map(.source)' /tmp/compose.json)" = '["db_owner_password"]'
-          test "$(jq -c '.services.caddy.secrets | map(.source)' /tmp/compose.json)" = '["origin_secret"]'
+          test "$(jq -c '.services.caddy.secrets | map(.source)' /tmp/compose.json)" = '["origin_secret","origin_secret_previous"]'
       # Logs hold client addresses and paths: every service rotates them (docs/privacy/data-inventory.md)
       - name: Every service rotates its logs
         run: test "$(jq -c '[.services | to_entries[] | select(.value.logging.options["max-size"] == null) | .key]' /tmp/compose.json)" = '[]'
@@ -134,6 +134,7 @@ jobs:
           code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
           test "$(code http://localhost/api/users/me)" = 403
           test "$(code -H 'X-Origin-Secret: wrong' http://localhost/api/users/me)" = 403
+          # origin_secret_previous is empty outside a rotation: an empty header must not match it
           test "$(code -H 'X-Origin-Secret;' http://localhost/api/users/me)" = 403
           test "$(code -H "X-Origin-Secret: $secret" http://localhost/en/login)" = 404
           test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' http://localhost/api/users/me)" = 401

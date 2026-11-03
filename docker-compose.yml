@@ -103,9 +103,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"
-    # X-Origin-Secret that Vercel sends (deploy/Caddyfile)
-    secrets: [origin_secret]
+    # X-Origin-Secret that Vercel sends, and the previous one during a rotation (deploy/Caddyfile)
+    secrets: [origin_secret, origin_secret_previous]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -135,6 +134,8 @@ secrets:
     file: .secrets/db_app_password
   origin_secret:
     file: .secrets/origin_secret
+  origin_secret_previous:
+    file: .secrets/origin_secret_previous
 
 volumes:
   postgres-data:

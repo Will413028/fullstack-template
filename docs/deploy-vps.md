@@ -16,7 +16,7 @@ VPS 最低需求：
 - Ubuntu 22.04 或更新版本
 - SSH 存取權限
 - API 用的子網域（例如 `api.yourdomain.com`），A（與 AAAA）記錄指向 VPS：Caddy 用它自動申請 HTTPS 憑證。網站本身的網域指向 Vercel（見第 6 節）
-- 對外開放 80/tcp、443/tcp、443/udp（HTTP/3）
+- 對外開放 80/tcp（申請憑證與轉址）、443/tcp
 
 ---
 
@@ -53,7 +53,7 @@ make init-env
 nano .env
 ```
 
-`make init-env` 從 `.env-example` 建立 `.env`，並在 `.secrets/` 產生三個資料庫密碼檔（superuser、migrate 用的 owner 角色、backend 用的 app 角色）與 `origin_secret`（Vercel 送給 Caddy 的 `X-Origin-Secret`）。compose 把它們以 secret 掛進各自的容器，密碼不會出現在 `.env`、環境變數或 URL 裡。重跑不會覆寫既有的檔案。
+`make init-env` 從 `.env-example` 建立 `.env`，並在 `.secrets/` 產生三個資料庫密碼檔（superuser、migrate 用的 owner 角色、backend 用的 app 角色）、`origin_secret`（Vercel 送給 Caddy 的 `X-Origin-Secret`），以及輪替時才會用到的空檔 `origin_secret_previous`。compose 把它們以 secret 掛進各自的容器，密碼不會出現在 `.env`、環境變數或 URL 裡。重跑不會覆寫既有的檔案。
 
 > [!IMPORTANT]
 > 生產環境務必在 `.env` 設定：
@@ -102,17 +102,17 @@ backend 怎麼判斷誰是可信的 proxy：`TRUSTED_PROXIES` 預設只列 Caddy
 
 ### 輪替 origin secret
 
-外洩、或知道密鑰的人離開時輪替。Caddy 只接受一個值，所以 VPS 與 Vercel 對不上的那段時間，經 Vercel 的 API 請求會回 403：
+外洩、或知道密鑰的人離開時輪替。Caddy 同時接受 `.secrets/origin_secret` 與 `.secrets/origin_secret_previous`（平常是空檔），所以輪替不會中斷服務（Vercel 文件的做法）。兩個檔都是 `0444`：改內容前先 `chmod 644`，改完 `chmod 444`。
 
-1. 產生新值：`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`；
-2. 寫進 Vercel 專案 Production 環境的 `ORIGIN_SECRET`，重新部署；
-3. 立刻在 VPS 上換掉 `.secrets/origin_secret` 的內容（檔案是 `0444`：先 `chmod 644`，用編輯器貼上新值，再 `chmod 444`），然後 `docker compose restart caddy`。
+1. 在 VPS 上把 `origin_secret` 的內容搬進 `origin_secret_previous`，在 `origin_secret` 寫入新值（`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`），然後 `docker compose restart caddy`：新舊兩個值都能通過；
+2. 把新值寫進 Vercel 專案 Production 環境的 `ORIGIN_SECRET`，重新部署；
+3. 新部署上線後，清空 `origin_secret_previous`（`: > .secrets/origin_secret_previous`），再 `docker compose restart caddy`：舊值從此失效。
 
 ---
 
 ## 6. 前端：Vercel
 
-1. 在 Vercel 建立專案，Root Directory 設為 `frontend`（框架會自動偵測為 Next.js），Node.js 版本設成與 CI 相同的大版本（`.github/workflows/ci.yml` 的 `node-version`）。
+1. 在 Vercel 建立專案，Root Directory 設為 `frontend`（框架會自動偵測為 Next.js）。Node.js 的大版本由 `frontend/package.json` 的 `engines.node` 決定，它會蓋過專案設定；與 CI 的 `node-version` 一起改。
 2. Function 區域（Settings → Functions）選離 VPS 最近的區域：每次 SSR 都會經 Vercel 呼叫 API。
 3. 環境變數，**只設在 Production**：
    - `NEXT_PUBLIC_APP_URL=https://yourdomain.com`：網站的網址，SSR 呼叫它的 `/api`。沒設時 SSR 的請求送往不存在的 `.invalid` host，不會帶著 cookie 送到別處；

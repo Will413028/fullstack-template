@@ -13,6 +13,8 @@ ENV_EXAMPLE_PATH = ".env-example"
 SECRETS_DIR = ".secrets"
 # docker-compose.yml `secrets:`
 SECRET_NAMES = ("postgres_password", "db_owner_password", "db_app_password", "origin_secret")
+# Empty until a rotation puts the old origin secret in it (docs/deploy-vps.md); caddy accepts either.
+EMPTY_SECRET_NAMES = ("origin_secret_previous",)
 
 
 def write_secret(path: str) -> bool:
@@ -26,6 +28,16 @@ def write_secret(path: str) -> bool:
         f.write(secrets.token_urlsafe(32) + "\n")
     # 0444: file secrets are bind mounts, so compose's uid/mode options do not apply; the postgres and nonroot
     # users inside the containers must be able to read them. The 0700 directory keeps other host users out.
+    os.chmod(path, 0o444)
+    return True
+
+
+def write_empty_secret(path: str) -> bool:
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+    except FileExistsError:
+        return False
+    os.close(fd)
     os.chmod(path, 0o444)
     return True
 
@@ -44,6 +56,9 @@ def main() -> None:
     for name in SECRET_NAMES:
         path = os.path.join(SECRETS_DIR, name)
         print(("Created " if write_secret(path) else "Kept existing ") + path)
+    for name in EMPTY_SECRET_NAMES:
+        path = os.path.join(SECRETS_DIR, name)
+        print(("Created empty " if write_empty_secret(path) else "Kept existing ") + path)
 
 
 if __name__ == "__main__":

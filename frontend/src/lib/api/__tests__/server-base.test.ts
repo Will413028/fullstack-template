@@ -1,8 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 // A server-side call forwards the visitor's session cookie. Without the site's
-// URL it must not fall back to a real host (the sitemap's example.com), or the
-// cookie would go there.
+// URL it must not fall back to a real host, or the cookie would go there.
 vi.stubGlobal("window", undefined);
 vi.stubEnv("NODE_ENV", "production");
 vi.stubEnv("NEXT_PUBLIC_APP_URL", "");

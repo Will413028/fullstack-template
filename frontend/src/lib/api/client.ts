@@ -1,5 +1,5 @@
 import createClient, { type Middleware } from "openapi-fetch";
-import { siteOrigin } from "../env";
+import { appUrl } from "../env";
 import type { paths } from "./schema";
 
 // The API is served on the page's own origin under /api (Vercel routes it to
@@ -13,7 +13,7 @@ import type { paths } from "./schema";
 // (docs/adr/2026-11-03-frontend-on-vercel.md).
 function baseUrl(): string {
   if (typeof window !== "undefined") return `${window.location.origin}/api`;
-  return `${siteOrigin()}/api`;
+  return `${appUrl()}/api`;
 }
 
 // A 401 means the session is gone. Sessions are opaque and never refreshed, so
