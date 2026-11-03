@@ -27,7 +27,6 @@ BRAND_FILES = (
     "frontend/src/app/layout.tsx",
     "frontend/messages/en.json",
     "frontend/messages/zh-TW.json",
-    "backend/api/openapi.yaml",
     "AGENTS.md",
     "README.md",
 )

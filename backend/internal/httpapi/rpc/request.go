@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,11 +12,11 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
 )
 
 // Pagination follows AIP-158: a request has page_size and page_token, a response next_page_token, which is empty on
-// the last page. The token is the keyset cursor internal/platform/httpx encodes (httpx.TrimPage returns it).
+// the last page. The token is the id the page starts after (internal/platform/keyset) in unpadded base64url; clients
+// pass it back unchanged and never build or parse one.
 
 // PageSize is the number of items to return for a requested page_size: def when it is 0 (unset), max when it is
 // larger (AIP-158 coerces instead of rejecting), and an invalid_argument on page_size when it is negative.
@@ -37,28 +38,41 @@ func PageAfter(token string) (*uuid.UUID, error) {
 	if token == "" {
 		return nil, nil
 	}
-	id, err := httpx.DecodeCursor(token)
+	b, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return nil, apperr.Invalid("page_token", "invalid", "page_token is not one this API returned")
+		return nil, invalidPageToken()
+	}
+	id, err := uuid.FromBytes(b)
+	if err != nil {
+		return nil, invalidPageToken()
 	}
 	return &id, nil
 }
 
-// PageRequest reads AIP-158 paging for a service whose list takes a page size and a cursor: the size (def when 0, at
-// most maxSize), and the cursor, nil for the first page. A bad page_token is reported on page_token; the service
-// decodes the cursor again (httpx), which plan step 5 removes.
-func PageRequest(size int32, token string, def, maxSize int) (int, *string, error) {
+// PageToken is the next_page_token for a page whose next page starts after next: empty on the last page (nil).
+func PageToken(next *uuid.UUID) string {
+	if next == nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(next[:])
+}
+
+func invalidPageToken() error {
+	return apperr.Invalid("page_token", "invalid", "page_token is not one this API returned")
+}
+
+// PageRequest reads AIP-158 paging: the size (def when 0, at most maxSize) and the id the page starts after, nil for
+// the first page. A bad page_token is an invalid_argument on page_token.
+func PageRequest(size int32, token string, def, maxSize int) (int, *uuid.UUID, error) {
 	n, err := PageSize(size, def, maxSize)
 	if err != nil {
 		return 0, nil, err
 	}
-	if _, err := PageAfter(token); err != nil {
+	after, err := PageAfter(token)
+	if err != nil {
 		return 0, nil, err
 	}
-	if token == "" {
-		return n, nil, nil
-	}
-	return n, &token, nil
+	return n, after, nil
 }
 
 // ParseID parses a UUID from the request field at path (for example item_id), an invalid_argument on that field

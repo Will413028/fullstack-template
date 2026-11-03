@@ -173,7 +173,7 @@ type ListUsersRow struct {
 }
 
 // ListUsers returns all users, disabled ones included, newest first, after the cursor id when one is given. Only
-// admins call it (internal/httpapi requireRole).
+// admins call it (UserAdminService, internal/httpapi/rpc).
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
 	rows, err := q.db.Query(ctx, listUsers, arg.After, arg.RowLimit)
 	if err != nil {

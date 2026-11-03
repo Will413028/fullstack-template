@@ -20,7 +20,7 @@ import (
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items/internal/store"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/keyset"
 )
 
 // Item is an item as the API shows it.
@@ -33,10 +33,10 @@ type Item struct {
 	UpdatedAt   time.Time
 }
 
-// Page is one page of items, newest first. NextCursor is empty on the last page.
+// Page is one page of items, newest first. Next is the id the next page starts after, nil on the last page.
 type Page struct {
-	Items      []Item
-	NextCursor string
+	Items []Item
+	Next  *uuid.UUID
 }
 
 // Patch is a partial update of an item: nil Title leaves the title unchanged; SetDescription says whether to set
@@ -118,22 +118,18 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Item, error) {
 	return Item(row), nil
 }
 
-// List returns up to limit (1 to 100) of the caller's items after cursor (nil for the first page).
-func (s *Service) List(ctx context.Context, limit int, cursor *string) (Page, error) {
+// List returns up to limit (1 to 100) of the caller's items after the row with id after (nil for the first page).
+func (s *Service) List(ctx context.Context, limit int, after *uuid.UUID) (Page, error) {
 	ownerID, err := owner(ctx)
 	if err != nil {
 		return Page{}, err
 	}
-	after, err := httpx.After(cursor)
-	if err != nil {
-		return Page{}, err
-	}
-	rows, err := s.q().ListItems(ctx, store.ListItemsParams{OwnerID: ownerID, After: after, RowLimit: httpx.PageRows(limit)})
+	rows, err := s.q().ListItems(ctx, store.ListItemsParams{OwnerID: ownerID, After: after, RowLimit: keyset.Rows(limit)})
 	if err != nil {
 		return Page{}, fmt.Errorf("items: list: %w", err)
 	}
-	rows, next := httpx.TrimPage(rows, limit, func(r store.Item) uuid.UUID { return r.ID })
-	page := Page{Items: make([]Item, 0, len(rows)), NextCursor: next}
+	rows, next := keyset.Trim(rows, limit, func(r store.Item) uuid.UUID { return r.ID })
+	page := Page{Items: make([]Item, 0, len(rows)), Next: next}
 	for _, row := range rows {
 		page.Items = append(page.Items, Item(row))
 	}

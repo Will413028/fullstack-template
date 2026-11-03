@@ -57,7 +57,7 @@ func TestReady(t *testing.T) {
 
 func TestReadyDBDown(t *testing.T) {
 	h := newTestHandler(t, func(context.Context) error { return errors.New("db down") })
-	assertProblem(t, get(t, h, "/health/ready"), http.StatusServiceUnavailable, "/problems/unavailable")
+	assertStatusBody(t, get(t, h, "/health/ready"), http.StatusServiceUnavailable, "unavailable")
 }
 
 func TestShutdownFinishesInFlightRequest(t *testing.T) {
@@ -124,9 +124,14 @@ func fetchStatus(ctx context.Context, url string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// readsBody stands in for a handler that reads the body and reports a read error the way handlers do.
+// readsBody stands in for a handler that reads the body: 413 when the read fails with *http.MaxBytesError (connect-go
+// turns that error into resource_exhausted itself), an internal error for any other read error.
 var readsBody = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.ReadAll(r.Body); err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
 		writeError(w, r, discard, err)
 		return
 	}
@@ -156,8 +161,9 @@ func TestBodyTooLarge(t *testing.T) {
 	if code := post(t, h, make([]byte, maxBodyBytes), sameOrigin); code != http.StatusOK {
 		t.Fatalf("body at the limit: code = %d, want 200", code)
 	}
-	assertProblem(t, postRec(t, h, make([]byte, maxBodyBytes+1), sameOrigin), http.StatusRequestEntityTooLarge,
-		"/problems/payload-too-large")
+	if code := post(t, h, make([]byte, maxBodyBytes+1), sameOrigin); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("body over the limit: code = %d, want 413 (*http.MaxBytesError)", code)
+	}
 }
 
 func TestCrossOriginPostRejected(t *testing.T) {
@@ -175,8 +181,8 @@ func TestCrossOriginPostRejected(t *testing.T) {
 	} {
 		rec := postRec(t, h, []byte("{}"), tc.headers)
 		if tc.want == http.StatusForbidden {
-			if p := assertProblem(t, rec, http.StatusForbidden, "/problems/forbidden"); p.Code == nil || *p.Code != codeCrossOrigin {
-				t.Errorf("%s: code = %v, want %s", tc.name, p.Code, codeCrossOrigin)
+			if e := decodeWireError(t, rec, http.StatusForbidden, "permission_denied"); e.reason(t) != "CROSS_ORIGIN_REQUEST" {
+				t.Errorf("%s: reason = %q, want CROSS_ORIGIN_REQUEST", tc.name, e.reason(t))
 			}
 			continue
 		}
@@ -221,6 +227,6 @@ func TestSlowHeaderClosed(t *testing.T) {
 func TestUnknownPathNotFound(t *testing.T) {
 	h := newTestHandler(t, ok)
 	for _, path := range []string{"/nope", "/health/", "/api/nope", "/api/"} {
-		assertProblem(t, get(t, h, path), http.StatusNotFound, "/problems/not-found")
+		decodeWireError(t, get(t, h, path), http.StatusNotFound, "not_found")
 	}
 }

@@ -1,4 +1,0 @@
-[[IgnoredVulns]]
-id = "GHSA-g3hv-75wg-m249"
-ignoreUntil = 2027-01-30T00:00:00Z
-reason = "Medium (CVSS 6.9). minimatch 5.1.9 comes only from openapi-typescript -> @redocly/openapi-core, a dev-time code generator run on our own openapi.yaml; the fix is minimatch 11 (a major jump the parent does not support). Upgrade openapi-typescript or override once a compatible fix exists."

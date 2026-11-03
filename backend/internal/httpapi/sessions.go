@@ -96,17 +96,17 @@ func (h sessionAppHandler) ListSessions(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
+	size, after, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
 	if err != nil {
 		return nil, err
 	}
-	page, err := h.auth.Sessions(ctx, size, cursor)
+	page, err := h.auth.Sessions(ctx, size, after)
 	if err != nil {
 		return nil, err
 	}
 	current := currentSessionID(ctx)
 	resp := &sessionsv1.ListSessionsResponse{
-		Sessions: make([]*sessionsv1.Session, 0, len(page.Sessions)), NextPageToken: page.NextCursor,
+		Sessions: make([]*sessionsv1.Session, 0, len(page.Sessions)), NextPageToken: rpc.PageToken(page.Next),
 	}
 	for _, sess := range page.Sessions {
 		resp.Sessions = append(resp.Sessions, toSession(sess, u, current))

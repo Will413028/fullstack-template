@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/google/uuid"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
@@ -15,9 +14,9 @@ import (
 )
 
 // Authentication (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the session token lives only in an HttpOnly
-// cookie. Which operations need a session is declared once, in the contract's security: the validator calls
-// requireSession for those, before it checks parameters and body, so an anonymous request gets 401 rather than a 422
-// about its body.
+// cookie. Which procedures need a session follows the service name (rpc.ClassOf): connectEntry refuses an anonymous
+// App or Admin call before connect-go decodes it, so an anonymous caller gets unauthenticated rather than an error
+// about its fields.
 
 // Cookie names the session cookie and the device cookie (a browser trusted to sign in, auth.Device). Secure is false
 // only for local http development, where the names drop the __Host- prefix (it requires Secure);
@@ -143,16 +142,6 @@ func (w *clearStaleCookie) start() {
 			return
 		}
 	}
-}
-
-var errNoSession = errors.New("no valid session")
-
-// requireSession is the validator's AuthenticationFunc for the sessionCookie scheme.
-func requireSession(ctx context.Context, _ *openapi3filter.AuthenticationInput) error {
-	if _, ok := authctx.From(ctx); !ok {
-		return errNoSession
-	}
-	return nil
 }
 
 // set returns the Set-Cookie value for a new session: SameSite=Lax and Max-Age the session's absolute lifetime.

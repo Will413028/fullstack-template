@@ -19,9 +19,6 @@ SQLC          := $(call GO_TOOL,sqlc)
 # squawk and diff-cover are pinned in tools/package.json and tools/requirements.txt, which Dependabot reads; the
 # release binaries above and Atlas below are checked weekly by scripts/tool_versions.py (tool-versions workflow).
 SQUAWK        := tools/node_modules/.bin/squawk
-OAPI_CODEGEN  := $(call GO_TOOL,oapi-codegen)
-OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
-GEN_OUT       := internal/httpapi/gen/api.gen.go
 # buf is pinned in the root Makefile (make bin/buf), which serves the frontend's generation too.
 BUF           := ../bin/buf
 COBERTURA     := $(call GO_TOOL,gocover-cobertura)
@@ -96,7 +93,7 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check gen-openapi-check gen-check buf-lint lint deadcode test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
+check: fmt-check gen-check buf-lint lint deadcode test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
 
 # Functions that neither the binary nor any test reaches.
 .PHONY: deadcode
@@ -107,18 +104,6 @@ deadcode:
 .PHONY: tools-selftest
 tools-selftest: $(SQUAWK) $(BUF)
 	./scripts/selftest-checks.sh $(BUF)
-
-# The REST contract (api/openapi.yaml) until docs/plans/2026-11-03-connect-contract.md step 5 deletes it.
-.PHONY: gen-openapi
-gen-openapi: ## Regenerate internal/httpapi/gen from api/openapi.yaml
-	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" && cp "$$tmp" $(GEN_OUT)
-
-.PHONY: gen-openapi-check
-gen-openapi-check: ## Fail when internal/httpapi/gen differs from api/openapi.yaml
-	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" || exit 1; \
-	cmp -s "$$tmp" $(GEN_OUT) || { echo "$(GEN_OUT) is stale: run make gen-openapi"; exit 1; }
 
 # The Connect code: internal/gen from the contract in ../api (buf.gen.yaml), and the test services' code from
 # internal/httpapi/rpc/testdata, a buf module of its own that is not part of the contract. The plugins are

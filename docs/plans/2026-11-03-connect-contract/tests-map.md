@@ -244,3 +244,28 @@ Paths are under `frontend/`. Every mocked call now goes out the way connect-web 
 | `frontend/src/__tests__/proxy.test.ts` | Unchanged (same file, same tests) | It makes no API call. The cookie names and the CSP are unchanged (plan 不能動, inventory F13). |
 
 Tests added in step 3＋4 that replace no snapshot test: `use-auth.test.tsx` "after login the current user is the new account, without fetching it again" and "after register …" both check that `setQueryData` uses the key of connect-query's `GetCurrentUser` query. Dropping `input` from that key fails both. The two `transport-call.test.ts` "a failed call > …" tests and the five `connect-errors.test.ts` tests are listed in the rows above. The frontend total stays at 50: the snapshot's 41, plus 9 from step 1, minus 10 retired (client 6, errors 4), plus 10 added (connect-errors 5, use-auth 2, transport-call 2, messages +1).
+
+## Step 5: the REST shell deleted
+
+The rows above that say "retire in step 5" or "step 5 chooses" end here. Every error the net/http layer writes is now a Connect error (`writeError` has no REST branch), checked with `decodeWireError`, which also checks that the request id is only in `X-Request-ID` (B17). The stub around `assemble` (`newStubAPI`, `do`) moved from `validate_test.go` to `handler_test.go` and serves a stub in place of the Connect services.
+
+| Test (state at `3e85b7f`) | After step 5 | What changed |
+|---|---|---|
+| TestReadyDBDown | TestReadyDBDown (`server_test.go`) | The 503 body was a problem; now `{"status":"unavailable"}`, the same shape as the 200 bodies (`/health*` is outside the contract). |
+| TestBodyTooLarge | TestBodyTooLarge (`server_test.go`) | Checks only that `protect` caps the body: the stub handler answers 413 on `*http.MaxBytesError`. The Connect answer (`resource_exhausted` without `RetryInfo`) stays in TestConnectBodyTooLarge. |
+| TestCrossOriginPostRejected | TestCrossOriginPostRejected (`server_test.go`) | 403 problem with code `cross_origin_request` → `permission_denied` with `CROSS_ORIGIN_REQUEST`. |
+| TestUnknownPathNotFound | TestUnknownPathNotFound (`server_test.go`) | 404 problem → `not_found`, for `/nope`, `/health/`, `/api/nope` and `/api/`. |
+| TestProblemCarriesRequestID | TestErrorCarriesRequestIDHeader (`middleware_test.go`) | The body has no `request_id`; the header carries it. |
+| TestSecurityHeaders | TestSecurityHeaders (`middleware_test.go`) | Its `problem` case is now `error` (a Connect `not_found`). |
+| TestAppErrToProblem, TestAppErrValidation, TestRateLimitedRetryAfter | retired | The problem writer is gone; the Connect mapping is TestConvert, TestConvertValidation and TestConvertRateLimited (`rpc/`). |
+| TestUnhandledErrorHidden | TestUnhandledErrorHidden (`errors_test.go`, was `problem_test.go`) | Asserts a Connect `internal` without the error's text. |
+| TestPanicReturnsProblem | TestPanicReturnsInternal (`errors_test.go`) | Asserts a Connect `internal`. |
+| TestPanicAbortHandlerPropagates, TestPanicAfterResponseStartedAborts, TestErrorAfterResponseStartedAborts | same names (`errors_test.go`) | Moved with the file; "no problem appended" is "no error appended". |
+| TestValidRequestReachesHandler, TestValidationMinLength, TestValidationCodes, TestValidationListsEveryError, TestUnsupportedMediaType, TestMalformedJSON, TestBodyReadErrorIsNotValidation, TestUndefinedRoute, TestValidatedBodyTooLarge, TestPanicInOperationReturnsProblem, TestHealthOutsideValidation, TestDocs | retired with `validate_test.go` | As each row in `validate_test.go` above says. |
+| TestParamBindErrorIsValidation, TestBodyDecodeError | retired with `bind_test.go` | As in `bind_test.go` above. |
+| TestProblemValuesInContract, TestValuesOutsideContract | retired with `problem_contract_test.go` | TestErrorCodesDeclaredInProto covers the Connect codes. |
+| TestEveryWritablePathHasGet | retired with `spec_test.go` | TestConnectServicesReturnTheirResources. |
+| TestAuthenticateDatabaseErrorInEachFormat | TestAuthenticateDatabaseErrorIsInternal (`connect_auth_test.go`) | The REST half is gone. |
+| TestCursorRoundTrip, TestCursorTamperedIsInvalid (`internal/platform/httpx`) | TestPageAfter (`rpc/rpc_test.go`) | The page token encoding moved into `rpc` (`PageToken`, `PageAfter`): a round trip; padded base64 and one byte short are `INVALID` on `page_token`. `httpx` is deleted; the row limit and trim moved to `internal/platform/keyset` (new TestTrim). The service decodes no token any more (S22, S34). |
+
+Backend test count (lock): 303 at `3e85b7f` − 45 (the retired tests above with their subtests, counted by running them at `3e85b7f`) + 1 (TestTrim) = 259.

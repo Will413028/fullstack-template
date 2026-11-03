@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,7 +22,6 @@ import (
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen/app/testing/v1/testingv1connect"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
 )
 
 var discard = slog.New(slog.DiscardHandler)
@@ -280,10 +280,14 @@ func TestPageAfter(t *testing.T) {
 		t.Errorf("empty token = %v, %v; want the first page", after, err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	if after, err := PageAfter(httpx.EncodeCursor(id)); err != nil || *after != id {
+	if after, err := PageAfter(PageToken(&id)); err != nil || *after != id {
 		t.Errorf("token = %v, %v; want %s", after, err, id)
 	}
-	for _, bad := range []string{"not base64!", "AAAA"} {
+	if PageToken(nil) != "" {
+		t.Errorf("PageToken(nil) = %q, want empty (the last page)", PageToken(nil))
+	}
+	valid := PageToken(&id)
+	for _, bad := range []string{"not base64!", "AAAA", valid + "=", valid[:len(valid)-2], base64.URLEncoding.EncodeToString(id[:])} {
 		if _, err := PageAfter(bad); !isInvalid(err, "page_token") {
 			t.Errorf("PageAfter(%q) = %v", bad, err)
 		}
@@ -355,8 +359,8 @@ func TestPageRequest(t *testing.T) {
 	if _, _, err := PageRequest(0, "not a token", 20, 100); !isInvalid(err, "page_token") {
 		t.Errorf("bad page_token = %v", err)
 	}
-	token := httpx.EncodeCursor(uuid.Must(uuid.NewV7()))
-	if _, cursor, err := PageRequest(0, token, 20, 100); err != nil || cursor == nil || *cursor != token {
-		t.Errorf("page_token = %v, %v; want the token as the cursor", cursor, err)
+	id := uuid.Must(uuid.NewV7())
+	if _, after, err := PageRequest(0, PageToken(&id), 20, 100); err != nil || after == nil || *after != id {
+		t.Errorf("page_token = %v, %v; want %s", after, err, id)
 	}
 }

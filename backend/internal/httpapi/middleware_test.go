@@ -87,18 +87,10 @@ func TestRequestIDMalformedReplaced(t *testing.T) {
 	}
 }
 
-func TestProblemCarriesRequestID(t *testing.T) {
+func TestErrorCarriesRequestIDHeader(t *testing.T) {
 	h := newStubAPI(t, Deps{})
-	rec := do(t, h, http.MethodGet, "/api/nope", "", "")
-	var body struct {
-		RequestID string `json:"request_id"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.RequestID == "" || body.RequestID != rec.Header().Get(headerRequestID) {
-		t.Fatalf("request_id = %q, X-Request-ID = %q", body.RequestID, rec.Header().Get(headerRequestID))
-	}
+	// decodeWireError checks the id is in X-Request-ID and not in the body (B17)
+	decodeWireError(t, do(t, h, http.MethodGet, "/api/nope", "", ""), http.StatusNotFound, "not_found")
 }
 
 // logLines decodes JSON log output into one map per line.
@@ -159,7 +151,7 @@ func TestSecurityHeaders(t *testing.T) {
 	h := newStubAPI(t, Deps{})
 	for name, rec := range map[string]*httptest.ResponseRecorder{
 		"ok":           do(t, h, http.MethodGet, "/api/widgets", "", ""),
-		"problem":      do(t, h, http.MethodGet, "/api/nope", "", ""),
+		"error":        do(t, h, http.MethodGet, "/api/nope", "", ""),
 		"cross-origin": doFrom(t, h, http.MethodPost, "/api/widgets", untrustedAddr, map[string]string{"Sec-Fetch-Site": "cross-site"}),
 	} {
 		t.Run(name, func(t *testing.T) {

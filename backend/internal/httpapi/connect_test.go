@@ -308,15 +308,6 @@ func TestCrossOriginRejectedInEachFormat(t *testing.T) {
 		})))
 	_, err := client.UpdatePublicThing(t.Context(), connect.NewRequest(&testingv1.UpdatePublicThingRequest{}))
 	assertConnectError(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_CROSS_ORIGIN_REQUEST.String())
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/sessions", strings.NewReader(`{}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	h.ServeHTTP(rec, req)
-	if p := assertProblem(t, rec, http.StatusForbidden, "/problems/forbidden"); p.Code == nil || *p.Code != codeCrossOrigin {
-		t.Errorf("REST code = %v, want %s", p.Code, codeCrossOrigin)
-	}
 }
 
 // An anonymous caller of an App or Admin method is unauthenticated before connect-go decodes the body: a body it
@@ -391,7 +382,7 @@ func TestConnectRateLimitBeforeDecoding(t *testing.T) {
 }
 
 func TestConnectRateLimitNamesMountedProcedures(t *testing.T) {
-	_, err := NewHandler(t.Context(), Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
+	_, err := NewHandler(Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
 		testServices: classServices(), testLimited: []string{"/app.testing.v1.TestingPublicService/Nope"}})
 	if err == nil || !strings.Contains(err.Error(), "Nope") {
 		t.Fatalf("NewHandler = %v, want an error naming the procedure", err)
@@ -434,7 +425,7 @@ func TestConnectHandlerErrors(t *testing.T) {
 // Every service NewHandler mounts belongs to a caller class; anything else stops the server from starting (B10).
 func TestNewHandlerRejectsUnclassifiedService(t *testing.T) {
 	var impl testThings
-	_, err := NewHandler(t.Context(), Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
+	_, err := NewHandler(Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
 		testServices: []rpc.Service{testService("TestingInternalService", testingv1connect.TestingInternalServiceHandler(impl),
 			testingv1connect.NewTestingInternalServiceHandler)}})
 	if err == nil || !strings.Contains(err.Error(), "TestingInternalService") {
@@ -445,7 +436,7 @@ func TestNewHandlerRejectsUnclassifiedService(t *testing.T) {
 // A method that is not Get* or List* must not be NO_SIDE_EFFECTS: it would be served on GET, which has no CSRF check.
 func TestNewHandlerRejectsSideEffectsOnGet(t *testing.T) {
 	var impl testThings
-	_, err := NewHandler(t.Context(), Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
+	_, err := NewHandler(Deps{Ready: ok, Logger: discard, Now: time.Now, RateLimitPerMin: 5,
 		testServices: []rpc.Service{testService("TestingSideEffectAppService", testingv1connect.TestingSideEffectAppServiceHandler(impl),
 			testingv1connect.NewTestingSideEffectAppServiceHandler)}})
 	if err == nil || !strings.Contains(err.Error(), "UpdateSideEffectThing") || strings.Contains(err.Error(), "GetSideEffectThing") {
@@ -562,7 +553,7 @@ func TestResourceProblemsReportsViolations(t *testing.T) {
 }
 
 // Every code the server sends as ErrorInfo.reason or FieldViolation.reason is declared in app.common.v1, which the
-// frontend translates value by value (replaces TestProblemValuesInContract for Connect).
+// frontend translates value by value.
 func TestErrorCodesDeclaredInProto(t *testing.T) {
 	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled, auth.CodeLastAdmin,
 		auth.CodeReauthenticationRequired, auth.ErrSessionInvalid.Code, rpc.ErrInsufficientRole.Code, codeCrossOrigin}

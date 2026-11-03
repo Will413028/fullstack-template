@@ -26,7 +26,7 @@ import (
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth/internal/store"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/keyset"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/logx"
 )
 
@@ -76,16 +76,16 @@ type Session struct {
 	Device *Device
 }
 
-// UserPage is one page of users, newest first. NextCursor is empty on the last page.
+// UserPage is one page of users, newest first. Next is the id the next page starts after, nil on the last page.
 type UserPage struct {
-	Users      []User
-	NextCursor string
+	Users []User
+	Next  *uuid.UUID
 }
 
-// SessionPage is one page of sessions, newest first. NextCursor is empty on the last page.
+// SessionPage is one page of sessions, newest first. Next is the id the next page starts after, nil on the last page.
 type SessionPage struct {
-	Sessions   []SessionInfo
-	NextCursor string
+	Sessions []SessionInfo
+	Next     *uuid.UUID
 }
 
 // BreachChecker reports whether a password appears in known breaches (Have I Been Pwned). It lives outside the
@@ -345,19 +345,16 @@ func (s *Service) User(ctx context.Context, id uuid.UUID) (User, error) {
 	return User(row), nil
 }
 
-// ListUsers returns up to limit users, disabled ones included, after cursor (nil for the first page). Only admins
-// may call it; the HTTP layer enforces that before the call (requireRole), as for SetDisabled.
-func (s *Service) ListUsers(ctx context.Context, limit int, cursor *string) (UserPage, error) {
-	after, err := httpx.After(cursor)
-	if err != nil {
-		return UserPage{}, err
-	}
-	rows, err := s.q().ListUsers(ctx, store.ListUsersParams{After: after, RowLimit: httpx.PageRows(limit)})
+// ListUsers returns up to limit users, disabled ones included, after the row with id after (nil for
+// the first page). Only admins may call it; the HTTP layer enforces that before the call (the UserAdminService
+// interceptor), as for SetDisabled.
+func (s *Service) ListUsers(ctx context.Context, limit int, after *uuid.UUID) (UserPage, error) {
+	rows, err := s.q().ListUsers(ctx, store.ListUsersParams{After: after, RowLimit: keyset.Rows(limit)})
 	if err != nil {
 		return UserPage{}, fmt.Errorf("auth: list users: %w", err)
 	}
-	rows, next := httpx.TrimPage(rows, limit, func(r store.ListUsersRow) uuid.UUID { return r.ID })
-	page := UserPage{Users: make([]User, 0, len(rows)), NextCursor: next}
+	rows, next := keyset.Trim(rows, limit, func(r store.ListUsersRow) uuid.UUID { return r.ID })
+	page := UserPage{Users: make([]User, 0, len(rows)), Next: next}
 	for _, row := range rows {
 		page.Users = append(page.Users, User(row))
 	}
@@ -418,7 +415,7 @@ func (s *Service) DeleteOwnAccount(ctx context.Context, sessionID uuid.UUID) err
 	return s.deleteUser(ctx, c.ID)
 }
 
-// DeleteUser deletes a user and everything it owns; admins call it (internal/httpapi requireRole). Like
+// DeleteUser deletes a user and everything it owns; admins call it (UserAdminService, internal/httpapi/rpc). Like
 // DeleteOwnAccount it needs a session issued within ReauthenticateWithin, and the only enabled admin cannot be
 // deleted.
 func (s *Service) DeleteUser(ctx context.Context, sessionID, id uuid.UUID) error {

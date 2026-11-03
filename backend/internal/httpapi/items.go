@@ -69,15 +69,15 @@ func (h itemsHandler) GetItem(ctx context.Context, req *connect.Request[itemsv1.
 }
 
 func (h itemsHandler) ListItems(ctx context.Context, req *connect.Request[itemsv1.ListItemsRequest]) (*connect.Response[itemsv1.ListItemsResponse], error) {
-	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultItemsPage, maxItemsPage)
+	size, after, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultItemsPage, maxItemsPage)
 	if err != nil {
 		return nil, err
 	}
-	page, err := h.items.List(ctx, size, cursor)
+	page, err := h.items.List(ctx, size, after)
 	if err != nil {
 		return nil, err
 	}
-	resp := &itemsv1.ListItemsResponse{Items: make([]*itemsv1.Item, 0, len(page.Items)), NextPageToken: page.NextCursor}
+	resp := &itemsv1.ListItemsResponse{Items: make([]*itemsv1.Item, 0, len(page.Items)), NextPageToken: rpc.PageToken(page.Next)}
 	for _, it := range page.Items {
 		resp.Items = append(resp.Items, toItem(it))
 	}

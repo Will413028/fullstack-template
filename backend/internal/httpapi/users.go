@@ -142,15 +142,15 @@ type userAdminHandler struct {
 }
 
 func (h userAdminHandler) ListUsers(ctx context.Context, req *connect.Request[adminusersv1.ListUsersRequest]) (*connect.Response[adminusersv1.ListUsersResponse], error) {
-	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
+	size, after, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
 	if err != nil {
 		return nil, err
 	}
-	page, err := h.auth.ListUsers(ctx, size, cursor)
+	page, err := h.auth.ListUsers(ctx, size, after)
 	if err != nil {
 		return nil, err
 	}
-	resp := &adminusersv1.ListUsersResponse{Users: make([]*usersv1.User, 0, len(page.Users)), NextPageToken: page.NextCursor}
+	resp := &adminusersv1.ListUsersResponse{Users: make([]*usersv1.User, 0, len(page.Users)), NextPageToken: rpc.PageToken(page.Next)}
 	for _, u := range page.Users {
 		resp.Users = append(resp.Users, toUser(u))
 	}

@@ -1,8 +1,6 @@
 package httpapi
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -44,8 +42,8 @@ func TestConnectAdminServiceNeedsAdminRole(t *testing.T) {
 	}
 }
 
-// A database error while authenticate resolves the session is internal, in the request's format.
-func TestAuthenticateDatabaseErrorInEachFormat(t *testing.T) {
+// A database error while authenticate resolves the session is internal.
+func TestAuthenticateDatabaseErrorIsInternal(t *testing.T) {
 	a := newAuthAPI(t, withTestServices)
 	_, token := a.mustSignUp("alice")
 	a.pool.Close()
@@ -56,11 +54,4 @@ func TestAuthenticateDatabaseErrorInEachFormat(t *testing.T) {
 	_, err = a.me(token)
 	assertConnectError(t, err, connect.CodeInternal, "")
 
-	// authenticate runs before the split, so a REST path (no operation left; step 5 deletes the REST layer) gets the
-	// problem
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.test/api/rest-path", http.NoBody)
-	req.Header.Set("Cookie", cookieName+"="+token)
-	a.h.ServeHTTP(rec, req)
-	assertProblem(t, rec, http.StatusInternalServerError, "/problems/internal")
 }

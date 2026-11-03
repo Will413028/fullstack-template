@@ -116,10 +116,9 @@ func serve(ctx context.Context) error {
 			"devices_deleted", n.Devices)
 	})
 
-	h, err := httpapi.NewHandler(ctx, httpapi.Deps{
+	h, err := httpapi.NewHandler(httpapi.Deps{
 		Ready:           pool.Ping,
 		Logger:          logger,
-		Docs:            cfg.Mode == "dev",
 		TrustedProxies:  cfg.TrustedProxies,
 		Now:             time.Now,
 		RateLimitPerMin: cfg.AuthRateLimitPerMin,

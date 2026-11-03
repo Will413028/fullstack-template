@@ -14,12 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
-
-	"github.com/Will413028/template-go-nextjs/backend/api"
 	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1/sessionsv1connect"
 	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
-	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
@@ -62,8 +58,6 @@ type Deps struct {
 	// Ready reports whether dependencies (the database) are available.
 	Ready  func(context.Context) error
 	Logger *slog.Logger
-	// Docs serves the contract at /api/openapi.yaml and Swagger UI at /api/docs (MODE=dev only).
-	Docs bool
 	// TrustedProxies are the peers whose X-Forwarded-For and X-Request-ID are believed (TRUSTED_PROXIES).
 	TrustedProxies []netip.Prefix
 	// Now is the clock for rate limiting and request durations; the composition root passes time.Now.
@@ -83,10 +77,6 @@ type Deps struct {
 	testLimited []string
 }
 
-// apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface), which has none left: every
-// module is served by Connect. docs/plans/2026-11-03-connect-contract.md step 5 deletes the REST layer.
-type apiServer struct{}
-
 // connectServices are the Connect services NewHandler mounts.
 func connectServices(deps Deps) []rpc.Service {
 	services := []rpc.Service{itemsService(deps.Items)}
@@ -103,35 +93,15 @@ var connectLimited = []string{
 	sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
 }
 
-// NewHandler builds the public handler: the API under /api (Connect from connectServices; the REST contract has no
-// operation left), and the health checks.
-func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
+// NewHandler builds the public handler: the API under /api (the Connect services from connectServices) and the
+// health checks.
+func NewHandler(deps Deps) (http.Handler, error) {
 	if deps.RateLimitPerMin < 1 {
 		return nil, errors.New("RateLimitPerMin must be positive")
 	}
 	if deps.Now == nil {
 		return nil, errors.New("Now is required")
 	}
-	spec, err := loadSpec(ctx, api.Spec)
-	if err != nil {
-		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
-	}
-	routes := http.NewServeMux()
-	strict := gen.NewStrictHandlerWithOptions(apiServer{}, nil, gen.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeBodyDecodeError(w, r, deps.Logger, err)
-		},
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, r, deps.Logger, err)
-		},
-	})
-	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
-		BaseURL:    "/api",
-		BaseRouter: routes,
-		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeParamError(w, r, deps.Logger, err)
-		},
-	})
 	connectMux, err := rpc.NewMux(deps.Logger, auth.RoleAdmin, connectServices(deps))
 	if err != nil {
 		return nil, err
@@ -145,20 +115,17 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	}
 	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
 	connect := connectEntry(deps.Logger, connectMux, limiter, connectLimit)
-	return assemble(deps, spec, routes, connect), nil
+	return assemble(deps, connect), nil
 }
 
-// connectPrefix starts every Connect path: /api/<package>.<Service>/<Method>, and every package is under the proto
-// root app (decision D5). The transition mux (assemble) and writeError choose Connect by this one condition.
-const connectPrefix = "/api/app."
-
-func isConnect(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, connectPrefix) }
-
-var errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
+var (
+	errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
+	errNotFound    = apperr.New(apperr.NotFound, "", "not found")
+)
 
 // connectEntry is what the net/http layer checks for a Connect request before connect-go decodes it; connect-go runs
 // interceptors only after decoding, so a check that must come first cannot be an interceptor. In order:
-//   - a procedure that is not mounted is not_found, without asking for a session;
+//   - a path that is not a mounted procedure is not_found, without asking for a session;
 //   - App and Admin procedures need a session (authenticate resolved it): unauthenticated otherwise, so an anonymous
 //     caller learns nothing from decoding or field errors;
 //   - the procedures in limited take a token from the client's bucket: resource_exhausted with RetryInfo when it is
@@ -189,13 +156,12 @@ func connectEntry(logger *slog.Logger, m *rpc.Mux, limiter *ipLimiter, limited m
 	})
 }
 
-// assemble mounts the API behind authentication, then splits it: Connect paths (isConnect) go to connect, every
-// other /api path to the REST routes behind request validation against spec. It adds the health checks and wraps
-// everything in the protections every request gets.
+// assemble mounts the API behind authentication, adds the health checks and wraps everything in the protections every
+// request gets. A path that is neither is not_found, in the Connect format like every error.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
-// 503 while a dependency is unavailable. Both sit outside the contract and outside validation.
-func assemble(deps Deps, spec *openapi3.T, apiRoutes, connect http.Handler) http.Handler {
+// 503 while a dependency is unavailable. Both sit outside the contract.
+func assemble(deps Deps, connect http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -203,25 +169,14 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes, connect http.Handler) http
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Ready(r.Context()); err != nil {
 			deps.Logger.WarnContext(r.Context(), "not ready", "error", err)
-			writeProblem(w, problemUnavailable, "", "")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	rest := validateRequests(spec, deps.Logger, apiRoutes)
-	apiHandler := authenticate(deps.Auth, deps.Cookie, deps.Logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isConnect(r) {
-			connect.ServeHTTP(w, r)
-			return
-		}
-		rest.ServeHTTP(w, r)
-	}))
-	if deps.Docs {
-		apiHandler = withDocs(apiHandler)
-	}
-	mux.Handle("/api/", apiHandler)
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, problemNotFound, "", "")
+	mux.Handle("/api/", authenticate(deps.Auth, deps.Cookie, deps.Logger, connect))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, deps.Logger, errNotFound)
 	})
 	return protect(deps, mux)
 }
@@ -233,13 +188,13 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes, connect http.Handler) http
 //   - securityHeaders, set before any handler writes.
 //   - A panic becomes a logged internal error.
 //   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with permission_denied
-//     (CROSS_ORIGIN_REQUEST; a 403 problem for REST), using Sec-Fetch-Site and falling back to comparing Origin with
+//     (CROSS_ORIGIN_REQUEST), using Sec-Fetch-Site and falling back to comparing Origin with
 //     Host. Non-browser clients that send neither header pass. GET, HEAD and OPTIONS are not checked, which is why
 //     only Get and List methods may be served on GET (rpc.NewMux).
-//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413 and
-//     connect-go into resource_exhausted (without RetryInfo, which tells it from the rate limit).
+//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which connect-go turns into
+//     resource_exhausted (without RetryInfo, which tells it from the rate limit).
 //
-// Errors are written by writeError, in the format of the request: Connect or REST.
+// Errors are written by writeError, as Connect errors.
 //
 // A middleware that wraps the ResponseWriter must provide Unwrap: responseStarted walks the chain to find
 // recoverPanics' startWriter.
