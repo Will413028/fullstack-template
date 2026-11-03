@@ -18,7 +18,7 @@ tags: [template-go-nextjs, decision, deploy, vercel, caddy, security]
 
 - `external`：Vercel 沒有固定的出口 IP（Static IPs 是 Pro 方案的加購，只涵蓋 Functions 與 build），所以後端無法用 IP 認出 Vercel。
 - `external`：Vercel 會覆寫 `X-Forwarded-For` 與 `X-Real-IP`，不轉送 client 帶的值（[Request headers](https://vercel.com/docs/headers/request-headers)；hawkr 2026-11-01 在預覽部署實測：帶偽造的 `X-Real-IP: 7.7.7.7` 時讀到的仍是真實出口 IP）。
-- `external`：Vercel 的外部 rewrite 會原樣轉回多個 `Set-Cookie` 與 3xx（hawkr 2026-11-01 實測，`next.config.ts` rewrites）。本 ADR 用的是 `vercel.json` 的 `routes` 加 transform（因為 rewrites 不能加 request header），這條路徑的 `Set-Cookie` 轉回、密鑰 header 與 `X-Real-IP` 都還沒實測：第一次正式部署時照 `docs/deploy-vps.md` 第 6 節的驗證步驟確認，結果補進這裡。
+- `external`：Vercel 的外部 rewrite 會原樣轉回多個 `Set-Cookie` 與 3xx（hawkr 2026-11-01 實測，`next.config.ts` rewrites）。本 ADR 用的是 `vercel.json` 的 `routes` 加 transform（因為 rewrites 不能加 request header），這條路徑的 `Set-Cookie` 轉回、密鑰 header 與 `X-Real-IP` 都還沒實測：template 本身不部署到 Vercel，由採用者在第一次部署時照 `docs/deploy-vps.md` 第 6 節的驗證步驟確認。
 - `external`：Vercel 要經公開網路連到後端，後端需要對外的 HTTPS 入口。
 - `inherited`：後端只信任 Caddy 的固定 IP（`TRUSTED_PROXIES`）。這是我們自己的設計，不限制選項；本 ADR 保留它，理由見 D2。
 
