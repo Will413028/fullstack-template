@@ -148,7 +148,7 @@ return connect.NewError(connect.CodeAlreadyExists, err)
 
 - Session 是 opaque token，只放在 `HttpOnly; Secure; SameSite=Lax` 的 `__Host-session` cookie（不帶 Domain；`COOKIE_SECURE=false` 的本機 http 開發改名為 `session`），DB 只存 SHA-256（ADR api-and-auth D4）。
 - 不接受 Bearer token，也不把 token 放進回應訊息或 JS 讀得到的地方（ADR api-and-auth D4）。登入一律發新 token。
-- 整個 handler 外層包 `http.CrossOriginProtection`，跨來源的狀態變更請求（POST）回 `permission_denied`（`CROSS_ORIGIN_REQUEST`）（`server.go`；ADR api-and-auth D5；`TestCrossOriginRejectedInEachFormat`）。這就是 GET 只開放給 `Get*`、`List*` 的原因（第三節）。
+- 整個 handler 外層包 `http.CrossOriginProtection`，跨來源的狀態變更請求（POST）回 `permission_denied`（`CROSS_ORIGIN_REQUEST`）（`server.go`；ADR api-and-auth D5；`TestCrossOriginRejectedAsPermissionDenied`）。這就是 GET 只開放給 `Get*`、`List*` 的原因（第三節）。
 - 註冊與登入的 per-IP 限流在 net/http 這一層、解碼之前，procedure 列在 `server.go` 的 `connectLimited`，用生成的 procedure 常數（`usersv1connect.UserPublicServiceCreateUserProcedure`）；列了沒掛載的 procedure，server 不會啟動（`TestConnectRateLimitNamesMountedProcedures`）。次數由 `AUTH_RATE_LIMIT_PER_MIN` 設定。
 - 登入另有依「帳號＋來源」的節流與帳號層級的上限（`sign_in_throttles`），不論帳號是否存在都記錄，超過時回 `resource_exhausted`（`LOGIN_THROTTLED`，帶 `RetryInfo`）（ADR api-and-auth D6、ADR account-abuse-and-lifecycle D4）。
 

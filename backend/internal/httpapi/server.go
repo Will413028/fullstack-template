@@ -114,33 +114,29 @@ func NewHandler(deps Deps) (http.Handler, error) {
 		connectLimit[p] = true
 	}
 	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
-	connect := connectEntry(deps.Logger, connectMux, limiter, connectLimit)
+	withSession := func(h http.Handler) http.Handler { return authenticate(deps.Auth, deps.Cookie, deps.Logger, h) }
+	connect := connectEntry(deps.Logger, connectMux, withSession, limiter, connectLimit)
 	return assemble(deps, connect), nil
 }
 
-var (
-	errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
-	errNotFound    = apperr.New(apperr.NotFound, "", "not found")
-)
+var errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
 
 // connectEntry is what the net/http layer checks for a Connect request before connect-go decodes it; connect-go runs
 // interceptors only after decoding, so a check that must come first cannot be an interceptor. In order:
-//   - a path that is not a mounted procedure is not_found, without asking for a session;
-//   - App and Admin procedures need a session (authenticate resolved it): unauthenticated otherwise, so an anonymous
+//   - a path that is not a mounted procedure is not_found, before withSession (authenticate) looks up a session, so
+//     it costs no database query;
+//   - App and Admin procedures need a session (withSession resolved it): unauthenticated otherwise, so an anonymous
 //     caller learns nothing from decoding or field errors;
 //   - the procedures in limited take a token from the client's bucket: resource_exhausted with RetryInfo when it is
 //     empty, so a malformed request uses a token too.
 //
 // The admin role is checked by an interceptor (rpc.NewMux): only a signed-in user reaches it.
-func connectEntry(logger *slog.Logger, m *rpc.Mux, limiter *ipLimiter, limited map[string]bool) http.Handler {
+func connectEntry(logger *slog.Logger, m *rpc.Mux, withSession func(http.Handler) http.Handler, limiter *ipLimiter,
+	limited map[string]bool) http.Handler {
 	handler := http.StripPrefix("/api", m)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	procedureHandler := withSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		procedure := strings.TrimPrefix(r.URL.Path, "/api")
-		class, ok := m.Class(procedure)
-		if !ok {
-			writeError(w, r, logger, errNoProcedure)
-			return
-		}
+		class, _ := m.Class(procedure)
 		if _, signedIn := authctx.From(r.Context()); class != rpc.Public && !signedIn {
 			writeError(w, r, logger, auth.ErrSessionInvalid)
 			return
@@ -153,10 +149,17 @@ func connectEntry(logger *slog.Logger, m *rpc.Mux, limiter *ipLimiter, limited m
 			}
 		}
 		handler.ServeHTTP(w, r)
+	}))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := m.Class(strings.TrimPrefix(r.URL.Path, "/api")); !ok {
+			writeError(w, r, logger, errNoProcedure)
+			return
+		}
+		procedureHandler.ServeHTTP(w, r)
 	})
 }
 
-// assemble mounts the API behind authentication, adds the health checks and wraps everything in the protections every
+// assemble mounts the API (connectEntry, which authenticates the procedures), adds the health checks and wraps everything in the protections every
 // request gets. A path that is neither is not_found, in the Connect format like every error.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
@@ -174,9 +177,9 @@ func assemble(deps Deps, connect http.Handler) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	mux.Handle("/api/", authenticate(deps.Auth, deps.Cookie, deps.Logger, connect))
+	mux.Handle("/api/", connect)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, r, deps.Logger, errNotFound)
+		writeError(w, r, deps.Logger, errNoProcedure)
 	})
 	return protect(deps, mux)
 }

@@ -290,8 +290,8 @@ func TestConnectPublicServiceThroughNewHandler(t *testing.T) {
 	}
 }
 
-// The same server answers a rejected cross-origin request in the request's format.
-func TestCrossOriginRejectedInEachFormat(t *testing.T) {
+// A rejected cross-origin request is permission_denied with CROSS_ORIGIN_REQUEST, on the wire and through a client.
+func TestCrossOriginRejectedAsPermissionDenied(t *testing.T) {
 	h := newConnectAPI(t, Deps{})
 	crossSite := map[string]string{"Sec-Fetch-Site": "cross-site"}
 	e := decodeWireError(t, connectPost(t, h, testingv1connect.TestingPublicServiceUpdatePublicThingProcedure, `{}`, crossSite),

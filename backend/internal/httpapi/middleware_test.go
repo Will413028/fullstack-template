@@ -90,7 +90,7 @@ func TestRequestIDMalformedReplaced(t *testing.T) {
 func TestErrorCarriesRequestIDHeader(t *testing.T) {
 	h := newStubAPI(t, Deps{})
 	// decodeWireError checks the id is in X-Request-ID and not in the body (B17)
-	decodeWireError(t, do(t, h, http.MethodGet, "/api/nope", "", ""), http.StatusNotFound, "not_found")
+	decodeWireError(t, do(t, h, http.MethodGet, "/api/nope"), http.StatusNotFound, "not_found")
 }
 
 // logLines decodes JSON log output into one map per line.
@@ -150,8 +150,8 @@ func TestPanicLogAndAccessLogCarryRequestID(t *testing.T) {
 func TestSecurityHeaders(t *testing.T) {
 	h := newStubAPI(t, Deps{})
 	for name, rec := range map[string]*httptest.ResponseRecorder{
-		"ok":           do(t, h, http.MethodGet, "/api/widgets", "", ""),
-		"error":        do(t, h, http.MethodGet, "/api/nope", "", ""),
+		"ok":           do(t, h, http.MethodGet, "/api/widgets"),
+		"error":        do(t, h, http.MethodGet, "/api/nope"),
 		"cross-origin": doFrom(t, h, http.MethodPost, "/api/widgets", untrustedAddr, map[string]string{"Sec-Fetch-Site": "cross-site"}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -208,7 +208,7 @@ func TestAccessLogAbortBeforeWriting(t *testing.T) {
 	}))
 	func() {
 		defer func() { _ = recover() }()
-		do(t, h, http.MethodGet, "/x", "", "")
+		do(t, h, http.MethodGet, "/x")
 	}()
 	if got := findLog(t, logLines(t, &buf), "request aborted")["status"]; got != float64(0) {
 		t.Fatalf("aborted request status = %v, want 0 (nothing was sent)", got)
@@ -222,7 +222,7 @@ func TestResponseControllerReachesConnection(t *testing.T) {
 	h := protect(Deps{Logger: discard, Now: time.Now}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		flushErr = http.NewResponseController(w).Flush()
 	}))
-	rec := do(t, h, http.MethodGet, "/x", "", "")
+	rec := do(t, h, http.MethodGet, "/x")
 	if flushErr != nil || !rec.Flushed {
 		t.Fatalf("Flush through the middleware chain: err = %v, flushed = %v", flushErr, rec.Flushed)
 	}

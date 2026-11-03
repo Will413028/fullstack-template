@@ -124,14 +124,9 @@ func fetchStatus(ctx context.Context, url string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// readsBody stands in for a handler that reads the body: 413 when the read fails with *http.MaxBytesError (connect-go
-// turns that error into resource_exhausted itself), an internal error for any other read error.
+// readsBody stands in for a handler that reads the body and reports a read error the way handlers do.
 var readsBody = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.ReadAll(r.Body); err != nil {
-		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
-			w.WriteHeader(http.StatusRequestEntityTooLarge)
-			return
-		}
 		writeError(w, r, discard, err)
 		return
 	}
@@ -161,8 +156,10 @@ func TestBodyTooLarge(t *testing.T) {
 	if code := post(t, h, make([]byte, maxBodyBytes), sameOrigin); code != http.StatusOK {
 		t.Fatalf("body at the limit: code = %d, want 200", code)
 	}
-	if code := post(t, h, make([]byte, maxBodyBytes+1), sameOrigin); code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("body over the limit: code = %d, want 413 (*http.MaxBytesError)", code)
+	rec := postRec(t, h, make([]byte, maxBodyBytes+1), sameOrigin)
+	rec.Header().Set(headerRequestID, "test") // withRequestInfo's, which this test leaves out
+	if e := decodeWireError(t, rec, http.StatusTooManyRequests, "resource_exhausted"); len(e.Details) > 0 {
+		t.Errorf("details = %+v, want none (RetryInfo marks the rate limit)", e.Details)
 	}
 }
 

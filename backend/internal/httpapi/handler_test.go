@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 )
@@ -29,15 +28,10 @@ func newStubAPI(t *testing.T, deps Deps) http.Handler {
 	return assemble(deps, stub)
 }
 
-func do(t *testing.T, h http.Handler, method, target, contentType, body string) *httptest.ResponseRecorder {
+// do sends a same-origin request without a body.
+func do(t *testing.T, h http.Handler, method, target string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), method, "http://app.test"+target, strings.NewReader(body))
-	if body == "" {
-		req = httptest.NewRequestWithContext(t.Context(), method, "http://app.test"+target, http.NoBody)
-	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
+	req := httptest.NewRequestWithContext(t.Context(), method, "http://app.test"+target, http.NoBody)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

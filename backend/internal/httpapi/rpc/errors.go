@@ -61,6 +61,10 @@ func Convert(err error) Converted {
 	if fields, ok := apperr.Fields(err); ok {
 		return invalidFields(fields)
 	}
+	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+		// what connect-go answers for a body over its reader's limit, without RetryInfo (which marks the rate limit)
+		return Converted{Err: connect.NewError(connect.CodeResourceExhausted, errors.New("request body is too large"))}
+	}
 	e, ok := apperr.As(err)
 	if !ok || e.Kind == apperr.Validation { // a Validation that Fields refused is joined with an unexpected error
 		return internal()

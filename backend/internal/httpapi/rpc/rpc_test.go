@@ -68,6 +68,7 @@ func TestConvert(t *testing.T) {
 		{apperr.New(apperr.Forbidden, "reauthentication_required", ""), connect.CodePermissionDenied, "REAUTHENTICATION_REQUIRED"},
 		{fmt.Errorf("wrapped: %w", apperr.New(apperr.Forbidden, "insufficient_role", "")), connect.CodePermissionDenied, "INSUFFICIENT_ROLE"},
 		{connect.NewError(connect.CodeUnavailable, errors.New("down")), connect.CodeUnavailable, ""},
+		{fmt.Errorf("read body: %w", &http.MaxBytesError{Limit: 1}), connect.CodeResourceExhausted, ""},
 	} {
 		c := Convert(tc.err)
 		if c.Err.Code() != tc.code || c.Internal || len(c.Undeclared) > 0 {

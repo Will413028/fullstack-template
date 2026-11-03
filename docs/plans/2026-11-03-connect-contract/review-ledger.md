@@ -175,3 +175,19 @@ Step 3＋4 browser walk-through (2026-11-04): the walk-through found W1; `/code-
 | S47 | 1 (C) | nit | another directive before `"use client"`, `require()` or a template-literal import is not recognized | rejected: no source file has them (ESM, Biome) | `rg -n "use strict\|require\(" frontend/src --glob '!generated/**'` |
 
 Count (walk-through and its review): findings 6 (blocking 1); fixed 5; recorded 0; raised 0; rejected 1.
+
+## Step 5 (REST layer and OpenAPI deleted, 2026-11-04)
+
+`/code-review high 3e85b7f..dc907a1`, round 1. Prior items closed by step 5: S20, S21, S37 (`api-design.md`, the skills, the three `AGENTS.md` rewritten, `dc907a1`), S22 and S34 (the page token is decoded once, in `rpc`; `fd4cd51`), S38 (`openapi.yaml` deleted), S39 (comments, `.gitattributes` and `biome.json`). S28 stays recorded with its trigger (password policy revision).
+
+| # | Round | Severity | Finding | Disposition | Check |
+|---|---|---|---|---|---|
+| S48 | 1 (C) | should | `writeError` lost the `*http.MaxBytesError` mapping the problem writer had, so an oversized body read in the net/http layer became `internal` with an ERROR log | fixed: `rpc.Convert` maps it to `resource_exhausted` without details, as connect-go does | TestConvert row, TestBodyTooLarge (through `writeError`); red-proof M1 killed TestConvert |
+| S49 | 1 (C) | should | TestBodyTooLarge had been changed to answer 413 in its stub, so it no longer tested the server's error path | fixed with S48: the stub reports through `writeError` again | TestBodyTooLarge |
+| S50 | 1 (C) | should | `keyset.Trim` panics for a limit below 1 | fixed: returns no rows | TestTrim; red-proof M2 killed TestTrim |
+| S51 | 1 (C) | should | every `/api/*` path went through `authenticate` (a session query) before `connectEntry` saw it was not a procedure; with the database down it was `internal` instead of `not_found` | fixed: `connectEntry` checks the procedure first and wraps only procedures in `authenticate` | TestAuthenticateDatabaseErrorIsInternal (`/api/nope` with a cookie and the pool closed is `not_found`), CI |
+| S52 | 1 (C) | nit | two NotFound sentinels for the same condition | fixed: `errNoProcedure` only | `rg errNotFound` empty |
+| S53 | 1 (C) | nit | `do()` kept content-type and body parameters no caller uses | fixed | — |
+| S54 | 1 (C) | nit | TestCrossOriginRejectedInEachFormat names formats that no longer exist | fixed: TestCrossOriginRejectedAsPermissionDenied, in `api-design.md` and the threat model too | `rg TestCrossOriginRejectedInEachFormat` only in plan history |
+
+Count (step 5): findings 7 (blocking 0); fixed 7; recorded 0; raised 0; rejected 0.

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -42,7 +44,8 @@ func TestConnectAdminServiceNeedsAdminRole(t *testing.T) {
 	}
 }
 
-// A database error while authenticate resolves the session is internal.
+// A database error while authenticate resolves the session is internal; a path that is not a procedure never gets
+// that far.
 func TestAuthenticateDatabaseErrorIsInternal(t *testing.T) {
 	a := newAuthAPI(t, withTestServices)
 	_, token := a.mustSignUp("alice")
@@ -53,5 +56,12 @@ func TestAuthenticateDatabaseErrorIsInternal(t *testing.T) {
 	assertConnectError(t, err, connect.CodeInternal, "")
 	_, err = a.me(token)
 	assertConnectError(t, err, connect.CodeInternal, "")
+
+	// a path that is not a procedure is not_found before the session is looked up, so the database is not asked
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://app.test/api/nope", http.NoBody)
+	req.Header.Set("Cookie", cookieName+"="+token)
+	a.h.ServeHTTP(rec, req)
+	decodeWireError(t, rec, http.StatusNotFound, "not_found")
 
 }

@@ -20,4 +20,7 @@ func TestTrim(t *testing.T) {
 	if len(page) != 2 || next != nil {
 		t.Errorf("Trim(2 rows, 2) = %v, %v; want both and no next page", page, next)
 	}
+	if page, next = Trim(ids, 0, self); len(page) != 0 || next != nil {
+		t.Errorf("Trim(3 rows, 0) = %v, %v; want nothing", page, next)
+	}
 }

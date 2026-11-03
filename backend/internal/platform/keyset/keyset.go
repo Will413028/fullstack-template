@@ -12,7 +12,11 @@ func Rows(limit int) int32 {
 
 // Trim cuts rows read with Rows(limit), newest first, to the page and returns the id of its last row when another
 // page follows: nil when no extra row came back, so the last page has no next page.
+// A limit below 1 is a caller's bug (rpc.PageSize never returns one): Trim returns no rows rather than panic.
 func Trim[T any](rows []T, limit int, id func(T) uuid.UUID) ([]T, *uuid.UUID) {
+	if limit < 1 {
+		return nil, nil
+	}
 	if len(rows) <= limit {
 		return rows, nil
 	}
