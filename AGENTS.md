@@ -72,7 +72,6 @@ pnpm dev              # Start Next.js dev server (Turbopack)
 pnpm build            # Production build
 pnpm lint             # TypeScript check + Biome lint
 pnpm format           # Biome format
-pnpm gen:openapi      # Regenerate API types from backend/api/openapi.yaml (REST)
 pnpm gen:api          # Regenerate the Connect types from ../api (Protobuf)
 ```
 

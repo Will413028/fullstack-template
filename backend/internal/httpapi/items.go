@@ -69,18 +69,9 @@ func (h itemsHandler) GetItem(ctx context.Context, req *connect.Request[itemsv1.
 }
 
 func (h itemsHandler) ListItems(ctx context.Context, req *connect.Request[itemsv1.ListItemsRequest]) (*connect.Response[itemsv1.ListItemsResponse], error) {
-	size, err := rpc.PageSize(req.Msg.GetPageSize(), defaultItemsPage, maxItemsPage)
+	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultItemsPage, maxItemsPage)
 	if err != nil {
 		return nil, err
-	}
-	// checked here so that a bad token is reported on page_token; the service decodes it again
-	token := req.Msg.GetPageToken()
-	if _, err := rpc.PageAfter(token); err != nil {
-		return nil, err
-	}
-	var cursor *string
-	if token != "" {
-		cursor = &token
 	}
 	page, err := h.items.List(ctx, size, cursor)
 	if err != nil {

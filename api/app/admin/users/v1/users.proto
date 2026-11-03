@@ -67,8 +67,10 @@ message GetUserResponse {
 message UpdateUserRequest {
   // user.id names the account; the fields update_mask lists are set from user.
   app.users.v1.User user = 1;
-  // The fields to change: disabled, or "*". Without a mask, disabled is changed when it is set. The fields the server
-  // sets (id, account, role, create_time) are ignored when listed; any other path is invalid_argument.
+  // The fields to change: disabled, or "*". A listed disabled that is unset is false (AIP-134: a listed field takes the
+  // request's value, unset is the default), which enables the account. Without a mask, disabled is changed when it is
+  // set. The fields the server sets (id, account, role, create_time) are ignored when listed; any other path is
+  // invalid_argument.
   google.protobuf.FieldMask update_mask = 2;
 }
 

@@ -44,6 +44,23 @@ func PageAfter(token string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+// PageRequest reads AIP-158 paging for a service whose list takes a page size and a cursor: the size (def when 0, at
+// most maxSize), and the cursor, nil for the first page. A bad page_token is reported on page_token; the service
+// decodes the cursor again (httpx), which plan step 5 removes.
+func PageRequest(size int32, token string, def, maxSize int) (int, *string, error) {
+	n, err := PageSize(size, def, maxSize)
+	if err != nil {
+		return 0, nil, err
+	}
+	if _, err := PageAfter(token); err != nil {
+		return 0, nil, err
+	}
+	if token == "" {
+		return n, nil, nil
+	}
+	return n, &token, nil
+}
+
 // ParseID parses a UUID from the request field at path (for example item_id), an invalid_argument on that field
 // otherwise.
 func ParseID(path, s string) (uuid.UUID, error) {

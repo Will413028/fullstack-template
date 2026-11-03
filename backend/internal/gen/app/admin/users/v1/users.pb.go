@@ -279,8 +279,10 @@ type UpdateUserRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// user.id names the account; the fields update_mask lists are set from user.
 	User *v1.User `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
-	// The fields to change: disabled, or "*". Without a mask, disabled is changed when it is set. The fields the server
-	// sets (id, account, role, create_time) are ignored when listed; any other path is invalid_argument.
+	// The fields to change: disabled, or "*". A listed disabled that is unset is false (AIP-134: a listed field takes the
+	// request's value, unset is the default), which enables the account. Without a mask, disabled is changed when it is
+	// set. The fields the server sets (id, account, role, create_time) are ignored when listed; any other path is
+	// invalid_argument.
 	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

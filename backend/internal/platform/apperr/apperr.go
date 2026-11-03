@@ -58,23 +58,33 @@ func Invalid(field, code, detail string) *Error {
 	return &Error{Kind: Validation, Code: code, Detail: detail, Field: field}
 }
 
-// Fields returns the invalid fields err reports: a Validation error, or errors.Join of Validation errors. ok is
-// false for anything else, including a join that mixes in another error.
-func Fields(err error) (fields []*Error, ok bool) {
-	if joined, isJoin := err.(interface{ Unwrap() []error }); isJoin {
-		for _, member := range joined.Unwrap() {
-			e, isErr := As(member)
-			if !isErr || e.Kind != Validation {
-				return nil, false
-			}
-			fields = append(fields, e)
+// Fields returns the invalid fields err reports: a Validation error, or errors.Join of Validation errors, either
+// possibly wrapped (fmt.Errorf with %w). ok is false for anything else, including a join that mixes in another error.
+func Fields(err error) ([]*Error, bool) {
+	for err != nil {
+		if joined, isJoin := err.(interface{ Unwrap() []error }); isJoin {
+			return validations(joined.Unwrap())
 		}
-		return fields, len(fields) > 0
-	}
-	if e, isErr := As(err); isErr && e.Kind == Validation {
-		return []*Error{e}, true
+		next := errors.Unwrap(err)
+		if next == nil { // the end of the chain; an *Error wraps nothing
+			return validations([]error{err})
+		}
+		err = next
 	}
 	return nil, false
+}
+
+// validations returns errs as Validation errors; false unless every one is.
+func validations(errs []error) ([]*Error, bool) {
+	fields := make([]*Error, 0, len(errs))
+	for _, member := range errs {
+		e, ok := As(member)
+		if !ok || e.Kind != Validation {
+			return nil, false
+		}
+		fields = append(fields, e)
+	}
+	return fields, len(fields) > 0
 }
 
 // As returns the *Error in err's chain, if any.

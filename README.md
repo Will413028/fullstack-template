@@ -96,7 +96,6 @@ pnpm dev                  # Next.js dev server (port 3000, Turbopack)
 pnpm test                 # Vitest
 pnpm lint                 # TypeScript + Biome
 pnpm build                # Production build
-pnpm gen:openapi          # Regenerate API types from the REST contract
 pnpm gen:api              # Regenerate the Connect types from api/ (Protobuf)
 ```
 
@@ -130,7 +129,7 @@ See `AGENTS.md` for the overview, or:
 | UI | shadcn/ui, Lucide icons |
 | State | Tanstack React Query |
 | Forms | React Hook Form + Zod |
-| API client | openapi-typescript + openapi-fetch |
+| API client | Connect clients generated from `api/` (protoc-gen-es), connect-web and connect-query |
 | i18n | next-intl (English, Traditional Chinese) |
 | Linting | golangci-lint (backend), Biome (frontend) |
 | Testing | Go integration tests with testcontainers (backend), Vitest + RTL (frontend) |
