@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
@@ -39,16 +40,22 @@ var (
 )
 
 var kindProblems = map[apperr.Kind]problemType{
-	apperr.NotFound:        problemNotFound,
-	apperr.Conflict:        problemConflict,
-	apperr.Unauthenticated: problemUnauthenticated,
-	apperr.Forbidden:       problemForbidden,
-	apperr.Validation:      problemValidation,
-	apperr.RateLimited:     problemRateLimited,
+	apperr.NotFound:           problemNotFound,
+	apperr.AlreadyExists:      problemConflict,
+	apperr.FailedPrecondition: problemConflict,
+	apperr.Unauthenticated:    problemUnauthenticated,
+	apperr.Forbidden:          problemForbidden,
+	apperr.Validation:         problemValidation,
+	apperr.RateLimited:        problemRateLimited,
 }
 
 // Codes for problems the HTTP layer raises itself.
 const codeCrossOrigin = "cross_origin_request"
+
+var errCrossOrigin = apperr.New(apperr.Forbidden, codeCrossOrigin, "cross-origin request rejected")
+
+// errLogged is an error its caller has already logged: writeError sends an internal error without logging it again.
+var errLogged = errors.New("internal error, already logged")
 
 const problemContentType = "application/problem+json"
 
@@ -87,15 +94,26 @@ func writeProblemBody(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// writeError turns err into a problem. Expected failures (*apperr.Error) and an oversized body map to their problem;
-// anything else is a 500 whose error is only logged, never sent: it can hold SQL, hostnames or user data.
+// writeError is the net/http layer's only way to send an error, in the request's format: a Connect error for a
+// Connect path (isConnect, rpc.Convert), a problem otherwise. Expected failures (*apperr.Error) and an oversized body
+// map to their problem; anything else is a 500 (Connect internal) whose error is only logged, never sent: it can hold
+// SQL, hostnames or user data.
 //
-// When the response has already started, a problem would be appended to it; the response is aborted instead.
+// When the response has already started, an error would be appended to it; the response is aborted instead.
 func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
 	if responseStarted(w) {
 		logger.ErrorContext(r.Context(), "error after the response started", "method", r.Method, "path", r.URL.Path,
 			"error", err)
 		panic(http.ErrAbortHandler)
+	}
+	logged := errors.Is(err, errLogged)
+	if isConnect(r) {
+		c := rpc.Convert(err)
+		if !logged {
+			rpc.LogConverted(r.Context(), logger, r.URL.Path, err, c)
+		}
+		rpc.WriteError(w, r, c.Err)
+		return
 	}
 	if e, ok := apperr.As(err); ok {
 		p, known := kindProblems[e.Kind]
@@ -123,11 +141,13 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 		writeProblem(w, problemPayloadTooLarge, "request body is over "+strconv.FormatInt(tooLarge.Limit, 10)+" bytes", "")
 		return
 	}
-	logger.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "error", err)
+	if !logged {
+		logger.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "error", err)
+	}
 	writeProblem(w, problemInternal, "", "")
 }
 
-// recoverPanics turns a panic in h into a logged 500 problem instead of a dropped connection. http.ErrAbortHandler
+// recoverPanics turns a panic in h into a logged internal error (writeError) instead of a dropped connection. http.ErrAbortHandler
 // is re-raised: it is the documented way for a handler to abort the response. A panic after the response started
 // aborts it too: appending a problem would turn a partial 200 into a 200 with corrupt JSON.
 func recoverPanics(logger *slog.Logger, h http.Handler) http.Handler {
@@ -146,7 +166,7 @@ func recoverPanics(logger *slog.Logger, h http.Handler) http.Handler {
 			if w.started {
 				panic(http.ErrAbortHandler)
 			}
-			writeProblem(w, problemInternal, "", "")
+			writeError(w, r, logger, errLogged)
 		}()
 		h.ServeHTTP(w, r)
 	})

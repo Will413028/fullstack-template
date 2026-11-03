@@ -49,12 +49,13 @@ func TestAppErrToProblem(t *testing.T) {
 		typ    string
 	}{
 		{apperr.New(apperr.NotFound, "item_not_found", "no such item"), 404, "/problems/not-found"},
-		{apperr.New(apperr.Conflict, "account_taken", "account exists"), 409, "/problems/conflict"},
+		{apperr.New(apperr.AlreadyExists, "account_taken", "account exists"), 409, "/problems/conflict"},
+		{apperr.New(apperr.FailedPrecondition, "last_admin", "only admin"), 409, "/problems/conflict"},
 		{apperr.New(apperr.Unauthenticated, "session_invalid", ""), 401, "/problems/unauthenticated"},
 		{apperr.New(apperr.Forbidden, "admin_required", ""), 403, "/problems/forbidden"},
 		{apperr.New(apperr.RateLimited, "too_many_requests", ""), 429, "/problems/rate-limited"},
 		// Wrapped errors keep their kind.
-		{fmt.Errorf("create: %w", apperr.New(apperr.Conflict, "account_taken", "")), 409, "/problems/conflict"},
+		{fmt.Errorf("create: %w", apperr.New(apperr.AlreadyExists, "account_taken", "")), 409, "/problems/conflict"},
 	} {
 		p := assertProblem(t, serveError(t, tc.err, discard), tc.status, tc.typ)
 		want, _ := apperr.As(tc.err)

@@ -12,14 +12,18 @@ import (
 	"net/http"
 	"net/netip"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/Will413028/template-go-nextjs/backend/api"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
 
 // maxBodyBytes caps every request body.
@@ -70,6 +74,11 @@ type Deps struct {
 	Cookie Cookie
 	// Items serves the items operations. Nil only in tests that call none of them.
 	Items *items.Service
+
+	// testServices are Connect services mounted next to connectServices' (tests only).
+	testServices []rpc.Service
+	// testLimited are procedures added to connectLimited (tests only).
+	testLimited []string
 }
 
 // apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
@@ -79,7 +88,19 @@ type apiServer struct {
 	cookie Cookie
 }
 
-// NewHandler builds the public handler: the API under /api from the embedded contract, and the health checks.
+// connectServices are the Connect services NewHandler mounts. While docs/plans/2026-11-03-connect-contract.md moves the
+// API from REST to Connect, the REST operations still serve every module; each module's services join this list in
+// the step that deletes its REST operations.
+func connectServices(deps Deps) []rpc.Service {
+	return append([]rpc.Service(nil), deps.testServices...)
+}
+
+// connectLimited are the procedures the per-client rate limit applies to at the Connect entry (connectEntry). Sign-up
+// and sign-in join it when they move to Connect; until then the REST operations are limited (limitOperations).
+var connectLimited []string
+
+// NewHandler builds the public handler: the API under /api (REST from the embedded contract, Connect from
+// connectServices), and the health checks.
 func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	if deps.RateLimitPerMin < 1 {
 		return nil, errors.New("RateLimitPerMin must be positive")
@@ -123,7 +144,60 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 			writeParamError(w, r, deps.Logger, err)
 		},
 	})
-	return assemble(deps, spec, routes), nil
+	connectMux, err := rpc.NewMux(deps.Logger, auth.RoleAdmin, connectServices(deps))
+	if err != nil {
+		return nil, err
+	}
+	connectLimit := map[string]bool{}
+	for _, p := range append(append([]string(nil), connectLimited...), deps.testLimited...) {
+		if _, ok := connectMux.Class(p); !ok {
+			return nil, fmt.Errorf("rate limit: %s is not a mounted procedure", p)
+		}
+		connectLimit[p] = true
+	}
+	connect := connectEntry(deps.Logger, connectMux, limiter, connectLimit)
+	return assemble(deps, spec, routes, connect), nil
+}
+
+// connectPrefix starts every Connect path: /api/<package>.<Service>/<Method>, and every package is under the proto
+// root app (decision D5). The transition mux (assemble) and writeError choose Connect by this one condition.
+const connectPrefix = "/api/app."
+
+func isConnect(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, connectPrefix) }
+
+var errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
+
+// connectEntry is what the net/http layer checks for a Connect request before connect-go decodes it; connect-go runs
+// interceptors only after decoding, so a check that must come first cannot be an interceptor. In order:
+//   - a procedure that is not mounted is not_found, without asking for a session;
+//   - App and Admin procedures need a session (authenticate resolved it): unauthenticated otherwise, so an anonymous
+//     caller learns nothing from decoding or field errors;
+//   - the procedures in limited take a token from the client's bucket: resource_exhausted with RetryInfo when it is
+//     empty, so a malformed request uses a token too.
+//
+// The admin role is checked by an interceptor (rpc.NewMux): only a signed-in user reaches it.
+func connectEntry(logger *slog.Logger, m *rpc.Mux, limiter *ipLimiter, limited map[string]bool) http.Handler {
+	handler := http.StripPrefix("/api", m)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		procedure := strings.TrimPrefix(r.URL.Path, "/api")
+		class, ok := m.Class(procedure)
+		if !ok {
+			writeError(w, r, logger, errNoProcedure)
+			return
+		}
+		if _, signedIn := authctx.From(r.Context()); class != rpc.Public && !signedIn {
+			writeError(w, r, logger, auth.ErrSessionInvalid)
+			return
+		}
+		if limited[procedure] {
+			if d := limiter.wait(clientIPFrom(r.Context())); d > 0 {
+				writeError(w, r, logger, &apperr.Error{Kind: apperr.RateLimited, Detail: "too many requests from this address",
+					RetryAfter: d})
+				return
+			}
+		}
+		handler.ServeHTTP(w, r)
+	})
 }
 
 // operations checks that each name is an operation as strict middleware sees it: the generated method name
@@ -139,12 +213,13 @@ func operations(names ...string) ([]string, error) {
 	return names, nil
 }
 
-// assemble mounts the API routes behind request validation against spec, adds the health checks, and wraps
+// assemble mounts the API behind authentication, then splits it: Connect paths (isConnect) go to connect, every
+// other /api path to the REST routes behind request validation against spec. It adds the health checks and wraps
 // everything in the protections every request gets.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
 // 503 while a dependency is unavailable. Both sit outside the contract and outside validation.
-func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler {
+func assemble(deps Deps, spec *openapi3.T, apiRoutes, connect http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -157,7 +232,14 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler 
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	apiHandler := authenticate(deps.Auth, deps.Cookie, deps.Logger, validateRequests(spec, deps.Logger, apiRoutes))
+	rest := validateRequests(spec, deps.Logger, apiRoutes)
+	apiHandler := authenticate(deps.Auth, deps.Cookie, deps.Logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isConnect(r) {
+			connect.ServeHTTP(w, r)
+			return
+		}
+		rest.ServeHTTP(w, r)
+	}))
 	if deps.Docs {
 		apiHandler = withDocs(apiHandler)
 	}
@@ -173,11 +255,15 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler 
 //     the panic log included, and every response, problems included, carry the request id.
 //   - accessLog logs the request once it ends, with the status recoverPanics chose.
 //   - securityHeaders, set before any handler writes.
-//   - A panic becomes a logged 500 problem.
-//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with a 403 problem, using
-//     Sec-Fetch-Site and falling back to comparing Origin with Host. Non-browser clients that send neither header
-//     pass. GET, HEAD and OPTIONS are not checked.
-//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413.
+//   - A panic becomes a logged internal error.
+//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with permission_denied
+//     (CROSS_ORIGIN_REQUEST; a 403 problem for REST), using Sec-Fetch-Site and falling back to comparing Origin with
+//     Host. Non-browser clients that send neither header pass. GET, HEAD and OPTIONS are not checked, which is why
+//     only Get and List methods may be served on GET (rpc.NewMux).
+//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413 and
+//     connect-go into resource_exhausted (without RetryInfo, which tells it from the rate limit).
+//
+// Errors are written by writeError, in the format of the request: Connect or REST.
 //
 // A middleware that wraps the ResponseWriter must provide Unwrap: responseStarted walks the chain to find
 // recoverPanics' startWriter.
@@ -187,8 +273,8 @@ func protect(deps Deps, h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 	})
 	cop := http.NewCrossOriginProtection()
-	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, problemForbidden, "cross-origin request rejected", codeCrossOrigin)
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, deps.Logger, errCrossOrigin)
 	}))
 	inner := recoverPanics(deps.Logger, cop.Handler(limited))
 	return withRequestInfo(deps.TrustedProxies, accessLog(deps.Logger, deps.Now, securityHeaders(inner)))

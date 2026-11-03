@@ -39,7 +39,7 @@ func newStubAPI(t *testing.T, deps Deps) http.Handler {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	return assemble(deps, spec, routes)
+	return assemble(deps, spec, routes, http.NotFoundHandler())
 }
 
 func loadTestSpec(t *testing.T) *openapi3.T {

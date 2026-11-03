@@ -192,7 +192,7 @@ func (s *Service) CreateUser(ctx context.Context, account, password string) (Use
 		q := store.New(tx)
 		row, err := q.CreateUser(ctx, store.CreateUserParams{Account: accountKey(account), PasswordHash: hash, Role: RoleUser})
 		if isUniqueViolation(err) {
-			return apperr.New(apperr.Conflict, CodeAccountTaken, "account is taken")
+			return apperr.New(apperr.AlreadyExists, CodeAccountTaken, "account is taken")
 		}
 		if err != nil {
 			return fmt.Errorf("auth: create user: %w", err)
@@ -290,7 +290,7 @@ func (s *Service) audit(ctx context.Context, q *store.Queries, action string, ta
 
 // ErrLastAdmin refuses to disable or delete the only enabled admin: nobody could administer users afterwards, and
 // seed-admin does not change an existing account.
-var ErrLastAdmin = apperr.New(apperr.Conflict, CodeLastAdmin, "the only enabled admin cannot be disabled or deleted")
+var ErrLastAdmin = apperr.New(apperr.FailedPrecondition, CodeLastAdmin, "the only enabled admin cannot be disabled or deleted")
 
 // keepAnAdmin fails with ErrLastAdmin when id is the only enabled admin. It locks the enabled admins until q's
 // transaction ends.

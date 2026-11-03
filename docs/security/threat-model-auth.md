@@ -37,6 +37,8 @@
 | `deleteCurrentUser` | `DELETE /api/users/me` | 登入者；session 必須是 10 分鐘內登入的，否則 403 `reauthentication_required` |
 | `listUsers`、`patchUser`、`deleteUser` | `GET /api/users`、`PATCH`／`DELETE /api/users/{id}` | 只有 admin |
 
+**過渡期的 Connect 入口**（[計畫](../plans/2026-11-03-connect-contract.md)；[ADR 對外 API 改用 Protobuf＋Connect](../adr/2026-11-03-api-contract-protobuf-connect.md)）：`/api/app.` 開頭的路徑在 `authenticate` 之後改走 Connect（`httpapi/server.go` 的 `assemble`、`connectEntry`），其他 `/api` 路徑照舊走上表的 REST。目前只有測試用的 service（`httpapi/rpc/testdata`），正式的 service 隨搬遷的步驟加入 `connectServices`，同一步刪掉對應的 REST operation。誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）兩條路相同，錯誤依請求的格式寫成 Connect 錯誤或 problem（`writeError`）。
+
 不在範圍內：`items` 的各個 operation（擁有者範圍之外）、主機與 Docker 的強化、Caddy 的 TLS 設定。
 
 ## Spoofing（冒充）
@@ -105,6 +107,9 @@
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
 | 一般使用者呼叫 admin 操作 | `operationAccess` 列出每個 operation 誰能呼叫；漏列的 operation、列了不存在的 operation、或「公開」與契約的 `security: []` 不一致，server 啟動就失敗（`adminOperations`）。`requireRole` 在 handler 之前以 403 拒絕。測試：`TestAdminOperationsChecksTable`、`TestOperationAccessEnforced`（逐一呼叫契約裡每個 operation：沒登入要 401，一般使用者呼叫 admin 操作要 403） | 已緩解 |
+| 一般使用者呼叫 Connect 的 Admin service | service 的名稱決定類別，不屬於三類的 service 啟動就失敗；Admin service 的每個方法由 interceptor 檢查 admin 角色，拒絕時回 `permission_denied`（`INSUFFICIENT_ROLE`）並記 `authz.denied`（`httpapi/rpc/interceptor.go` 的 `requireAdmin`）。測試：`TestAdminServiceNeedsAdminRole`、`TestConnectAdminServiceNeedsAdminRole`、`TestNewHandlerRejectsUnclassifiedService` | 已緩解 |
+| 匿名請求在 Connect 解碼之前得到解碼或欄位錯誤 | connect-go 先解碼才跑 interceptor，所以未登入檢查放在 net/http 層：App 與 Admin 的方法在 Connect handler 之前回 `unauthenticated`；不存在的 procedure 一律 `not_found`，不先要求登入。測試：`TestConnectUnauthenticatedBeforeDecoding`、`TestConnectUnknownProcedureNotFound` | 已緩解 |
+| 用 GET 繞過 CSRF 檢查呼叫有副作用的方法 | CrossOriginProtection 不檢查 GET；只有 `Get*`、`List*` 方法可以標 `NO_SIDE_EFFECTS`（connect-go 只對這種方法接受 GET），其他的標了就啟動失敗（`rpc.NewMux`）。測試：`TestNewHandlerRejectsSideEffectsOnGet`、`TestCrossOriginRejectedInEachFormat` | 已緩解 |
 | 角色變更後仍用舊角色 | 每個請求都從資料庫讀角色。目前沒有改角色或改密碼的 operation；後端規則 8 要求這類功能撤銷該使用者所有 session（`backend/AGENTS.md`） | 已緩解 |
 | 匿名請求到達受保護的 handler | 契約宣告 security，validator 在參數與 body 之前檢查。測試：`TestUnauthenticatedBeforeValidation`、`TestOperationAccessEnforced` | 已緩解 |
 | backend 被入侵後改 schema | app 角色只有 DML。測試：`TestAppRoleCannotDDL` | 已緩解；所有表的資料仍可寫入，見「已接受的風險」 |
@@ -124,7 +129,7 @@
 
 ## 何時更新這份文件
 
-- `backend/api/openapi.yaml` 新增與認證有關的 operation，或 `operationAccess`、限流清單（`httpapi/server.go`）有增減。
+- `backend/api/openapi.yaml` 新增與認證有關的 operation，或 `operationAccess`、限流清單（`httpapi/server.go` 的 `limitOperations` 與 `connectLimited`）有增減；`connectServices` 掛上新的 service。
 - 新增角色，或改變授予角色的方式。
 - Session 期限、cookie 名稱或屬性、token 格式改變。
 - 新增外部身分提供者、MFA、Bearer token 或任何非瀏覽器的 client。
