@@ -9,7 +9,6 @@ pnpm build          # production build (Vercel builds it on deploy)
 pnpm lint           # tsc --noEmit + Biome
 pnpm format         # Biome format --write
 pnpm test           # Vitest
-pnpm gen:openapi    # regenerate src/lib/api/schema.d.ts from backend/api/openapi.yaml
 pnpm gen:api        # regenerate src/generated from ../api (Connect)
 ```
 
