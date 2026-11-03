@@ -49,6 +49,13 @@ ATLAS_COMMUNITY_SHA256_darwin-arm64 := b69dd05c33cd1ee1f9a21eb4e71e48f44df325847
 ATLAS_COMMUNITY_SHA256_linux-amd64  := bfc65a52d3b745178c619a314052580861a385c364ae5abece174286055d525a
 ATLAS_COMMUNITY_SHA256_linux-arm64  := e934d1649e8e110c934db4dd59ae6fcbec0d2354fef273e4444cb009443a91a3
 PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
+# The binaries keep stable paths (docs and lefthook call bin/atlas, bin/golangci-lint) and depend on an empty stamp
+# named after the pinned version: after a bump (or a checkout of an older pin) that stamp is missing, so make creates
+# it, deleting the tool's other stamps, and the stamp being newer than the binary downloads the pinned version again.
+# Without it an existing binary would never be replaced.
+GOLANGCI_LINT_STAMP   := bin/.golangci-lint-$(GOLANGCI_LINT_VERSION)
+ATLAS_STAMP           := bin/.atlas-$(ATLAS_VERSION)
+ATLAS_COMMUNITY_STAMP := bin/.atlas-community-$(ATLAS_VERSION)
 
 .PHONY: run
 run: ## Start serve with backend/.env (format in .env-example)
@@ -149,17 +156,27 @@ api-breaking: ## api/openapi.yaml must have no breaking change against BASE
 .PHONY: tools
 tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT)
 
-$(GOLANGCI_LINT):
+$(GOLANGCI_LINT_STAMP):
+	@mkdir -p bin && rm -f bin/.golangci-lint-* && touch $@
+
+# bin/.atlas-v*, not bin/.atlas-*: that would also delete the community build's stamp.
+$(ATLAS_STAMP):
+	@mkdir -p bin && rm -f bin/.atlas-v* && touch $@
+
+$(ATLAS_COMMUNITY_STAMP):
+	@mkdir -p bin && rm -f bin/.atlas-community-v* && touch $@
+
+$(GOLANGCI_LINT): $(GOLANGCI_LINT_STAMP)
 	@sum="$(GOLANGCI_LINT_SHA256_$(PLATFORM))"; \
 	if [ -z "$$sum" ]; then echo "no golangci-lint checksum for $(PLATFORM)"; exit 1; fi; \
 	name=golangci-lint-$(GOLANGCI_LINT_VERSION)-$(PLATFORM); \
 	mkdir -p bin && \
 	curl -sSfL -o bin/$$name.tar.gz "https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/$$name.tar.gz" && \
 	echo "$$sum  bin/$$name.tar.gz" | shasum -a 256 -c - && \
-	tar -xzf bin/$$name.tar.gz -C bin --strip-components=1 $$name/golangci-lint && \
-	rm bin/$$name.tar.gz
+	tar -xzOf bin/$$name.tar.gz $$name/golangci-lint > $@.tmp && \
+	chmod 0755 $@.tmp && mv $@.tmp $@ && rm bin/$$name.tar.gz
 
-$(ATLAS):
+$(ATLAS): $(ATLAS_STAMP)
 	@sum="$(ATLAS_SHA256_$(PLATFORM))"; \
 	if [ -z "$$sum" ]; then echo "no Atlas checksum for $(PLATFORM)"; exit 1; fi; \
 	mkdir -p bin && \
@@ -167,7 +184,7 @@ $(ATLAS):
 	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
 	chmod 0755 $@.tmp && mv $@.tmp $@
 
-$(ATLAS_COMMUNITY):
+$(ATLAS_COMMUNITY): $(ATLAS_COMMUNITY_STAMP)
 	@sum="$(ATLAS_COMMUNITY_SHA256_$(PLATFORM))"; \
 	if [ -z "$$sum" ]; then echo "no Atlas community checksum for $(PLATFORM)"; exit 1; fi; \
 	mkdir -p bin && \
