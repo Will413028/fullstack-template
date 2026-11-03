@@ -1,7 +1,13 @@
 package rpc
 
 import (
+	"fmt"
+	"maps"
+
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
@@ -45,4 +51,57 @@ func ParseID(path, s string) (uuid.UUID, error) {
 		return uuid.Nil, apperr.Invalid("/"+path, "invalid", path+" is not a UUID")
 	}
 	return id, nil
+}
+
+// UpdatePaths is the set of fields an Update changes (AIP-134), out of writable, the resource's top-level fields a
+// caller may set:
+//   - no mask (or an empty one): the writable fields that are populated, so clearing a field needs the mask;
+//   - "*": every writable field;
+//   - a path that is a field of the resource but not writable (an id, a time the server sets) is ignored;
+//   - any other path, nested ones included, is an invalid_argument on update_mask.
+//
+// A writable name that is not a field of the resource is a bug in the handler: UpdatePaths panics.
+func UpdatePaths(mask *fieldmaskpb.FieldMask, resource proto.Message, writable ...string) (map[string]bool, error) {
+	m := resource.ProtoReflect()
+	fields := m.Descriptor().Fields()
+	canWrite := make(map[string]bool, len(writable))
+	for _, name := range writable {
+		if fields.ByName(protoreflect.Name(name)) == nil {
+			panic(fmt.Sprintf("rpc: %s has no field %q", m.Descriptor().FullName(), name))
+		}
+		canWrite[name] = true
+	}
+	out := map[string]bool{}
+	if len(mask.GetPaths()) == 0 {
+		for name := range canWrite {
+			if m.Has(fields.ByName(protoreflect.Name(name))) {
+				out[name] = true
+			}
+		}
+		return out, nil
+	}
+	for _, path := range mask.GetPaths() {
+		switch {
+		case path == "*":
+			maps.Copy(out, canWrite)
+		case canWrite[path]:
+			out[path] = true
+		case fields.ByName(protoreflect.Name(path)) == nil:
+			return nil, apperr.Invalid("/update_mask", "invalid",
+				fmt.Sprintf("update_mask: %q is not a field of %s", path, m.Descriptor().Name()))
+		}
+	}
+	return out, nil
+}
+
+// Under reports a module's invalid field at the request field that holds the module's input: the module says /title,
+// the request has it at item.title. Other errors are returned as they are.
+func Under(field string, err error) error {
+	e, ok := apperr.As(err)
+	if !ok || e.Kind != apperr.Validation {
+		return err
+	}
+	under := *e
+	under.Pointer = "/" + field + e.Pointer
+	return &under
 }
