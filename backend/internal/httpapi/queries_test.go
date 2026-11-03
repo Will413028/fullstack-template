@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/items/v1/itemsv1connect"
 )
 
 // A list request runs as many queries for a full page as for one row: nothing is loaded one row at a time (N+1).
@@ -13,7 +15,11 @@ func TestListQueriesDoNotGrowWithRows(t *testing.T) {
 	admin := a.mustAdmin()
 	_, token := a.mustSignUp("alice")
 	lists := map[string]func() *httptest.ResponseRecorder{
-		"items": func() *httptest.ResponseRecorder { _, rec := a.listItems(token, "?limit=100"); return rec },
+		"items": func() *httptest.ResponseRecorder {
+			// ListItems as the frontend calls it: GET, the request message {"pageSize":100} in the query
+			return a.do(http.MethodGet, "/api"+itemsv1connect.ItemAppServiceListItemsProcedure+
+				"?connect=v1&encoding=json&message=%7B%22pageSize%22%3A100%7D", token, "", "")
+		},
 		"sessions": func() *httptest.ResponseRecorder {
 			return a.do(http.MethodGet, "/api/sessions?limit=100", token, "", "")
 		},

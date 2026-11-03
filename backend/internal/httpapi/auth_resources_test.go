@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Will413028/template-go-nextjs/backend/api"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
@@ -375,4 +376,17 @@ func TestAdminDeletesUser(t *testing.T) {
 	p = assertProblem(t, a.do(http.MethodDelete, "/api/users/"+bob.Id.String(), admin, "", ""),
 		http.StatusForbidden, "/problems/forbidden")
 	assertCode(t, p, auth.CodeReauthenticationRequired)
+}
+
+// The REST list operations (users, sessions) apply the contract's default page size themselves (the validator does
+// not fill defaults in). Moved here from items_test.go when items left REST.
+func TestDefaultPageSizeMatchesContract(t *testing.T) {
+	spec, err := loadSpec(t.Context(), api.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := spec.Components.Parameters["Limit"].Value.Schema.Value.Default
+	if n, ok := def.(float64); !ok || int(n) != defaultPageSize {
+		t.Errorf("contract Limit default = %v, defaultPageSize = %d", def, defaultPageSize)
+	}
 }

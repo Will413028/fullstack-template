@@ -72,7 +72,7 @@ type Deps struct {
 	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
 	Auth   *auth.Service
 	Cookie Cookie
-	// Items serves the items operations. Nil only in tests that call none of them.
+	// Items serves ItemAppService. Nil only in tests that call none of its methods.
 	Items *items.Service
 
 	// testServices are Connect services mounted next to connectServices' (tests only).
@@ -84,15 +84,14 @@ type Deps struct {
 // apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
 type apiServer struct {
 	auth   *auth.Service
-	items  *items.Service
 	cookie Cookie
 }
 
 // connectServices are the Connect services NewHandler mounts. While docs/plans/2026-11-03-connect-contract.md moves the
-// API from REST to Connect, the REST operations still serve every module; each module's services join this list in
-// the step that deletes its REST operations.
+// API from REST to Connect, the REST operations serve the modules not listed here; each module's services join this
+// list in the step that deletes its REST operations.
 func connectServices(deps Deps) []rpc.Service {
-	return append([]rpc.Service(nil), deps.testServices...)
+	return append([]rpc.Service{itemsService(deps.Items)}, deps.testServices...)
 }
 
 // connectLimited are the procedures the per-client rate limit applies to at the Connect entry (connectEntry). Sign-up
@@ -128,7 +127,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		limitOperations(limiter, limited...),
 		requireRole(deps.Logger, auth.RoleAdmin, adminOnly...),
 	}
-	server := &apiServer{auth: deps.Auth, items: deps.Items, cookie: deps.Cookie}
+	server := &apiServer{auth: deps.Auth, cookie: deps.Cookie}
 	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeBodyDecodeError(w, r, deps.Logger, err)

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/oapi-codegen/nullable"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
@@ -12,6 +13,26 @@ import (
 )
 
 // The auth operations: accounts (/users) and sessions (/sessions).
+
+// defaultPageSize is the Limit parameter's default in api/openapi.yaml; the validator does not fill defaults in.
+// TestDefaultPageSizeMatchesContract keeps the two equal.
+const defaultPageSize = 20
+
+// nextCursor is a page's next_cursor: null on the last page, where the service returns no cursor.
+func nextCursor(cursor string) nullable.Nullable[string] {
+	if cursor == "" {
+		return nullable.NewNullNullable[string]()
+	}
+	return nullable.NewNullableWithValue(cursor)
+}
+
+// pageSize is the Limit parameter, or its default when the client sent none.
+func pageSize(limit *int) int {
+	if limit == nil {
+		return defaultPageSize
+	}
+	return *limit
+}
 
 func toUser(u auth.User) gen.User {
 	return gen.User{Id: u.ID, Account: u.Account, Role: gen.UserRole(u.Role), IsDisabled: u.IsDisabled, CreatedAt: u.CreatedAt.UTC()}

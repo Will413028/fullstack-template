@@ -25,7 +25,7 @@
 5. backend → PostgreSQL：用 app 角色，只有 DML 權限（`deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go`）。
 6. backend → Have I Been Pwned range API：只在 `PASSWORD_HIBP_CHECK=true` 時（`backend/internal/platform/hibp/hibp.go`）。
 
-**入口**（`backend/api/openapi.yaml` 的 operation；誰能呼叫由 `httpapi/authz.go` 的 `operationAccess` 決定，啟動時與契約比對）
+**入口**（`backend/api/openapi.yaml` 的 operation；誰能呼叫由 `httpapi/authz.go` 的 `operationAccess` 決定，啟動時與契約比對；已搬到 Connect 的模組見下一段）
 
 | operationId | Route | 誰能呼叫 |
 |---|---|---|
@@ -37,7 +37,7 @@
 | `deleteCurrentUser` | `DELETE /api/users/me` | 登入者；session 必須是 10 分鐘內登入的，否則 403 `reauthentication_required` |
 | `listUsers`、`patchUser`、`deleteUser` | `GET /api/users`、`PATCH`／`DELETE /api/users/{id}` | 只有 admin |
 
-**過渡期的 Connect 入口**（[計畫](../plans/2026-11-03-connect-contract.md)；[ADR 對外 API 改用 Protobuf＋Connect](../adr/2026-11-03-api-contract-protobuf-connect.md)）：`/api/app.` 開頭的路徑在 `authenticate` 之後改走 Connect（`httpapi/server.go` 的 `assemble`、`connectEntry`），其他 `/api` 路徑照舊走上表的 REST。目前只有測試用的 service（`httpapi/rpc/testdata`），正式的 service 隨搬遷的步驟加入 `connectServices`，同一步刪掉對應的 REST operation。誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）兩條路相同，錯誤依請求的格式寫成 Connect 錯誤或 problem（`writeError`）。
+**過渡期的 Connect 入口**（[計畫](../plans/2026-11-03-connect-contract.md)；[ADR 對外 API 改用 Protobuf＋Connect](../adr/2026-11-03-api-contract-protobuf-connect.md)）：`/api/app.` 開頭的路徑在 `authenticate` 之後改走 Connect（`httpapi/server.go` 的 `assemble`、`connectEntry`），其他 `/api` 路徑照舊走上表的 REST。目前掛上的正式 service 是 `app.items.v1.ItemAppService`（步驟 2，取代 REST 的 5 個 items operation 與它們在 `operationAccess` 的項目），另有測試用的 service（`httpapi/rpc/testdata`）；其他正式的 service 隨搬遷的步驟加入 `connectServices`，同一步刪掉對應的 REST operation。誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）兩條路相同，錯誤依請求的格式寫成 Connect 錯誤或 problem（`writeError`）。
 
 不在範圍內：`items` 的各個 operation（擁有者範圍之外）、主機與 Docker 的強化、Caddy 的 TLS 設定。
 
@@ -60,7 +60,7 @@
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`；CI compose job 的同站與跨站 `POST /api/sessions` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
+| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`（Connect，`permission_denied`／`CROSS_ORIGIN_REQUEST`）；CI compose job 的同站與跨站 `POST /api/sessions` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
 | 註冊時自己指定角色 | 請求 schema 拒絕未定義的欄位；service 一律寫入 `user`。測試：`TestValidationCodes`（`additional_property`）、`TestCreateUserSetsSessionCookie`（角色是 `user`） | 已緩解 |
 | 同一帳號名稱同時註冊 | 由唯一索引決定，恰好一個成功，其餘 409。測試：`TestCreateUserConcurrentSameAccount` | 已緩解 |
 | Token 走明文 http | 除非 `COOKIE_SECURE=false`，cookie 帶 `Secure` 與 `__Host-` 前綴；網站網域的 HSTS 由 Vercel 送，API 網域的由 Caddy 送。測試：`TestCookieNameFollowsSecure`、`TestConfigDefaults` | `SITE_ADDRESS` 是網域時已緩解；`:80` 只供本機使用 |
@@ -106,7 +106,7 @@
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 一般使用者呼叫 admin 操作 | `operationAccess` 列出每個 operation 誰能呼叫；漏列的 operation、列了不存在的 operation、或「公開」與契約的 `security: []` 不一致，server 啟動就失敗（`adminOperations`）。`requireRole` 在 handler 之前以 403 拒絕。測試：`TestAdminOperationsChecksTable`、`TestOperationAccessEnforced`（逐一呼叫契約裡每個 operation：沒登入要 401，一般使用者呼叫 admin 操作要 403） | 已緩解 |
+| 一般使用者呼叫 admin 操作 | REST：`operationAccess` 列出每個 operation 誰能呼叫；漏列的 operation、列了不存在的 operation、或「公開」與契約的 `security: []` 不一致，server 啟動就失敗（`adminOperations`）。`requireRole` 在 handler 之前以 403 拒絕。測試：`TestAdminOperationsChecksTable`、`TestOperationAccessEnforced`（逐一呼叫契約裡每個 operation：沒登入要 401，一般使用者呼叫 admin 操作要 403）。Connect：service 名稱決定類別，`AdminService` 由 interceptor 檢查 admin 角色，App 與 Admin 的未登入呼叫在解碼之前回 `unauthenticated`（`TestConnectAdminServiceNeedsAdminRole`、`TestConnectUnauthenticatedBeforeDecoding`、`TestItemsNeedSession`） | 已緩解 |
 | 一般使用者呼叫 Connect 的 Admin service | service 的名稱決定類別，不屬於三類的 service 啟動就失敗；Admin service 的每個方法由 interceptor 檢查 admin 角色，拒絕時回 `permission_denied`（`INSUFFICIENT_ROLE`）並記 `authz.denied`（`httpapi/rpc/interceptor.go` 的 `requireAdmin`）。測試：`TestAdminServiceNeedsAdminRole`、`TestConnectAdminServiceNeedsAdminRole`、`TestNewHandlerRejectsUnclassifiedService` | 已緩解 |
 | 匿名請求在 Connect 解碼之前得到解碼或欄位錯誤 | connect-go 先解碼才跑 interceptor，所以未登入檢查放在 net/http 層：App 與 Admin 的方法在 Connect handler 之前回 `unauthenticated`；不存在的 procedure 一律 `not_found`，不先要求登入。測試：`TestConnectUnauthenticatedBeforeDecoding`、`TestConnectUnknownProcedureNotFound` | 已緩解 |
 | 用 GET 繞過 CSRF 檢查呼叫有副作用的方法 | CrossOriginProtection 不檢查 GET；只有 `Get*`、`List*` 方法可以標 `NO_SIDE_EFFECTS`（connect-go 只對這種方法接受 GET），其他的標了就啟動失敗（`rpc.NewMux`）。測試：`TestNewHandlerRejectsSideEffectsOnGet`、`TestCrossOriginRejectedInEachFormat` | 已緩解 |

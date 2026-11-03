@@ -1,0 +1,31 @@
+# Tests map
+
+Every test of the snapshot (`a83acc9`) in `backend/internal/httpapi/`, `backend/cmd/app/` and the frontend's test files, with the test that replaces it or the reason it is retired (decision D4-A). `python3 docs/plans/2026-11-03-connect-contract/check-plan.py tests [GLOB]` fails on a snapshot test this file does not name. Intended behavior changes are written in the row of the test that shows them.
+
+Columns: old test, new test (file), what changed. A test that keeps its name and moves to Connect lists the same name.
+
+## Step 2: `backend/internal/httpapi/items_test.go` (16 tests, now `ItemAppService`)
+
+| Old test | New test | What changed |
+|---|---|---|
+| TestCreateItem | TestCreateItem (`items_test.go`) | `POST /api/items` 201 → `CreateItem` returns `{item}`. The `Location` header is gone: the descriptor check (`TestConnectServicesReturnTheirResources`) requires every Create to return the resource and to have a Get, and the test reads the item back with `GetItem` (inventory B23, D9 replaced by the ADR). No description: was `"description": null`, now the field is unset (proto3 JSON omits it); the empty string stays a description. New: an `id` or `owner_id` the client sends is ignored. |
+| TestCreateItemUnauthenticated | TestItemsNeedSession (`items_test.go`) | 401 problem → `unauthenticated` (`SESSION_INVALID`) for all five methods, before the body is decoded (malformed JSON still gets `unauthenticated`); runs without a database. |
+| TestCreateItemTitleTooLong | TestCreateItemTitleLimits (`items_test.go`) | 422 `/title` → `invalid_argument` with a `BadRequest` violation on `item.title`. The limit moved from `openapi.yaml` to `items.Service` (D2-A, `checkTitle`). Intended change: an empty title was `too_short` and a missing one `required`; proto3 cannot tell the two apart, so both are `REQUIRED`. 201 characters is `TOO_LONG`; 200 multi-byte characters pass; the database CHECK still refuses 201. |
+| TestListMyItems | TestListMyItems (`items_test.go`) | `next_cursor: null` → `next_page_token` empty on the last page (AIP-158). The "empty array, not null" assertion is gone: proto3 JSON omits an empty repeated field and every generated client reads it as empty. The anonymous call moved to TestItemsNeedSession. |
+| TestPaginationKeyset | TestPaginationKeyset (`items_test.go`) | `limit`/`cursor` → `page_size`/`page_token`; same keyset behavior (the token is still the `internal/platform/httpx` cursor). |
+| TestListItemsInvalidPage | TestListItemsPageParameters (`items_test.go`) | Intended changes (AIP-158): `limit=101` was 422 `out_of_range`, `page_size` 101 or 1000 is now read as 100; an empty `cursor=` was 422 `invalid`, an empty `page_token` is now the first page. Negative `page_size` is `OUT_OF_RANGE` on `page_size`; a token this API did not return is `INVALID` on `page_token`. |
+| TestDefaultPageSizeMatchesContract | TestDefaultPageSizeMatchesContract (`auth_resources_test.go`) and TestListItemsPageParameters | Moved: the REST users and sessions lists still read `defaultPageSize` against the contract's `Limit` default until step 3＋4. For items, the default 20 and the maximum 100 are in the proto comment and checked by TestListItemsPageParameters (101 rows: page_size 0 → 20, 101 → 100). |
+| TestListItemsLimitNotDecimal | retired | Tested the REST parameter binder against kin-openapi's base-0 integer parsing (`limit=0x10`). `page_size` is a proto `int32` that protojson decodes; there is no query parameter binder of ours left to test. |
+| TestGetItem | TestGetItem (`items_test.go`) | 404 problem → `not_found`; a non-UUID id was 422 `format` on `/id`, now `INVALID` on `id` (`rpc.ParseID`). |
+| TestGetOtherUsersItem | TestGetOtherUsersItem (`items_test.go`) | 404 → `not_found`; still indistinguishable from a missing item. |
+| TestUpdateItem | TestUpdateItem (`items_test.go`) | `PATCH` → `UpdateItem` with `update_mask` `[title, description]`; unknown id `not_found`; new: a non-UUID `item.id` is `INVALID` on `item.id`. |
+| TestUpdateItemMergePatch | TestUpdateItemMask (`items_test.go`), TestUpdatePaths (`rpc/request_test.go`) | JSON Merge Patch → `update_mask` (AIP-134). Omitted field unchanged → field not in the mask unchanged, even when the request carries a value for it; `description: null` clears → `description` in the mask and unset clears; `{}` → no mask and no values changes nothing. Intended changes: `title: null` (`null_not_allowed`) → `title` in the mask and empty is `REQUIRED` on `item.title`; the 415 for `application/json` is gone (Connect accepts JSON and binary Protobuf, connect-go answers other content types itself). New: no mask changes the fields that have a value; `"*"` is both fields; listed server-set fields (`update_time`, `owner_id`) are ignored; a path that is not an Item field is `INVALID` on `update_mask`; a 201-character title is `TOO_LONG`. Also intended (plan step 2): unknown JSON fields are dropped, not 422 `additional_property` (connect-go's `DiscardUnknown`). |
+| TestUpdatedAtChanges | TestUpdatedAtChanges (`items_test.go`) | `updated_at`/`created_at` → `update_time`/`create_time` (`google.protobuf.Timestamp`). The "new item has updated_at = created_at" check moved to the first row's new test; the "empty patch leaves updated_at" check is now an update with no mask and no values. |
+| TestDeleteItem | TestDeleteItem (`items_test.go`) | 204 with no body → empty `DeleteItemResponse`; second delete `not_found`; new: a non-UUID id is `INVALID` on `id`. |
+| TestUpdateOtherUsersItem | TestUpdateOtherUsersItem (`items_test.go`) | 404 → `not_found` for update and delete; the item is unchanged. |
+| TestCreateItemCrossSite | TestCreateItemCrossSite (`items_test.go`) | 403 problem → `permission_denied` with `CROSS_ORIGIN_REQUEST`, through the generated client with `Sec-Fetch-Site: cross-site`; nothing is created. |
+
+Also changed in step 2, outside `items_test.go`:
+
+- TestListQueriesDoNotGrowWithRows (`queries_test.go`): the items list is a Connect GET to `ListItems` with `{"pageSize":100}`; users and sessions stay REST until step 3＋4.
+- TestEveryWritablePathHasGet (`spec_test.go`): its self-check removed GET from `/items/{id}`, which left the contract; it now uses `/sessions/{id}`.
