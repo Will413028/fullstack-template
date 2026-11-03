@@ -60,7 +60,7 @@
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
 | 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`（Connect，`permission_denied`／`CROSS_ORIGIN_REQUEST`）；CI compose job 的同站 `CreateSession` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
-| 註冊時自己指定角色 | 請求 schema 拒絕未定義的欄位；service 一律寫入 `user`。測試：`TestValidationCodes`（`additional_property`）、`TestCreateUserSetsSessionCookie`（角色是 `user`） | 已緩解 |
+| 註冊時自己指定角色 | `CreateUserRequest` 只有帳號與密碼，請求裡多帶的欄位（例如 `role`）被丟掉（connect-go 的 `DiscardUnknown`）；service 一律寫入 `user`。測試：`TestCreateUserLimits`（帶 `role` 註冊得到 `ROLE_USER`）、`TestCreateUserSetsSessionCookie`（角色是 `user`） | 已緩解 |
 | 同一帳號名稱同時註冊 | 由唯一索引決定，恰好一個成功，其餘 `already_exists`。測試：`TestCreateUserConcurrentSameAccount` | 已緩解 |
 | Token 走明文 http | 除非 `COOKIE_SECURE=false`，cookie 帶 `Secure` 與 `__Host-` 前綴；網站網域的 HSTS 由 Vercel 送，API 網域的由 Caddy 送。測試：`TestCookieNameFollowsSecure`、`TestConfigDefaults` | `SITE_ADDRESS` 是網域時已緩解；`:80` 只供本機使用 |
 | 在日誌裡偽造 request id | 只接受受信任來源、格式為 `[A-Za-z0-9-]{1,64}` 的值；Caddy 覆寫 client 送的值。測試：`TestRequestIDFromUntrustedPeerReplaced`、`TestRequestIDMalformedReplaced` | 已緩解 |

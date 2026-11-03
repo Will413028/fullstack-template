@@ -140,3 +140,25 @@ Count (step 1 round 1): findings 13; fixed 10; recorded 1; accepted 2; raised 0;
 | S26 | CI | should | the test-count lock was set to 282, CI counted 277 (run 41644558611; every test passed) | fixed: the author missed the five `TestOperationAccessEnforced` subtests of the deleted items operations; lock 277 with a `Quality-Gate:` trailer, `tests-map.md` names the subtests | `check_locks.py` in CI |
 
 Count (step 2 round 1): findings 12 (blocking 3); fixed 8; recorded 3; raised 0; rejected 1.
+
+Step 3＋4 (2026-11-03): `/code-review high` (C) on `36dadf0..efe8c28`, then a diff-perspective reviewer (V) on `36dadf0...4a21706` (the first V reviewer failed with an API error and was replaced by one fresh reviewer), and the CI mutation runs.
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| S27 | 1 (C) | should | `apperr.Fields` saw only a join at the top: a join a service wraps with `%w` reported its first field only | fixed: `Fields` walks wrapping until a join or the end of the chain | `TestConvertValidation` (wrapped join); a `Fields` that stops at wrappers fails it |
+| S28 | 1 (C) | should | password length is counted on the raw string, the hash and the list use the NFKC form | recorded: unchanged from REST (kin-openapi `minLength`/`maxLength` on the raw JSON string); trigger: the next revision of the password policy | `backend/api/openapi.yaml` at `36dadf0`, `CreateUserRequest` |
+| S29 | 1 (C) | should | `clearStaleCookie` cleared the invalid cookie only on writes through it: an outer panic or a Flush sent no clearing | fixed: the clearing is on the response from the start; the wrapper removes it only when the handler set the session cookie | `TestInvalidSessionCookieCleared`, CI run 41673635223 |
+| S30 | 1 (C) | should | REST `writeError` reports a joined validation error as its first field | rejected: `openapi.yaml` has no operation (`paths: {}`), so no module error reaches the REST writer; step 5 deletes it | `backend/api/openapi.yaml:16` |
+| S31 | 1 (C) | should | `UpdateUser` with `disabled` in the mask and no value enables the account | fixed: documented as AIP-134 (a listed field takes the request's value, unset is the default) on `UpdateUserRequest.update_mask` | `api/app/admin/users/v1/users.proto` |
+| S32 | 1 (C) | should | `AGENTS.md`, both READMEs and `frontend/AGENTS.md` still pointed at the deleted `gen:openapi`, `client.ts`, `errors.ts`; `backend/AGENTS.md` rule 6 at the deleted `operationAccess` | fixed in `4a21706` (rule 1 and 6 of `backend/AGENTS.md` too); the full rewrite stays in step 5 | `rg "gen:openapi\|openapi-fetch\|schema\.d\.ts" AGENTS.md README.md frontend` |
+| S33 | 1 (C) | nit | `pageRequest` duplicated the paging items inlined | fixed: `rpc.PageRequest` for items, users and sessions | `TestPageRequest` |
+| S34 | 1 (C) | nit | the page token is decoded twice | recorded: same as S22, step 5 | — |
+| S35 | 1 (V) | should | threat model "註冊時自己指定角色" cited the REST `additional_property` check | fixed: names `DiscardUnknown` and `TestCreateUserLimits` (sign-up with `role` is `ROLE_USER`) | `docs/security/threat-model-auth.md` |
+| S36 | 1 (V) | should | data inventory still named `GET /api/users/{id}/sign-in-lock`, `getCurrentUser`, `listSessions`, `patchUser` | fixed: the Connect methods | `rg "getCurrentUser\|patchUser" docs/privacy` (none) |
+| S37 | 1 (V) | should | `frontend/AGENTS.md` (adding a feature), `backend/AGENTS.md:55`, `docs/rules/api-design.md`, `.claude/skills/add-crud.md`, `add-module.md` describe REST paths and deleted files | recorded: step 5 scope (D13–D17, S20, S21) | plan step 5 |
+| S38 | 1 (V) | nit | `openapi.yaml` keeps components only the deleted operations used | recorded: step 5 deletes the file | plan step 5 |
+| S39 | 1 (V) | nit | comments name `requireRole` (`auth/auth.go`, `queries/users.sql`); `.gitattributes` and `biome.json` name `schema.d.ts` | recorded: step 5 (D20 comments; `biome.json` needs `Quality-Gate:`) | plan step 5 |
+| S40 | CI | should | mutation run 41663511023 stopped at `deadcode`: M1 left `Cookie.device` unreachable, no test ran | fixed in the mutation branch (M1 builds the cookie and drops it) | run 41666704688 reached the tests |
+| S41 | CI | should | under M1, `TestDeviceCookieIsPerAccount` dereferenced the missing device cookie and the panic aborted the package (134 of 303 tests ran) | fixed: `mustDeviceCookie` fails the test instead | run 41673873713 ran all 303, 15 failures, every mutation caught |
+
+Count (step 3＋4 round 1, C and V): findings 13 (blocking 0); fixed 7; recorded 5; raised 0; rejected 1. CI rounds: 2 more, both fixed.

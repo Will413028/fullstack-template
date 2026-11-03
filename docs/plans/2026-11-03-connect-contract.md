@@ -151,7 +151,7 @@
     - `title: null` 的 `null_not_allowed`，改成「title 在 mask 裡但為空」得到 `invalid_argument`。
     - 不認得的 JSON 欄位被靜默丟掉，不再是 422 `additional_property`：connect-go 的 `protojson.UnmarshalOptions{DiscardUnknown: true}`（`connect@v1.21.1/codec.go:180`），Protobuf 為前向相容的預設。拼錯的欄位名（例如 `update_masks`、`updatemask`）不會報錯；`updateMask` 是 `update_mask` 正式的 JSON 名稱，照常接受。
 
-- [ ] **3＋4. auth 搬到 Connect，前端改用生成的 client**（被擋於：步驟 2；D2、D3；兩部分在同一次 push，可以分成多個 commit，但中間不 push：步驟 3 刪掉 auth 的 openapi 片段之後，前端在 `tsc` 就編不過，pre-push 會擋下）
+- [x] **3＋4. auth 搬到 Connect，前端改用生成的 client**（被擋於：步驟 2；D2、D3；兩部分在同一次 push，可以分成多個 commit，但中間不 push：步驟 3 刪掉 auth 的 openapi 片段之後，前端在 `tsc` 就編不過，pre-push 會擋下）
   - 範圍，後端（步驟 3）：
     - （新增）`api/app/users/v1/users.proto`：`UserPublicService.CreateUser`；`UserAppService` 的 `GetCurrentUser`、`DeleteCurrentUser`、`GetUser`。
     - （新增）`api/app/sessions/v1/sessions.proto`：`SessionPublicService` 的 `CreateSession`、`DeleteCurrentSession`；`SessionAppService` 的 `ListSessions`、`GetSession`、`GetCurrentSession`、`DeleteSession`、`DeleteAllSessions`。
@@ -296,7 +296,10 @@
   - 新增 `TestConnectBodyTooLarge`：Connect 路徑的 body 上限原本沒有測試（步驟 1 起），它是 `resource_exhausted` 且沒有 `RetryInfo`。
 - 記下不做：前端對 body 超過上限（沒有 `RetryInfo` 的 `resource_exhausted`）顯示的是限流的文字，D3-A 的鍵沒有區分它；現在沒有任何前端呼叫送得出 1 MiB 的 body。觸發條件：第一個能送大 body 的呼叫（例如上傳）。
 - 規則違反（派工造成）：後端測試的實作者照我的派工跑 `go test ./internal/platform/...`，`dbtest` 套件的 `TestMain` 在本機起了 PostgreSQL 容器（約 107 秒，已確認沒有殘留）；派工把 `platform/...` 寫成不需 DB 是錯的。前端的實作者停 `next start` 時用了 `pkill -f next-server`，可能停到別的 session 的 Next server。
-- 留給後面步驟：後端 DB 測試與 mutation 在 CI 跑；瀏覽器實際走一次（需要人做）；步驟 5 的 `frontend/AGENTS.md`、`frontend/README.md`、`biome.json` 對 `schema.d.ts` 的 ignore、`osv-scanner.toml` 的 minimatch 例外。
+- CI：run 41673635223（`4a21706`）全綠：Backend（`make check`，含 DB 測試、`make drift`、測試數鎖 303）、Frontend（測試數鎖 50）、Compose stack（含 Connect GET 帶註冊的 cookie 讀回帳號、不帶 cookie 是 401）、Rename smoke test、Commit policy。
+- 後端 mutation 在 CI 跑：7 條放在不合併的分支 `mutation/step3-auth`，以 draft PR #64 觸發，之後關閉。第一次停在 `deadcode`（S40），第二次被一個 panic 中止（S41），第三次 run 41673873713 跑完 303 個測試、15 個失敗：M1 不送 device cookie → `TestFirstSignInSetsTwoCookies`、`TestDeviceCookieIsPerAccount`、`TestSignOutEverywhereForgetsDevices`、`TestUntrustedClientsLockedTrustedDeviceNot`；M2 不結束請求帶來的 session → `TestCreateSessionIssuesNewToken`；M3 登出要求登入 → `TestDeleteCurrentSessionClearsCookie`、`TestProcedureAccessEnforced`；M4 非目前的 session 也清 cookie → `TestDeleteSession`；M5 `CreateSession` 不限流 → `TestRateLimitAuthOperations`；M6 拿掉密碼上限 → `TestCreateUserLimits`、`TestCreateSessionLimits`；M7 `seed-admin` 跳過限制 → `TestSeedAdminRejectsShortPassword`。前端「proto 加一個 ErrorReason 不翻譯」以 second-brain 的 `scripts/red-proof.py` 在副本裡跑：`pnpm lint` 報 `Property 'RED_PROOF_REASON' is missing`。
+- 審查：`/code-review high` 與 diff 視角審查者各一輪，S27–S41 見 `review-ledger.md`（13 條，沒有 blocking）。
+- 留給後面步驟：瀏覽器實際走一次（需要人做，見下）；遠端分支 `mutation/step3-auth` 刪除要 Will 同意；步驟 5 的 `api-design.md`、skills、`biome.json` 與 `.gitattributes` 對 `schema.d.ts` 的引用、`osv-scanner.toml` 的 minimatch 例外、S28、S34、S37–S39。
 
 狀態值：未開始／進行中／程式完成待驗收／完成。
 
@@ -305,6 +308,6 @@
 | 0 ADR 與計畫定稿 | 完成 | `check-plan.py` 輸出 `ok`；計畫審查 2 輪（32 條）；ADR 獨立草稿 2 份；design-review 2 輪（24 條）；buf 1.50.0 的 package 刪除 fixture；見 `review-ledger.md` | 無 | 本 commit |
 | 1 工具鏈與共用層 | 完成 | CI 全綠：run 41617139179（`a381fea`）與 run 41618602232（`85381de`，含審查修正）：Backend（`make check`，含 `make test` 的 DB 測試與 `make drift`、測試數鎖 269）、Frontend（含 `gen:api:check`，測試數鎖 50）、Compose stack、Rename smoke test、Commit policy。本機：`make -C backend` 不需 DB 的全部檢查；httpapi 不需 DB 的 Connect 測試；前端 lint、knip、depcruise、test、build；rename 煙霧測試；coverage 排除 `internal/gen`；mutation 見下。審查：`/code-review high` 與 diff 視角審查者各一輪，13 條見 `review-ledger.md` S1–S13 | 無 | `323317b`、`807247a`、`387014a`、`6a39a76`、`a381fea`、`1e0fcd7`、`85381de` |
 | 2 items | 完成 | CI 全綠：run 41645470222（`25c0008`）：Backend（`make check`，含 DB 測試、`make drift`、測試數鎖 277）、Frontend、Compose stack、Rename smoke test、Commit policy；前一個 run 41644558611（`68ca2d1`）測試全過、只有鎖數不符（S26）。mutation：CI run 41645367146，四條各自讓對應測試失敗（見上）；`check-plan.py tests` 的逐列刪除。本機：`make -C backend` 不需 DB 的檢查（fmt、gen、buf lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest）；前端 gen:api:check、gen:openapi:check、lint、knip、test、build。審查：`/code-review high` 與 diff 視角審查者各一輪，S14–S26 見 `review-ledger.md` | 無 | `d2dfa2c`、`49ddb90`、`68ca2d1`、`25c0008` |
-| 3＋4 auth 與前端 | 程式完成待驗收 | 本機的檢查與前端 mutation 見上 | 後端的 DB 測試與 7 條 mutation（CI 待驗）；瀏覽器驗證（需要人做）；`/code-review`、design-review（完成前） | `ee08849`、`3755a1e`、`00c12f1`、`dbc7816` |
+| 3＋4 auth 與前端 | 完成 | CI 全綠：run 41673635223（`4a21706`，含 DB 測試、Compose 的 Connect GET 帶 cookie 探測、測試數鎖 303／50）；後端 7 條 mutation：CI run 41673873713；前端 mutation 4 條；`check-plan.py tests` 輸出 `ok`；審查 S27–S41 | 瀏覽器實際走一次註冊、登入、重新整理、登出、刪除帳號：需要人做，尚未進行 | `ee08849`、`3755a1e`、`00c12f1`、`dbc7816`、`efe8c28`、`9a75fb6`、`4a21706`、本 commit |
 | 5 刪除 OpenAPI 與文件 | 未開始 | | | |
 | 6 收尾 | 未開始 | | | |
