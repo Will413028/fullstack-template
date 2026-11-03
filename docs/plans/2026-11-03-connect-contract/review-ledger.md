@@ -162,3 +162,16 @@ Step 3＋4 (2026-11-03): `/code-review high` (C) on `36dadf0..efe8c28`, then a d
 | S41 | CI | should | under M1, `TestDeviceCookieIsPerAccount` dereferenced the missing device cookie and the panic aborted the package (134 of 303 tests ran) | fixed: `mustDeviceCookie` fails the test instead | run 41673873713 ran all 303, 15 failures, every mutation caught |
 
 Count (step 3＋4 round 1, C and V): findings 13 (blocking 0); fixed 7; recorded 5; raised 0; rejected 1. CI rounds: 2 more, both fixed.
+
+Step 3＋4 browser walk-through (2026-11-04): the walk-through found W1; `/code-review medium` (C) reviewed its fix (`0224f57` plus the working tree, before `084e16a`, `acbd2ee`).
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| S42 | walk-through | blocking | under `next dev` `/register` and `/login` returned 500 (`createContext is not a function`): pages import the auth `index.ts`, which re-exports `use-auth.ts`, which loads connect-query (creates a React context at load, no `"use client"`); the production build was not affected (`next start`: 200) | fixed: `use-auth.ts` is a client module | `client-boundary.test.ts`, red at `0224f57` through `red-proof.py --rev`; `next dev` 200 |
+| S43 | 1 (C) | should | react-hook-form creates a React context at load too and was not in the test's list | fixed: added | the test finds `auth-form.tsx` |
+| S44 | 1 (C) | should | `import { type X } from …` (inline types only) counted as a load | fixed: an import whose specifiers are all `type` is erased | the test's inline case |
+| S45 | 1 (C) | nit | the scan skipped `src/generated` | fixed: generated code is scanned | — |
+| S46 | 1 (C) | nit | the test read every file twice; it lived under `lib/api` though it covers all of `src`; `relative()` separators on Windows | fixed: one read, `src/__tests__/`, `/` separators | — |
+| S47 | 1 (C) | nit | another directive before `"use client"`, `require()` or a template-literal import is not recognized | rejected: no source file has them (ESM, Biome) | `rg -n "use strict\|require\(" frontend/src --glob '!generated/**'` |
+
+Count (walk-through and its review): findings 6 (blocking 1); fixed 5; recorded 0; raised 0; rejected 1.
