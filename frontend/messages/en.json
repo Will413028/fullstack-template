@@ -40,45 +40,43 @@
     "overview": "Overview",
     "settings": "Settings"
   },
-  "problems": {
-    "unknown": "Something went wrong. Please try again.",
-    "types": {
-      "bad-request": "The request could not be read.",
-      "unauthenticated": "Please sign in.",
-      "forbidden": "You are not allowed to do this.",
-      "not-found": "Not found.",
-      "method-not-allowed": "This action is not supported.",
-      "conflict": "This conflicts with existing data.",
-      "payload-too-large": "The request is too large.",
-      "unsupported-media-type": "The request format is not supported.",
-      "validation": "Some fields are invalid.",
-      "rate-limited": "Too many attempts. Please wait and try again.",
-      "internal": "Something went wrong on our side. Please try again.",
-      "unavailable": "The service is temporarily unavailable."
-    },
+  "errors": {
     "codes": {
-      "account_taken": "This account name is already taken.",
-      "invalid_credentials": "Incorrect account or password.",
-      "login_throttled": "Too many failed sign-ins for this account. Please wait and try again.",
-      "last_admin": "The only enabled admin cannot be disabled or deleted.",
-      "reauthentication_required": "For your security, enter your password again to continue.",
-      "session_invalid": "Your session has ended. Please sign in again.",
-      "insufficient_role": "Your account is not allowed to do this.",
-      "cross_origin_request": "The request came from another site and was blocked."
+      "canceled": "Something went wrong. Please try again.",
+      "unknown": "Something went wrong. Please try again.",
+      "invalid_argument": "Some fields are invalid.",
+      "deadline_exceeded": "Something went wrong. Please try again.",
+      "not_found": "Not found.",
+      "already_exists": "This conflicts with existing data.",
+      "permission_denied": "You are not allowed to do this.",
+      "resource_exhausted": "Too many attempts. Please wait and try again.",
+      "failed_precondition": "This conflicts with existing data.",
+      "aborted": "This conflicts with existing data.",
+      "out_of_range": "Something went wrong. Please try again.",
+      "unimplemented": "This action is not supported.",
+      "internal": "Something went wrong on our side. Please try again.",
+      "unavailable": "The service is temporarily unavailable.",
+      "data_loss": "Something went wrong on our side. Please try again.",
+      "unauthenticated": "Please sign in."
+    },
+    "reasons": {
+      "ACCOUNT_TAKEN": "This account name is already taken.",
+      "INVALID_CREDENTIALS": "Incorrect account or password.",
+      "LOGIN_THROTTLED": "Too many failed sign-ins for this account. Please wait and try again.",
+      "LAST_ADMIN": "The only enabled admin cannot be disabled or deleted.",
+      "REAUTHENTICATION_REQUIRED": "For your security, enter your password again to continue.",
+      "SESSION_INVALID": "Your session has ended. Please sign in again.",
+      "INSUFFICIENT_ROLE": "Your account is not allowed to do this.",
+      "CROSS_ORIGIN_REQUEST": "The request came from another site and was blocked."
     },
     "fields": {
-      "required": "Required.",
-      "too_short": "Too short.",
-      "too_long": "Too long.",
-      "pattern": "Contains characters that are not allowed.",
-      "enum": "Not one of the allowed values.",
-      "format": "Wrong format.",
-      "out_of_range": "Out of range.",
-      "invalid_type": "Wrong type.",
-      "null_not_allowed": "Must not be empty.",
-      "additional_property": "Not an accepted field.",
-      "invalid": "Invalid.",
-      "password_too_common": "This password is too common or has appeared in a data breach. Choose another."
+      "REQUIRED": "Required.",
+      "TOO_SHORT": "Too short.",
+      "TOO_LONG": "Too long.",
+      "PATTERN": "Contains characters that are not allowed.",
+      "OUT_OF_RANGE": "Out of range.",
+      "INVALID": "Invalid.",
+      "PASSWORD_TOO_COMMON": "This password is too common or has appeared in a data breach. Choose another."
     }
   },
   "settings": {

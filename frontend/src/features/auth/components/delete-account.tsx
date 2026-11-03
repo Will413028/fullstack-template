@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useRouter } from "@/i18n/navigation";
-import { ApiError, problemMessage } from "@/lib/api/errors";
+import { errorMessage } from "@/lib/api/connect-errors";
 import { useDeleteAccount } from "../hooks/use-auth";
 
 // Deletes the signed-in account and everything it owns after the user enters
@@ -11,17 +11,12 @@ import { useDeleteAccount } from "../hooks/use-auth";
 // (Apple App Store Review Guideline 5.1.1(v), Google Play account deletion).
 export function DeleteAccount({ account }: { account: string }) {
   const t = useTranslations("settings");
-  const tp = useTranslations("problems");
+  const te = useTranslations("errors");
   const router = useRouter();
   const remove = useDeleteAccount();
   const [password, setPassword] = useState("");
 
-  let error: string | null = null;
-  if (remove.error instanceof ApiError) {
-    error = problemMessage(tp, remove.error.problem);
-  } else if (remove.error) {
-    error = tp("unknown");
-  }
+  const error = remove.error ? errorMessage(te, remove.error) : null;
 
   return (
     <section className="p-6 border border-red-900/60 rounded-2xl space-y-4">

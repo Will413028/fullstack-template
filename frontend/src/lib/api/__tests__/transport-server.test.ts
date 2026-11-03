@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 // A server-side call forwards the visitor's session cookie. Without the site's URL it must not fall back to a real
-// host, or the cookie would go there (as server-base.test.ts checks for the REST client).
+// host, or the cookie would go there (server-base.test.ts checks the same through a call on the server transport).
 vi.stubGlobal("window", undefined);
 vi.stubEnv("NODE_ENV", "production");
 vi.stubEnv("NEXT_PUBLIC_APP_URL", "");

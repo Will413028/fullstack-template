@@ -6,11 +6,10 @@ import { useTranslations } from "next-intl";
 import { useForm } from "react-hook-form";
 import { Link, useRouter } from "@/i18n/navigation";
 import {
-  ApiError,
-  fieldErrors,
-  fieldMessage,
-  problemMessage,
-} from "@/lib/api/errors";
+  errorMessage,
+  fieldViolations,
+  violationMessage,
+} from "@/lib/api/connect-errors";
 import { safeCallbackPath } from "../callback";
 import { useLogin, useRegister } from "../hooks/use-auth";
 import { type CredentialsFormData, credentialsSchema } from "../validations";
@@ -20,7 +19,7 @@ const fieldNames = ["account", "password"] as const;
 // Sign in (mode "login") or create an account and sign in to it ("register").
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const t = useTranslations("auth");
-  const tp = useTranslations("problems");
+  const te = useTranslations("errors");
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl");
@@ -40,25 +39,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     submit.mutate(data, {
       onSuccess: () => router.push(safeCallbackPath(callbackUrl)),
       onError: (error) => {
-        if (!(error instanceof ApiError)) return;
-        for (const [name, fieldError] of fieldErrors(error.problem)) {
-          const field = fieldNames.find((f) => f === name);
-          if (field) {
-            setError(field, { type: "server", message: fieldError.code });
-          }
+        const violations = fieldViolations(error);
+        for (const field of fieldNames) {
+          const reason = violations[field];
+          if (reason) setError(field, { type: "server", message: reason });
         }
       },
     });
   };
 
-  // A problem that names fields is shown next to them; anything else here.
+  // An error that names a field of this form is shown next to it; anything
+  // else here.
   let formError: string | null = null;
-  if (submit.error instanceof ApiError) {
-    if (fieldErrors(submit.error.problem).size === 0) {
-      formError = problemMessage(tp, submit.error.problem);
+  if (submit.error) {
+    const violations = fieldViolations(submit.error);
+    if (!fieldNames.some((field) => violations[field])) {
+      formError = errorMessage(te, submit.error);
     }
-  } else if (submit.error) {
-    formError = tp("unknown");
   }
 
   const inputClass =
@@ -88,7 +85,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         />
         {errors.account?.message && (
           <p className="mt-1 text-sm text-red-400">
-            {fieldMessage(tp, errors.account.message)}
+            {violationMessage(te, errors.account.message)}
           </p>
         )}
       </div>
@@ -110,7 +107,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         />
         {errors.password?.message && (
           <p className="mt-1 text-sm text-red-400">
-            {fieldMessage(tp, errors.password.message)}
+            {violationMessage(te, errors.password.message)}
           </p>
         )}
       </div>

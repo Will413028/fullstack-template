@@ -6,8 +6,8 @@ import { appUrl } from "../env";
 //
 // Only the headers a caller passes are sent. Next holds no origin secret: the edge adds it and writes X-Real-IP, so a
 // server-side call is rate-limited as the function's own address and cannot choose another
-// (docs/adr/2026-11-03-frontend-on-vercel.md). The REST client (client.ts) and the Connect transport (transport.ts)
-// both use it.
+// (docs/adr/2026-11-03-frontend-on-vercel.md). The browser's transport (transport.ts) and the server's
+// (server-transport.ts) both use it.
 export function apiBaseUrl(): string {
   if (typeof window !== "undefined") return `${window.location.origin}/api`;
   return `${appUrl()}/api`;

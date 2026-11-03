@@ -8,12 +8,15 @@
 - [ ] Bundle size analysis — add a bundle analyzer. Trigger: a page's first-load JS grows noticeably in
   `pnpm build` output, or a heavy client dependency is added.
 
-### Low Priority
-- [ ] Request timeout configuration in the API client (`src/lib/api/client.ts`). Today nothing bounds how long
-  a server-side call waits: the backend's `WriteTimeout` sets a write deadline but does not end a slow handler. Trigger: an operation that may run for seconds, or a
-  backend that is reached over a network rather than inside the compose stack.
-
 ## Architecture Decisions
+
+### Request Timeout (implemented)
+**Decision:** Every API call, from the browser or from a Server Component, gives up after 15 seconds:
+`defaultTimeoutMs` of the Connect transports (`src/lib/api/transport.ts`, shared by `src/lib/api/server-transport.ts`).
+Connect sends it as `Connect-Timeout-Ms`, and the backend's context for the call ends with it.
+**Why:** The backend's `WriteTimeout` sets a write deadline but does not end a slow handler, so without it nothing
+bounds how long a server-side render waits.
+**Trade-off:** One limit for every method; a method that may run longer passes its own `timeoutMs` in the call options.
 
 ### Session Storage: HttpOnly Cookie (implemented)
 **Decision:** The session is an opaque token in an HttpOnly cookie set by the backend
