@@ -3,11 +3,11 @@
 # requirements.txt, which Dependabot updates); CI runs `make check` too, so local and CI use the same versions.
 
 # golangci-lint is installed from its release binary: the project does not support building it with go run/install.
-GOLANGCI_LINT_VERSION := 2.14.0
+GOLANGCI_LINT_VERSION := 2.15.0
 GOLANGCI_LINT := bin/golangci-lint
-GOLANGCI_LINT_SHA256_darwin-arm64 := 5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3
-GOLANGCI_LINT_SHA256_linux-amd64  := ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
-GOLANGCI_LINT_SHA256_linux-arm64  := ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+GOLANGCI_LINT_SHA256_darwin-arm64 := d1e409481a8ca846c4bc97e781eb5cb1bd5c23353a0b3977a1cbda1b1b6447d5
+GOLANGCI_LINT_SHA256_linux-amd64  := 9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+GOLANGCI_LINT_SHA256_linux-arm64  := b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
 # Go-built dev tools share one module, tools/go.mod (its own go.sum and build list), so they never change the
 # application's go.mod or the production binary. They are dependencies like any other: Dependabot bumps them, osv-scanner
 # scans them, and a vulnerable dependency of a tool is upgraded there. gen-check, sqlc-diff and tools-selftest show
@@ -33,21 +33,21 @@ BASE ?= origin/main
 # Generating migrations and drift checks use the Atlas standard build: the community build rejects several
 # schema.sql files (docs/adr/2026-10-18-go-backend.md D2). The image applies migrations with the community build
 # (see Dockerfile). Checksums are the .sha256 files published next to each binary on release.ariga.io.
-ATLAS_VERSION := v1.3.4
+ATLAS_VERSION := v1.3.5
 # Atlas removes binaries published more than 6 months ago from its CDN (atlasgo.io/cli-reference, Distributed
 # Binaries); `make atlas-age` fails 30 days before that so the pin is bumped while downloads still work.
-ATLAS_RELEASED := 2026-10-14
+ATLAS_RELEASED := 2026-10-21
 ATLAS_MAX_AGE_DAYS := 150
 ATLAS         := bin/atlas
-ATLAS_SHA256_darwin-arm64 := e85bb80abbc20d312e42ce320acc7fe35aa985566aede1d911ee2107d99d7174
-ATLAS_SHA256_linux-amd64  := aec7e73a561889836b5fb7d8ba8cc55969c593e53188048d83cdf087f23bc476
-ATLAS_SHA256_linux-arm64  := 870fdd78dea732b8d1985caed6e8ea424b84dcf3b5cbb7e1d2c06f1ba09e59e4
+ATLAS_SHA256_darwin-arm64 := c5d7056be2420471c7e167ee9c459e3cf362d8eb7c9ef13fdc5cebac6ec77f75
+ATLAS_SHA256_linux-amd64  := 41d2a3c77fab370aead88b9a9faf2bab24d22e3e5728dc2dd7f87404adbce048
+ATLAS_SHA256_linux-arm64  := bcdb097755995ef304a08635d38b65e9c2636489f45d0f7c04f2316bbd888ba9
 # The community build applies migrations: in the image (Dockerfile, same checksums for linux) and in the integration
 # tests (internal/platform/dbtest), so tests exercise the build that runs in production.
 ATLAS_COMMUNITY := bin/atlas-community
-ATLAS_COMMUNITY_SHA256_darwin-arm64 := eba89a0a7ca149f71f1ffe9320e6359a39c032e20926bbd39c7d2d18cc50efb3
-ATLAS_COMMUNITY_SHA256_linux-amd64  := 746868e056299897e2da3b7a4b02546b665a7566c53d1fc2efa8636b5fd144f5
-ATLAS_COMMUNITY_SHA256_linux-arm64  := 4716df1c7bbb991dee7b3056a61e5c91d4a19b96add12623f87f710f019ed702
+ATLAS_COMMUNITY_SHA256_darwin-arm64 := b69dd05c33cd1ee1f9a21eb4e71e48f44df325847d66c38f8d81ba0a1aaaafd8
+ATLAS_COMMUNITY_SHA256_linux-amd64  := bfc65a52d3b745178c619a314052580861a385c364ae5abece174286055d525a
+ATLAS_COMMUNITY_SHA256_linux-arm64  := e934d1649e8e110c934db4dd59ae6fcbec0d2354fef273e4444cb009443a91a3
 PLATFORM := $(shell go env GOOS)-$(shell go env GOARCH)
 
 .PHONY: run
