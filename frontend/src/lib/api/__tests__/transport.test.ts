@@ -6,8 +6,9 @@ import {
   BadRequestSchema,
   ErrorInfoSchema,
 } from "@/generated/google/rpc/error_details_pb";
+import { apiBaseUrl } from "../base-url";
 import { errorReason, fieldViolations } from "../connect-errors";
-import { apiBaseUrl, redirectOnUnauthenticated } from "../transport";
+import { redirectOnUnauthenticated } from "../transport";
 
 function connectError(code: Code, reason?: ErrorReason) {
   const details =

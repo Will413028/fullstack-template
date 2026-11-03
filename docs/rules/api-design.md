@@ -4,7 +4,7 @@
 
 ## 契約是唯一來源
 
-- 新增或修改 API 一律先改 `backend/api/openapi.yaml`，再重新生成：後端 `make -C backend gen`（`internal/httpapi/gen`），前端 `pnpm gen:api`（`frontend/src/lib/api/schema.d.ts`）。CI 以 `make -C backend gen-check` 與 `pnpm gen:api:check` 擋下沒有重新生成的變更（ADR api-and-auth D2）。
+- 新增或修改 API 一律先改 `backend/api/openapi.yaml`，再重新生成：後端 `make -C backend gen-openapi`（`internal/httpapi/gen`），前端 `pnpm gen:openapi`（`frontend/src/lib/api/schema.d.ts`）。CI 以 `make -C backend gen-openapi-check` 與 `pnpm gen:openapi:check` 擋下沒有重新生成的變更（ADR api-and-auth D2）。
 - 長度、格式、pattern、enum 只寫在契約裡。後端由 validator（`validate.go` 的 `validateRequests`）執行，前端取用生成的型別。**NEVER** 在 handler、service 或 zod schema 再寫一次相同的限制（ADR api-and-auth D6）。
 - 契約表達不了的規則（例如密碼在常見密碼清單內、帳號已被使用）才由 service 檢查，以 `apperr` 回報。
 - request body 的 schema 加 `additionalProperties: false`，多送的欄位回 422 `additional_property`。
@@ -99,19 +99,19 @@ SET title       = coalesce(sqlc.narg('title'), title),
 - `type` 是固定的相對 URI `/problems/<slug>`，每種 problem 一個（`problem.go` 的 `problemType`）。`code` 是細分 `type` 的穩定機器碼，例如 `account_taken`、`insufficient_role`。
 - 驗證錯誤是 422 `/problems/validation`，附 `errors: [{pointer, code, detail}]`；`pointer` 是 JSON Pointer（query 或 path 參數為 `/<name>`），`code` 是 `FieldError.code` 的值，例如 `too_short`、`password_too_common`。
 - `Problem.type`、`Problem.code`、`FieldError.code` 的可用值在契約裡用 `x-extensible-enum` 列出：清單會增加，新增不算 breaking change，用戶端翻譯認得的值、其餘退回 `type` 的訊息。不要改回 `enum`（封閉清單，新增會被 `make api-breaking` 擋下）。後端由 `TestProblemValuesInContract` 與 `checkProblems`（`problem_contract_test.go`）檢查送出的值都在清單內；前端由 `messages.test.ts` 在編譯期檢查 `frontend/messages/*.json` 的 `problems.types`、`problems.codes`、`problems.fields` 涵蓋每個值（ADR api-and-auth D3）。
-- 新增 code 的順序：契約的 `x-extensible-enum` → `make -C backend gen` 與 `pnpm gen:api` → 每個語系的 `problems.*` 翻譯 → 後端送出。
+- 新增 code 的順序：契約的 `x-extensible-enum` → `make -C backend gen-openapi` 與 `pnpm gen:openapi` → 每個語系的 `problems.*` 翻譯 → 後端送出。
 - 前端依 `code`、再依 `type` 選訊息（`errors.ts` 的 `problemMessage`、`fieldMessage`），**NEVER** 解析或顯示 `detail`。
 - 改 slug 或 code 是 breaking change。
 
 ### Service 回報錯誤
 
-- Service 只回傳 `*apperr.Error`（`apperr.New(kind, code, detail)`、欄位錯誤用 `apperr.Invalid(pointer, code, detail)`），kind 有 `NotFound`、`Conflict`、`Unauthenticated`、`Forbidden`、`Validation`、`RateLimited`。
+- Service 只回傳 `*apperr.Error`（`apperr.New(kind, code, detail)`、欄位錯誤用 `apperr.Invalid(pointer, code, detail)`），kind 有 `NotFound`、`AlreadyExists`（要建立的東西已存在，例如 `account_taken`）、`FailedPrecondition`（系統不在這個操作需要的狀態，重試也沒用，例如 `last_admin`）、`Unauthenticated`、`Forbidden`、`Validation`、`RateLimited`。兩種衝突在 REST 都是 409 `/problems/conflict`，在 Connect 分別是 `already_exists` 與 `failed_precondition`（`internal/httpapi/rpc` 的 `kindCodes`）。
 - 轉成 problem 只在 `internal/httpapi` 一處（`problem.go` 的 `writeError` 與 `kindProblems`）。其他 error 一律是 500 `/problems/internal`，內容只寫進 log，**NEVER** 送給 client。
 - `detail` 會送給 client：不得含 SQL、主機名稱、secret 或其他使用者的資料。
 
 ```go
 // 正確：service 回報預期中的失敗
-return apperr.New(apperr.Conflict, CodeAccountTaken, "account is taken")
+return apperr.New(apperr.AlreadyExists, CodeAccountTaken, "account is taken")
 
 // 錯誤：service 決定 HTTP 狀態碼（modules 也不能 import net/http，depguard 會擋）
 http.Error(w, "conflict", http.StatusConflict)
@@ -201,7 +201,7 @@ await fetch("/api/users", { method: "POST", body: JSON.stringify(credentials) })
 
 ## 禁止事項
 
-- **NEVER** 先寫 handler 再補契約；契約改了沒重新生成（`gen-check`、`gen:api:check` 會擋）
+- **NEVER** 先寫 handler 再補契約；契約改了沒重新生成（`gen-openapi-check`、`gen:openapi:check` 會擋）
 - **NEVER** 在 handler、service 或前端重寫契約已有的長度、格式、enum 限制
 - **NEVER** 回應外殼（`{data}`、`{detail}`）或 offset + 總數的分頁（後台頁碼表格除外）
 - **NEVER** 回傳指向沒有 GET 的路徑的 `Location`；**NEVER** 新增有寫入端卻沒有 GET 的 path

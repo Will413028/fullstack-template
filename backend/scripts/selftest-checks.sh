@@ -56,7 +56,10 @@ git -C "$repo" init -q -b main
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m empty
 in_backend() { (cd "$repo/backend" && "$@"); }
 with_git_dir() { (cd "$repo/backend" && GIT_DIR="$repo/.git" "$@"); }
-breaking() { (cd "$repo/backend" && "$repo/scripts/check-buf-breaking.sh" "$buf" HEAD); }
+# buf goes in as a relative path from backend/, the way backend/Makefile passes ../bin/buf.
+mkdir -p "$repo/bin"
+ln -s "$buf" "$repo/bin/buf"
+breaking() { (cd "$repo/backend" && ../scripts/check-buf-breaking.sh ../bin/buf HEAD); }
 breaking_git_dir() { (cd "$repo/backend" && GIT_DIR="$repo/.git" "$repo/scripts/check-buf-breaking.sh" "$buf" HEAD); }
 
 expect pass "migrations: a base without migrations passes" in_backend scripts/check-migrations-immutable.sh HEAD

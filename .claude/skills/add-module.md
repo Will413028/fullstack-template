@@ -34,7 +34,7 @@ no fields, these parts change:
   `Create<Entity>Request` is `type: object` with `additionalProperties: false` and no properties, so clients send
   `{}` and later optional fields can be added without a breaking change. `<Entity>` lists `id`, `owner_id`,
   `created_at`, `updated_at` as required.
-- **Migration**: `make -C backend gen sqlc migration name=add_<table>`.
+- **Migration**: `make -C backend gen-openapi sqlc migration name=add_<table>`.
 - **Handlers**: no `Update<Entity>`. `Create<Entity>` calls `s.<pkg>.Create(ctx)` and names its request
   parameter `_`, since it reads nothing from it (oapi-codegen generates `map[string]interface{}` for the empty
   object). `to<Entity>` sets only `Id`, `OwnerId`,
@@ -46,7 +46,7 @@ no fields, these parts change:
   get returns 200, 404 for an unknown id and 404 for another user's row; delete returns 204 with an empty body, then
   404, and another user's delete is 404 and leaves the row. Skip the add-crud cases about fields and PATCH.
 
-Finish with add-crud steps 8 and 9 (`pnpm -C frontend gen:api`, `make -C backend fmt`, `make -C backend check`,
+Finish with add-crud steps 8 and 9 (`pnpm -C frontend gen:openapi`, `make -C backend fmt`, `make -C backend check`,
 `pnpm -C frontend lint`, `pnpm -C frontend test`) and report each result.
 
 ## Tell the user what comes next

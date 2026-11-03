@@ -1,18 +1,11 @@
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ErrorReason } from "@/generated/app/common/v1/errors_pb";
-import { appUrl } from "../env";
+import { apiBaseUrl } from "./base-url";
 import { errorReason } from "./connect-errors";
 
-// The Connect transport for the API in ../api (docs/adr/2026-11-03-api-contract-protobuf-connect.md). Like the
-// REST client in client.ts, which it replaces as each service moves to Connect, it calls /api on the page's own
-// origin (Vercel routes it to the API's Caddy, frontend/vercel.json; the next dev rewrite in development), so the
-// browser sends the session cookie without CORS. Server-side code has no page origin and calls /api on the site's
-// URL, through Vercel's edge too. Next holds no origin secret (docs/adr/2026-11-03-frontend-on-vercel.md).
-export function apiBaseUrl(): string {
-  if (typeof window !== "undefined") return `${window.location.origin}/api`;
-  return `${appUrl()}/api`;
-}
+// The Connect transport for the API in ../api (docs/adr/2026-11-03-api-contract-protobuf-connect.md), at the same
+// /api as the REST client in client.ts, which it replaces as each service moves to Connect.
 
 // How long a call may take before the client gives up; Connect sends it as Connect-Timeout-Ms and the server's
 // context ends with it.

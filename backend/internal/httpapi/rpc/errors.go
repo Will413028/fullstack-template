@@ -46,11 +46,16 @@ type Converted struct {
 	Undeclared []string
 }
 
-// Convert turns err into a Connect error. A *connect.Error passes through unchanged; an *apperr.Error gets its kind's
-// code and details; anything else is internal.
+// Convert turns err into a Connect error. A *connect.Error passes through unchanged unless its code is internal or
+// unknown: its message could carry what the client must not see (a wrapped database error, a downstream call's
+// text), so it is internal like any unexpected error. An *apperr.Error gets its kind's code and details; anything
+// else is internal.
 func Convert(err error) Converted {
 	var ce *connect.Error
 	if errors.As(err, &ce) {
+		if ce.Code() == connect.CodeInternal || ce.Code() == connect.CodeUnknown {
+			return internal()
+		}
 		return Converted{Err: ce}
 	}
 	e, ok := apperr.As(err)
@@ -86,7 +91,12 @@ func Convert(err error) Converted {
 }
 
 func internal() Converted {
-	return Converted{Err: connect.NewError(connect.CodeInternal, errors.New("internal error")), Internal: true}
+	return Converted{Err: errInternal(), Internal: true}
+}
+
+// errInternal is what the client sees of an unexpected error: the code, and no detail.
+func errInternal() *connect.Error {
+	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
 }
 
 // errorReason is the ErrorReason value for an apperr code (account_taken -> ACCOUNT_TAKEN), false when the proto
@@ -108,9 +118,14 @@ func fieldReason(code string) (string, bool) {
 	return name, true
 }
 
-// fieldPath turns apperr's JSON Pointer (/password, /thing/name) into a request field path (password, thing.name).
+// fieldPath turns apperr's JSON Pointer (/password, /thing/name) into a request field path (password, thing.name),
+// unescaping ~1 and ~0 (RFC 6901) in each segment.
 func fieldPath(pointer string) string {
-	return strings.ReplaceAll(strings.TrimPrefix(pointer, "/"), "/", ".")
+	segments := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	for i, s := range segments {
+		segments[i] = strings.ReplaceAll(strings.ReplaceAll(s, "~1", "/"), "~0", "~")
+	}
+	return strings.Join(segments, ".")
 }
 
 func addDetail(ce *connect.Error, m proto.Message) {

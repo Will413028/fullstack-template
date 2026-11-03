@@ -59,7 +59,7 @@ designed; this skill does not generate it.
 
 ## 2. Field type mapping
 
-| User type | OpenAPI schema | PostgreSQL column + CHECK | Go: sqlc store and service | Go: oapi-codegen (`gen`) |
+| User type | OpenAPI schema | PostgreSQL column + CHECK | Go: sqlc store and service | Go: oapi-codegen (`gen-openapi`) |
 |---|---|---|---|---|
 | `string(N)` | named component `<Entity><Field>`: `type: string`, `minLength: 1`, `maxLength: N`, `description: 1 to N characters (code points).` | `text` + `CHECK (char_length(f) BETWEEN 1 AND N)` | `string` | `string` (alias `gen.<Entity><Field> = string`) |
 | `text` | `type: string` (no limits; the 1 MiB body limit caps it) | `text` | `string` | `string` |
@@ -253,7 +253,7 @@ Adding operations and schemas is not a breaking change; `make check` runs `api-b
 From the repository root (Docker must be running: Atlas diffs against a throwaway PostgreSQL):
 
 ```bash
-make -C backend gen sqlc migration name=add_<table>
+make -C backend gen-openapi sqlc migration name=add_<table>
 ```
 
 - `gen` rewrites `internal/httpapi/gen/api.gen.go`; the build fails until step 6 implements the new methods.
@@ -397,7 +397,7 @@ Cross-site rejection, the default page size and malformed cursors are shared mid
 ## 8. Frontend types
 
 ```bash
-pnpm -C frontend gen:api
+pnpm -C frontend gen:openapi
 ```
 
 This regenerates `frontend/src/lib/api/schema.d.ts`; the types are then `components["schemas"]["<Entity>"]` and the

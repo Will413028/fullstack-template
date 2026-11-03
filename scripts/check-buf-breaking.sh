@@ -7,13 +7,14 @@
 #
 # The buf command is passed in so the version is pinned only in the root Makefile (make bin/buf).
 set -euo pipefail
+buf=${1:?usage: check-buf-breaking.sh <buf command> <base-ref>}
+base=${2:?usage: check-buf-breaking.sh <buf command> <base-ref>}
+# A path to buf is relative to the caller's directory (backend/Makefile passes ../bin/buf): resolve it before the cd.
+if [[ $buf == */* ]]; then buf=$(cd "$(dirname "$buf")" && pwd)/$(basename "$buf"); fi
 cd "$(dirname "$0")/.."
 # A git hook exports GIT_DIR; without a work tree git would then take this directory as the repository root. Find the
 # repository from here instead.
 unset GIT_DIR GIT_WORK_TREE
-
-buf=${1:?usage: check-buf-breaking.sh <buf command> <base-ref>}
-base=${2:?usage: check-buf-breaking.sh <buf command> <base-ref>}
 merge_base=$(git merge-base HEAD "$base")
 # Only a path missing from the base tree means "nothing to compare"; any git error fails the check (set -e).
 listed=$(git ls-tree --full-tree --name-only "$merge_base" -- api/buf.yaml)

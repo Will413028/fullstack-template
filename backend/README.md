@@ -8,7 +8,8 @@ in `go.mod`) and Docker.
 make run                         # serve with backend/.env (copy .env-example; needs a reachable PostgreSQL)
 make test                        # integration tests (PostgreSQL 18 via testcontainers)
 make check                       # everything CI runs (lint, tests, generated-code, schema and contract checks)
-make gen                         # regenerate the HTTP server from api/openapi.yaml
+make gen-openapi                 # regenerate the HTTP server from api/openapi.yaml
+make gen                         # regenerate the Connect code from ../api
 make sqlc                        # regenerate the modules' query code
 make migration name=add_things   # generate a migration from the modules' schema.sql
 ```

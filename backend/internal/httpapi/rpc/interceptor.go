@@ -2,12 +2,12 @@ package rpc
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"runtime/debug"
 
 	"connectrpc.com/connect"
 
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
@@ -42,7 +42,7 @@ func recoverPanics(logger *slog.Logger) connect.UnaryInterceptorFunc {
 				if v := recover(); v != nil {
 					logger.ErrorContext(ctx, "panic", "procedure", req.Spec().Procedure, "panic", v,
 						"stack", string(debug.Stack()))
-					resp, err = nil, connect.NewError(connect.CodeInternal, errors.New("internal error"))
+					resp, err = nil, errInternal()
 				}
 			}()
 			return next(ctx, req)
@@ -50,10 +50,8 @@ func recoverPanics(logger *slog.Logger) connect.UnaryInterceptorFunc {
 	}
 }
 
-var (
-	errNoSession        = apperr.New(apperr.Unauthenticated, "session_invalid", "no valid session")
-	errInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
-)
+// ErrInsufficientRole refuses a signed-in user whose role may not call a method (REST's requireRole uses it too).
+var ErrInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
 
 // requireAdmin lets only users with adminRole call Admin services. The role is the one read from the database for
 // this request (internal/httpapi authenticate). A refusal is logged as authz.denied.
@@ -66,12 +64,12 @@ func requireAdmin(logger *slog.Logger, adminRole string, classes map[string]Clas
 			}
 			u, ok := authctx.From(ctx)
 			if !ok {
-				return nil, errNoSession
+				return nil, auth.ErrSessionInvalid
 			}
 			if u.Role != adminRole {
 				logger.WarnContext(ctx, "operation refused", "event", "authz.denied", "user_id", u.ID,
 					"procedure", procedure)
-				return nil, errInsufficientRole
+				return nil, ErrInsufficientRole
 			}
 			return next(ctx, req)
 		}

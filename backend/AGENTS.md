@@ -11,7 +11,8 @@ make run                     # serve with backend/.env (format in .env-example)
 make test                    # go test -race through gotestsum; integration tests start PostgreSQL 18 with testcontainers
 make check                   # everything CI runs: fmt-check gen-check lint deadcode test vuln sqlc-diff drift squawk
                              # migrations-immutable api-breaking tools-selftest
-make gen                     # regenerate internal/httpapi/gen from api/openapi.yaml
+make gen-openapi             # regenerate internal/httpapi/gen from api/openapi.yaml (REST)
+make gen                     # regenerate internal/gen from ../api (Connect)
 make sqlc                    # regenerate each module's internal/store from its schema.sql and queries
 make migration name=<name>   # generate a migration from the modules' schema.sql (Atlas standard build)
 make fmt                     # gofmt -w
@@ -37,7 +38,7 @@ Modules: `auth` (users, sessions, login throttling, password checks) and `items`
 
 ## Rules
 
-1. **The contract is the single source.** Paths, shapes, lengths, formats and enums live only in `api/openapi.yaml`. The validator middleware enforces them before a handler runs; the frontend uses types generated from the same file. Do not repeat a limit in a handler, a service or zod. After changing the contract run `make gen` here and `pnpm gen:api` in `frontend/`; CI fails when either generated file differs.
+1. **The contract is the single source.** Paths, shapes, lengths, formats and enums live only in `api/openapi.yaml`. The validator middleware enforces them before a handler runs; the frontend uses types generated from the same file. Do not repeat a limit in a handler, a service or zod. After changing the contract run `make gen-openapi` here and `pnpm gen:openapi` in `frontend/`; CI fails when either generated file differs.
 2. **Layering** (depguard in `.golangci.yml`, `internal/archtest`): `internal/modules/<m>` never imports `net/http`, `internal/httpapi`, `cmd` or another module; `internal/platform` imports neither modules nor `internal/httpapi`. Handlers translate between generated types and module types in `internal/httpapi`. The current user reaches modules through `internal/platform/authctx`.
 3. **Errors.** Services return `*apperr.Error` (a kind plus a stable `code`) for expected failures and plain errors for everything else. `internal/httpapi/problem.go` is the only place that turns them into RFC 9457 problems; unexpected errors become a 500 whose details stay in the log. Handlers do not build problems or choose status codes for failures.
 4. **SQL only through sqlc.** Every query is in `internal/modules/<m>/queries/*.sql`; `make sqlc` generates `internal/store`. A hand-written pgx `Query` fails lint (forbidigo): generated code is what closes the rows and checks `rows.Err`. A module's queries never select from or join another module's tables; the only cross-module foreign key is to `users`.
@@ -51,4 +52,4 @@ Modules: `auth` (users, sessions, login throttling, password checks) and `items`
 
 ## Adding a module
 
-Use `/add-module <name>` (empty skeleton) or `/add-crud <entity> --fields "..."` (full CRUD resource); both follow the `items` module. The steps: contract paths and schemas in `api/openapi.yaml`, `schema.sql` (Atlas picks it up by glob), queries and `sqlc.yaml`, the service, handlers in `internal/httpapi`, wiring in `cmd/app/main.go`, then `make gen sqlc migration name=<name>`, `pnpm gen:api`, tests, and `make check`.
+Use `/add-module <name>` (empty skeleton) or `/add-crud <entity> --fields "..."` (full CRUD resource); both follow the `items` module. The steps: contract paths and schemas in `api/openapi.yaml`, `schema.sql` (Atlas picks it up by glob), queries and `sqlc.yaml`, the service, handlers in `internal/httpapi`, wiring in `cmd/app/main.go`, then `make gen-openapi sqlc migration name=<name>`, `pnpm gen:openapi`, tests, and `make check`.

@@ -84,7 +84,8 @@ make reset-db ADMIN_ACCOUNT=<name>  # Reset DB (clear volumes + migrate + seed)
 make run                  # API server (port 8000) with backend/.env
 make test                 # Integration tests (Docker)
 make check                # Everything CI runs
-make gen                  # Regenerate the HTTP server from the contract
+make gen-openapi          # Regenerate the HTTP server from the REST contract
+make gen                  # Regenerate the Connect code from api/ (Protobuf)
 make sqlc                 # Regenerate query code
 ```
 
@@ -95,7 +96,8 @@ pnpm dev                  # Next.js dev server (port 3000, Turbopack)
 pnpm test                 # Vitest
 pnpm lint                 # TypeScript + Biome
 pnpm build                # Production build
-pnpm gen:api              # Regenerate API types from the contract
+pnpm gen:openapi          # Regenerate API types from the REST contract
+pnpm gen:api              # Regenerate the Connect types from api/ (Protobuf)
 ```
 
 ## Starting a New Project

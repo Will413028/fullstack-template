@@ -6,7 +6,7 @@ vi.stubGlobal("window", undefined);
 vi.stubEnv("NODE_ENV", "production");
 vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
 
-const { apiBaseUrl } = await import("../transport");
+const { apiBaseUrl } = await import("../base-url");
 
 it("sends server-side calls to an unresolvable host when the site URL is unset", () => {
   expect(new URL(apiBaseUrl()).hostname).toMatch(/\.invalid$/);

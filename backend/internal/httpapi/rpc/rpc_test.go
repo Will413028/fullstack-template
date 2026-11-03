@@ -115,6 +115,11 @@ func TestConvertValidation(t *testing.T) {
 	if v.GetField() != "thing.name" || v.GetReason() != "TOO_LONG" || v.GetDescription() != "name is over 200 characters" {
 		t.Errorf("violation = %v", v)
 	}
+	// RFC 6901 escapes inside a segment are undone
+	c = Convert(apperr.Invalid("/labels/a~1b~0c", "invalid", ""))
+	if got := detail[errdetails.BadRequest](t, c.Err).GetFieldViolations()[0].GetField(); got != "labels.a/b~c" {
+		t.Errorf("field = %q, want labels.a/b~c", got)
+	}
 }
 
 // A code the proto does not declare is never sent as a reason the client cannot translate; the caller logs it.
@@ -141,7 +146,13 @@ func TestConvertUndeclaredCodes(t *testing.T) {
 }
 
 func TestConvertUnexpectedIsInternal(t *testing.T) {
-	for _, err := range []error{errors.New("pq: password=secret"), &apperr.Error{Kind: apperr.Kind(99), Code: "x"}} {
+	for _, err := range []error{
+		errors.New("pq: password=secret"),
+		&apperr.Error{Kind: apperr.Kind(99), Code: "x"},
+		// a Connect error the handler wrapped or forwarded: internal and unknown never pass through with their text
+		fmt.Errorf("load: %w", connect.NewError(connect.CodeInternal, errors.New("pq: password=secret"))),
+		connect.NewError(connect.CodeUnknown, errors.New("upstream said secret")),
+	} {
 		c := Convert(err)
 		if c.Err.Code() != connect.CodeInternal || !c.Internal || strings.Contains(c.Err.Message(), "secret") {
 			t.Errorf("%v: %+v", err, c)
@@ -305,5 +316,16 @@ func TestNewMuxRejects(t *testing.T) {
 	}
 	if _, err := NewMux(discard, "admin", []Service{adminService()}); err != nil {
 		t.Errorf("a valid service was refused: %v", err)
+	}
+}
+
+func TestIsRead(t *testing.T) {
+	for name, want := range map[string]bool{
+		"GetThing": true, "ListThings": true, "Get": false, "List": false, "Getaway": false, "Listen": false,
+		"GetOrCreateThing": false, "ListOrRefreshThings": false, "UpdateThing": false, "GetOrder": true,
+	} {
+		if got := isRead(protoreflect.Name(name)); got != want {
+			t.Errorf("isRead(%s) = %v, want %v", name, got, want)
+		}
 	}
 }

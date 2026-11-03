@@ -1,5 +1,5 @@
-# oapi-codegen v2.8.0 settings (version pinned in backend/Makefile). Run from backend/: make gen.
-# No output: the code goes to stdout, so make gen-check can generate into a temporary file and compare.
+# oapi-codegen v2.8.0 settings (version pinned in backend/Makefile). Run from backend/: make gen-openapi.
+# No output: the code goes to stdout, so make gen-openapi-check can generate into a temporary file and compare.
 package: gen
 generate:
   models: true

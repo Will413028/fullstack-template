@@ -14,8 +14,8 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
 
@@ -106,7 +106,7 @@ func methodName(operationID string) string {
 	return string(unicode.ToUpper(r[0])) + strings.TrimPrefix(operationID, string(r[0]))
 }
 
-var errInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
+var errInsufficientRole = rpc.ErrInsufficientRole
 
 // requireRole lets only users with role call the named operations (generated method names, see operations). The
 // role is the one read from the database for this request (authenticate). A refusal is logged as authz.denied.

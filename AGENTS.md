@@ -63,7 +63,8 @@ make lint-docker                    # hadolint over backend/Dockerfile
 make run              # Start the API server with backend/.env
 make test             # Integration tests
 make check            # Everything CI runs
-make gen              # Regenerate the HTTP server from api/openapi.yaml
+make gen-openapi      # Regenerate the HTTP server from api/openapi.yaml (REST, until the Connect move ends)
+make gen              # Regenerate the Connect code from ../api (Protobuf)
 make sqlc             # Regenerate query code
 
 # Frontend development (from frontend/)
@@ -71,7 +72,8 @@ pnpm dev              # Start Next.js dev server (Turbopack)
 pnpm build            # Production build
 pnpm lint             # TypeScript check + Biome lint
 pnpm format           # Biome format
-pnpm gen:api          # Regenerate API types from backend/api/openapi.yaml
+pnpm gen:openapi      # Regenerate API types from backend/api/openapi.yaml (REST)
+pnpm gen:api          # Regenerate the Connect types from ../api (Protobuf)
 ```
 
 ## Architecture

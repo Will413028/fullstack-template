@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -109,11 +110,24 @@ func check(svc protoreflect.ServiceDescriptor) (Class, error) {
 		if md.IsStreamingClient() || md.IsStreamingServer() {
 			errs = append(errs, fmt.Errorf("%s: streaming methods are not supported", Procedure(md)))
 		}
-		if SideEffectFree(md) && !strings.HasPrefix(string(md.Name()), "Get") && !strings.HasPrefix(string(md.Name()), "List") {
+		if SideEffectFree(md) && !isRead(md.Name()) {
 			errs = append(errs, fmt.Errorf("%s: only Get and List methods may be NO_SIDE_EFFECTS (served on GET, which has no CSRF check)", Procedure(md)))
 		}
 	}
 	return class, errors.Join(errs...)
+}
+
+// isRead reports whether a method name is Get<X> or List<X>, X starting with a word of its own: GetOrder is a read,
+// Getaway and Listen are not, and neither is GetOrCreateThing (Or plus another verb).
+func isRead(name protoreflect.Name) bool {
+	startsWord := func(s string) bool { return s != "" && unicode.IsUpper(rune(s[0])) }
+	for _, verb := range []string{"Get", "List"} {
+		if rest, ok := strings.CutPrefix(string(name), verb); ok && startsWord(rest) {
+			after, compound := strings.CutPrefix(rest, "Or")
+			return !compound || !startsWord(after)
+		}
+	}
+	return false
 }
 
 // SideEffectFree reports whether a method is marked idempotency_level = NO_SIDE_EFFECTS, which lets clients call it
