@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 
@@ -21,7 +22,7 @@ import (
 func PageSize(requested int32, def, maxSize int) (int, error) {
 	switch {
 	case requested < 0:
-		return 0, apperr.Invalid("/page_size", "out_of_range", "page_size must not be negative")
+		return 0, apperr.Invalid("page_size", "out_of_range", "page_size must not be negative")
 	case requested == 0:
 		return def, nil
 	case int(requested) > maxSize:
@@ -38,7 +39,7 @@ func PageAfter(token string) (*uuid.UUID, error) {
 	}
 	id, err := httpx.DecodeCursor(token)
 	if err != nil {
-		return nil, apperr.Invalid("/page_token", "invalid", "page_token is not one this API returned")
+		return nil, apperr.Invalid("page_token", "invalid", "page_token is not one this API returned")
 	}
 	return &id, nil
 }
@@ -48,7 +49,7 @@ func PageAfter(token string) (*uuid.UUID, error) {
 func ParseID(path, s string) (uuid.UUID, error) {
 	id, err := uuid.Parse(s)
 	if err != nil {
-		return uuid.Nil, apperr.Invalid("/"+path, "invalid", path+" is not a UUID")
+		return uuid.Nil, apperr.Invalid(path, "invalid", path+" is not a UUID")
 	}
 	return id, nil
 }
@@ -87,21 +88,28 @@ func UpdatePaths(mask *fieldmaskpb.FieldMask, resource proto.Message, writable .
 		case canWrite[path]:
 			out[path] = true
 		case fields.ByName(protoreflect.Name(path)) == nil:
-			return nil, apperr.Invalid("/update_mask", "invalid",
+			return nil, apperr.Invalid("update_mask", "invalid",
 				fmt.Sprintf("update_mask: %q is not a field of %s", path, m.Descriptor().Name()))
 		}
 	}
 	return out, nil
 }
 
-// Under reports a module's invalid field at the request field that holds the module's input: the module says /title,
+// Under reports a module's invalid fields at the request field that holds the module's input: the module says title,
 // the request has it at item.title. Other errors are returned as they are.
 func Under(field string, err error) error {
-	e, ok := apperr.As(err)
-	if !ok || e.Kind != apperr.Validation {
+	fields, ok := apperr.Fields(err)
+	if !ok {
 		return err
 	}
-	under := *e
-	under.Pointer = "/" + field + e.Pointer
-	return &under
+	under := make([]error, len(fields))
+	for i, f := range fields {
+		moved := *f
+		moved.Field = field + "." + f.Field
+		under[i] = &moved
+	}
+	if len(under) == 1 {
+		return under[0]
+	}
+	return errors.Join(under...)
 }

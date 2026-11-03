@@ -66,7 +66,7 @@ func TestAppErrToProblem(t *testing.T) {
 }
 
 func TestAppErrValidation(t *testing.T) {
-	rec := serveError(t, apperr.Invalid("/password", "password_too_common", "on the common-password list"), discard)
+	rec := serveError(t, apperr.Invalid("password", "password_too_common", "on the common-password list"), discard)
 	p := assertProblem(t, rec, http.StatusUnprocessableEntity, "/problems/validation")
 	if len(p.Errors) != 1 || p.Errors[0].Pointer != "/password" || p.Errors[0].Code != "password_too_common" {
 		t.Errorf("errors = %+v", p.Errors)

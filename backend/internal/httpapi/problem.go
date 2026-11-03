@@ -125,7 +125,7 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 		}
 		switch e.Kind {
 		case apperr.Validation:
-			writeValidation(w, []gen.FieldError{{Pointer: e.Pointer, Code: e.Code, Detail: e.Detail}})
+			writeValidation(w, []gen.FieldError{{Pointer: "/" + strings.ReplaceAll(e.Field, ".", "/"), Code: e.Code, Detail: e.Detail}})
 			return
 		case apperr.RateLimited:
 			if e.RetryAfter > 0 {

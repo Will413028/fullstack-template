@@ -58,8 +58,11 @@ func Convert(err error) Converted {
 		}
 		return Converted{Err: ce}
 	}
+	if fields, ok := apperr.Fields(err); ok {
+		return invalidFields(fields)
+	}
 	e, ok := apperr.As(err)
-	if !ok {
+	if !ok || e.Kind == apperr.Validation { // a Validation that Fields refused is joined with an unexpected error
 		return internal()
 	}
 	code, known := kindCodes[e.Kind]
@@ -67,16 +70,6 @@ func Convert(err error) Converted {
 		return internal()
 	}
 	out := Converted{Err: connect.NewError(code, errors.New(e.Detail))}
-	if e.Kind == apperr.Validation {
-		reason, declared := fieldReason(e.Code)
-		if !declared {
-			out.Undeclared = append(out.Undeclared, e.Code)
-		}
-		addDetail(out.Err, &errdetails.BadRequest{FieldViolations: []*errdetails.BadRequest_FieldViolation{{
-			Field: fieldPath(e.Pointer), Reason: reason, Description: e.Detail,
-		}}})
-		return out
-	}
 	if e.Code != "" {
 		if reason, declared := errorReason(e.Code); declared {
 			addDetail(out.Err, &errdetails.ErrorInfo{Reason: reason, Domain: ErrorDomain})
@@ -87,6 +80,27 @@ func Convert(err error) Converted {
 	if e.Kind == apperr.RateLimited && e.RetryAfter > 0 {
 		addDetail(out.Err, &errdetails.RetryInfo{RetryDelay: durationpb.New(e.RetryAfter)})
 	}
+	return out
+}
+
+// invalidFields is invalid_argument with one BadRequest violation per field, in the order the service reported them.
+func invalidFields(fields []*apperr.Error) Converted {
+	details := make([]string, 0, len(fields))
+	br := &errdetails.BadRequest{}
+	var undeclared []string
+	for _, f := range fields {
+		reason, declared := fieldReason(f.Code)
+		if !declared {
+			undeclared = append(undeclared, f.Code)
+		}
+		br.FieldViolations = append(br.FieldViolations, &errdetails.BadRequest_FieldViolation{
+			Field: f.Field, Reason: reason, Description: f.Detail,
+		})
+		details = append(details, f.Detail)
+	}
+	out := Converted{Err: connect.NewError(connect.CodeInvalidArgument, errors.New(strings.Join(details, "; "))),
+		Undeclared: undeclared}
+	addDetail(out.Err, br)
 	return out
 }
 
@@ -116,16 +130,6 @@ func fieldReason(code string) (string, bool) {
 		return commonv1.FieldViolationReason_INVALID.String(), false
 	}
 	return name, true
-}
-
-// fieldPath turns apperr's JSON Pointer (/password, /thing/name) into a request field path (password, thing.name),
-// unescaping ~1 and ~0 (RFC 6901) in each segment.
-func fieldPath(pointer string) string {
-	segments := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
-	for i, s := range segments {
-		segments[i] = strings.ReplaceAll(strings.ReplaceAll(s, "~1", "/"), "~0", "~")
-	}
-	return strings.Join(segments, ".")
 }
 
 func addDetail(ce *connect.Error, m proto.Message) {

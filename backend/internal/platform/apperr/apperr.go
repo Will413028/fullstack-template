@@ -33,8 +33,9 @@ type Error struct {
 	// Detail explains the failure to developers. It is sent to the client, so it must not contain secrets or
 	// internal state, and clients must not parse it.
 	Detail string
-	// Pointer is the JSON Pointer to the invalid input, for Validation.
-	Pointer string
+	// Field is the invalid input, for Validation: a field name as the module sees it (password, title), which the
+	// HTTP layer maps to the request's field path (internal/httpapi/rpc.Under).
+	Field string
 	// RetryAfter is how long the client should wait, for RateLimited.
 	RetryAfter time.Duration
 }
@@ -51,10 +52,29 @@ func New(kind Kind, code, detail string) *Error {
 	return &Error{Kind: kind, Code: code, Detail: detail}
 }
 
-// Invalid returns a Validation error for the input at pointer, for rules the contract cannot express (for example
-// a password on the common-password list).
-func Invalid(pointer, code, detail string) *Error {
-	return &Error{Kind: Validation, Code: code, Detail: detail, Pointer: pointer}
+// Invalid returns a Validation error for one invalid input field. A service that finds several invalid fields
+// returns them together with errors.Join, so the client sees every one at once (Fields).
+func Invalid(field, code, detail string) *Error {
+	return &Error{Kind: Validation, Code: code, Detail: detail, Field: field}
+}
+
+// Fields returns the invalid fields err reports: a Validation error, or errors.Join of Validation errors. ok is
+// false for anything else, including a join that mixes in another error.
+func Fields(err error) (fields []*Error, ok bool) {
+	if joined, isJoin := err.(interface{ Unwrap() []error }); isJoin {
+		for _, member := range joined.Unwrap() {
+			e, isErr := As(member)
+			if !isErr || e.Kind != Validation {
+				return nil, false
+			}
+			fields = append(fields, e)
+		}
+		return fields, len(fields) > 0
+	}
+	if e, isErr := As(err); isErr && e.Kind == Validation {
+		return []*Error{e}, true
+	}
+	return nil, false
 }
 
 // As returns the *Error in err's chain, if any.

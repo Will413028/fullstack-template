@@ -30,7 +30,7 @@ func TestCursorTamperedIsInvalid(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := DecodeCursor(cursor)
 			e, ok := apperr.As(err)
-			if !ok || e.Kind != apperr.Validation || e.Pointer != "/cursor" || e.Code != "invalid" {
+			if !ok || e.Kind != apperr.Validation || e.Field != "cursor" || e.Code != "invalid" {
 				t.Fatalf("DecodeCursor(%q) err = %v, want validation on /cursor with code invalid", cursor, err)
 			}
 		})

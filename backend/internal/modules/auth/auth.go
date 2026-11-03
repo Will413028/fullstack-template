@@ -149,10 +149,10 @@ func accountKey(account string) string { return strings.ToLower(account) }
 
 var errInvalidCredentials = apperr.New(apperr.Unauthenticated, CodeInvalidCredentials, "account or password is incorrect")
 
-// checkNewPassword applies the rules the contract cannot express: the list and, when enabled, the breach check.
+// checkNewPassword applies the rules beyond length (checkNewAccount): the list and, when enabled, the breach check.
 // A breach-check failure lets the password through: an outage of the external service must not stop sign-ups.
 func (s *Service) checkNewPassword(ctx context.Context, normalized string) error {
-	tooCommon := apperr.Invalid("/password", CodePasswordTooCommon, "password is on the list of common or breached passwords")
+	tooCommon := apperr.Invalid("password", CodePasswordTooCommon, "password is on the list of common or breached passwords")
 	if blocklist.Contains(normalized) {
 		return tooCommon
 	}
@@ -182,6 +182,9 @@ func (s *Service) newPasswordHash(ctx context.Context, password string) (string,
 
 // CreateUser creates a user account and signs it in, in one transaction.
 func (s *Service) CreateUser(ctx context.Context, account, password string) (User, Session, error) {
+	if err := checkNewAccount(account, password); err != nil {
+		return User{}, Session{}, err
+	}
 	hash, err := s.newPasswordHash(ctx, password)
 	if err != nil {
 		return User{}, Session{}, err
@@ -208,8 +211,11 @@ func (s *Service) CreateUser(ctx context.Context, account, password string) (Use
 }
 
 // EnsureAdmin creates an admin account unless the account exists, in which case nothing changes and created is
-// false. The password goes through the same rules as CreateUser.
+// false. The account and password go through the same rules as CreateUser.
 func (s *Service) EnsureAdmin(ctx context.Context, account, password string) (created bool, err error) {
+	if err := checkNewAccount(account, password); err != nil {
+		return false, err
+	}
 	hash, err := s.newPasswordHash(ctx, password)
 	if err != nil {
 		return false, err
@@ -233,8 +239,12 @@ var ErrNoSuchAdmin = errors.New("auth: no admin account with that name")
 
 // RecoverAdmin is the break-glass path for an admin who is disabled, locked out or has lost the password: it sets a
 // new password, enables the account, deletes its sessions and clears its sign-in throttle. It changes only an
-// existing admin; it never creates or promotes an account.
+// existing admin; it never creates or promotes an account. The account and password go through the same rules as
+// CreateUser.
 func (s *Service) RecoverAdmin(ctx context.Context, account, password string) error {
+	if err := checkNewAccount(account, password); err != nil {
+		return err
+	}
 	hash, err := s.newPasswordHash(ctx, password)
 	if err != nil {
 		return err

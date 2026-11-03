@@ -58,5 +58,5 @@ func TrimPage[T any](rows []T, limit int, id func(T) uuid.UUID) ([]T, string) {
 }
 
 func invalidCursor() error {
-	return apperr.Invalid("/cursor", "invalid", "cursor is not one this API returned")
+	return apperr.Invalid("cursor", "invalid", "cursor is not one this API returned")
 }

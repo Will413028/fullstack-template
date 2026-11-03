@@ -65,13 +65,13 @@ var errNotFound = apperr.New(apperr.NotFound, "", "item not found")
 const maxTitle = 200
 
 // checkTitle enforces the title's limits (decision D2: limits live in the module, not in the contract). The field is
-// reported as /title; the HTTP layer maps it to the request's path.
+// reported as title; the HTTP layer maps it to the request's path (item.title).
 func checkTitle(title string) error {
 	switch n := utf8.RuneCountInString(title); {
 	case n == 0:
-		return apperr.Invalid("/title", "required", "title is required")
+		return apperr.Invalid("title", "required", "title is required")
 	case n > maxTitle:
-		return apperr.Invalid("/title", "too_long", fmt.Sprintf("title must be at most %d characters", maxTitle))
+		return apperr.Invalid("title", "too_long", fmt.Sprintf("title must be at most %d characters", maxTitle))
 	}
 	return nil
 }

@@ -103,7 +103,7 @@ func TestConvertRateLimited(t *testing.T) {
 }
 
 func TestConvertValidation(t *testing.T) {
-	c := Convert(apperr.Invalid("/thing/name", "too_long", "name is over 200 characters"))
+	c := Convert(apperr.Invalid("thing.name", "too_long", "name is over 200 characters"))
 	if c.Err.Code() != connect.CodeInvalidArgument {
 		t.Fatalf("code = %s", c.Err.Code())
 	}
@@ -115,10 +115,16 @@ func TestConvertValidation(t *testing.T) {
 	if v.GetField() != "thing.name" || v.GetReason() != "TOO_LONG" || v.GetDescription() != "name is over 200 characters" {
 		t.Errorf("violation = %v", v)
 	}
-	// RFC 6901 escapes inside a segment are undone
-	c = Convert(apperr.Invalid("/labels/a~1b~0c", "invalid", ""))
-	if got := detail[errdetails.BadRequest](t, c.Err).GetFieldViolations()[0].GetField(); got != "labels.a/b~c" {
-		t.Errorf("field = %q, want labels.a/b~c", got)
+	// several invalid fields joined are all reported, in order
+	c = Convert(errors.Join(apperr.Invalid("account", "too_short", "a"), apperr.Invalid("password", "too_long", "p")))
+	got := detail[errdetails.BadRequest](t, c.Err).GetFieldViolations()
+	if c.Err.Code() != connect.CodeInvalidArgument || len(got) != 2 || got[0].GetField() != "account" ||
+		got[0].GetReason() != "TOO_SHORT" || got[1].GetField() != "password" || got[1].GetReason() != "TOO_LONG" {
+		t.Errorf("violations = %v", got)
+	}
+	// a join that is not only invalid fields is an unexpected error
+	if c = Convert(errors.Join(apperr.Invalid("account", "too_short", ""), errors.New("db down"))); !c.Internal {
+		t.Errorf("mixed join = %v, want internal", c.Err)
 	}
 }
 
@@ -131,7 +137,7 @@ func TestConvertUndeclaredCodes(t *testing.T) {
 	if len(c.Undeclared) != 1 || c.Undeclared[0] != "brewing" {
 		t.Errorf("Undeclared = %v", c.Undeclared)
 	}
-	c = Convert(apperr.Invalid("/a", "too_hot", ""))
+	c = Convert(apperr.Invalid("a", "too_hot", ""))
 	if v := detail[errdetails.BadRequest](t, c.Err).GetFieldViolations()[0]; v.GetReason() != "INVALID" {
 		t.Errorf("reason = %q, want the fallback INVALID", v.GetReason())
 	}
@@ -259,7 +265,7 @@ func TestPageSize(t *testing.T) {
 			t.Errorf("PageSize(%d) = %d, %v; want %d", tc.requested, got, err, tc.want)
 		}
 	}
-	if _, err := PageSize(-1, 20, 100); !isInvalid(err, "/page_size") {
+	if _, err := PageSize(-1, 20, 100); !isInvalid(err, "page_size") {
 		t.Errorf("PageSize(-1) = %v", err)
 	}
 }
@@ -273,7 +279,7 @@ func TestPageAfter(t *testing.T) {
 		t.Errorf("token = %v, %v; want %s", after, err, id)
 	}
 	for _, bad := range []string{"not base64!", "AAAA"} {
-		if _, err := PageAfter(bad); !isInvalid(err, "/page_token") {
+		if _, err := PageAfter(bad); !isInvalid(err, "page_token") {
 			t.Errorf("PageAfter(%q) = %v", bad, err)
 		}
 	}
@@ -284,14 +290,14 @@ func TestParseID(t *testing.T) {
 	if got, err := ParseID("item_id", id.String()); err != nil || got != id {
 		t.Errorf("ParseID = %v, %v", got, err)
 	}
-	if _, err := ParseID("item_id", "7"); !isInvalid(err, "/item_id") {
+	if _, err := ParseID("item_id", "7"); !isInvalid(err, "item_id") {
 		t.Errorf("ParseID(7) = %v", err)
 	}
 }
 
-func isInvalid(err error, pointer string) bool {
+func isInvalid(err error, field string) bool {
 	e, ok := apperr.As(err)
-	return ok && e.Kind == apperr.Validation && e.Pointer == pointer
+	return ok && e.Kind == apperr.Validation && e.Field == field
 }
 
 type unimplemented struct {

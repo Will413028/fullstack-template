@@ -91,6 +91,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, uuid.UU
 // Its responses do not reveal whether the account exists. A sign-in from a client without a trusted device for the
 // account trusts it from now on (Session.Device).
 func (s *Service) SignIn(ctx context.Context, account, password, previousToken string, client Client) (User, Session, error) {
+	if err := checkSignIn(account, password); err != nil {
+		return User{}, Session{}, err // not an attempt: no throttle count, no sign-in log
+	}
 	u, sess, err := s.signIn(ctx, account, password, previousToken, client)
 	if err == nil {
 		s.logger.InfoContext(ctx, "signed in", "event", "auth.sign_in", "user_id", u.ID)

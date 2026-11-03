@@ -45,7 +45,7 @@ func TestUpdatePaths(t *testing.T) {
 		})
 	}
 	for _, bad := range []string{"nmae", "name.sub", ""} {
-		if _, err := UpdatePaths(&fieldmaskpb.FieldMask{Paths: []string{bad}}, named, "name"); !isInvalid(err, "/update_mask") {
+		if _, err := UpdatePaths(&fieldmaskpb.FieldMask{Paths: []string{bad}}, named, "name"); !isInvalid(err, "update_mask") {
 			t.Errorf("path %q: err = %v, want invalid_argument on update_mask", bad, err)
 		}
 	}
@@ -61,15 +61,20 @@ func TestUpdatePathsUnknownWritablePanics(t *testing.T) {
 	_, _ = UpdatePaths(nil, &testingv1.Thing{}, "nmae")
 }
 
-// Under puts a module's field (/title) under the request field that holds it (item.title); other errors pass as they
-// are.
+// Under puts a module's fields (title) under the request field that holds them (item.title); other errors pass as
+// they are.
 func TestUnder(t *testing.T) {
-	err := Under("item", apperr.Invalid("/title", "too_long", "too long"))
-	if !isInvalid(err, "/item/title") {
-		t.Errorf("Under = %v, want invalid on /item/title", err)
+	err := Under("item", apperr.Invalid("title", "too_long", "too long"))
+	if !isInvalid(err, "item.title") {
+		t.Errorf("Under = %v, want invalid on item.title", err)
 	}
 	if got := Convert(err).Err; detail[errdetails.BadRequest](t, got).GetFieldViolations()[0].GetField() != "item.title" {
 		t.Errorf("field = %v, want item.title", got)
+	}
+	both := Under("item", errors.Join(apperr.Invalid("title", "required", ""), apperr.Invalid("description", "too_long", "")))
+	vs := detail[errdetails.BadRequest](t, Convert(both).Err).GetFieldViolations()
+	if len(vs) != 2 || vs[0].GetField() != "item.title" || vs[1].GetField() != "item.description" {
+		t.Errorf("joined = %v, want item.title and item.description", vs)
 	}
 	notFound := apperr.New(apperr.NotFound, "", "nope")
 	if got := Under("item", notFound); !errors.Is(got, notFound) {
