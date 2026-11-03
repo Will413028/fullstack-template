@@ -77,7 +77,7 @@
   - 驗收：`python3 docs/plans/2026-11-03-connect-contract/check-plan.py` 輸出 `ok`；新 ADR 的每一題都有選項、取捨與理由；design-review skill 審過計畫與 ADR，finding 照 Review protocol 處理。
   - 停止條件：D1–D5 有任何一題沒拍板。
 
-- [ ] **1. 工具鏈與共用層（walking skeleton）**（被擋於：步驟 0；D1、D2、D3、D5）
+- [x] **1. 工具鏈與共用層（walking skeleton）**（被擋於：步驟 0；D1、D2、D3、D5）
   - 範圍（檔案前的標記：新增、修改、刪除）：
     - 契約：（新增）`api/buf.yaml`（lint STANDARD；breaking `WIRE_JSON` 加 `RPC_NO_DELETE`、`PACKAGE_SERVICE_NO_DELETE` 與 `PACKAGE_NO_DELETE`（D1-B，沒有 `ignore_unstable_packages`；`WIRE_JSON` 本身不擋刪除 RPC、service 或 package：2026-11-03 以 buf 1.50.0 的 fixture 實測，少了 `PACKAGE_NO_DELETE` 時刪掉整個 package 是 exit 0，加上後刪除與改名 package 都 exit 100；同日在 1.75.0 以 `tools-selftest` 的情境再測一次，結果相同）；`ErrorReason` 的 `ENUM_VALUE_PREFIX` 例外，同 hawkr 的 `api/buf.yaml`）、`api/app/common/v1/errors.proto`（`ErrorReason`、`FieldViolationReason`）。`api/` 沒有 proto import googleapis，所以 `api/buf.yaml` 不宣告 deps、沒有 `buf.lock`（design-review #49）。
     - 測試用的契約：（新增）`backend/internal/httpapi/rpc/testdata/` 底下另一個 buf module（`buf.yaml`、`buf.gen.yaml`、`testing.proto`），Public、App、Admin 三類各一個 service，各有 `Get` 與 `Update` 方法。只生成 Go、只給 `internal/httpapi` 的測試掛載；不在 `api/`，所以不進前端的生成、不受 breaking 檢查，衍生專案也不會把它當成對外契約。`make gen` 與 `gen-check` 一併涵蓋它，跑 `buf lint`，留到步驟 6 都不刪。
@@ -280,7 +280,7 @@
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 ADR 與計畫定稿 | 完成 | `check-plan.py` 輸出 `ok`；計畫審查 2 輪（32 條）；ADR 獨立草稿 2 份；design-review 2 輪（24 條）；buf 1.50.0 的 package 刪除 fixture；見 `review-ledger.md` | 無 | 本 commit |
-| 1 工具鏈與共用層 | 程式完成待驗收 | 本機：`make -C backend` 的 fmt-check、gen-openapi-check、gen-check、buf-lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest 全過；`internal/httpapi/rpc` 測試；httpapi 不需 DB 的 Connect 測試（暫時換掉 `TestMain` 跑，跑完還原）；前端 `pnpm lint`、`check:deps`、`check:arch`、`test:report`（50）、`build`、`gen:api:check`；rename 煙霧測試（scratch worktree：沒有殘留舊 module path、gen-check、`go vet`、rpc 測試）；`make coverage` 的 cobertura 步驟排除 `internal/gen`（rpc 的 profile 有 19 行、報告 0 行）；mutation 見下 | `make test` 與 `make drift`（要 postgres 測試容器，機器高負載，Will 2026-11-03：交給 CI）：含 `connect_auth_test.go` 的三個 DB 測試與「`authenticate` 的 DB 錯誤繞過共用寫入函式」這條 mutation 的正向測試；CI 全套 | `323317b`、`807247a`、`387014a` |
+| 1 工具鏈與共用層 | 完成 | CI 全綠：run 41617139179（`a381fea`）與 run 41618602232（`85381de`，含審查修正）：Backend（`make check`，含 `make test` 的 DB 測試與 `make drift`、測試數鎖 269）、Frontend（含 `gen:api:check`，測試數鎖 50）、Compose stack、Rename smoke test、Commit policy。本機：`make -C backend` 不需 DB 的全部檢查；httpapi 不需 DB 的 Connect 測試；前端 lint、knip、depcruise、test、build；rename 煙霧測試；coverage 排除 `internal/gen`；mutation 見下。審查：`/code-review high` 與 diff 視角審查者各一輪，13 條見 `review-ledger.md` S1–S13 | 無 | `323317b`、`807247a`、`387014a`、`6a39a76`、`a381fea`、`1e0fcd7`、`85381de` |
 | 2 items | 未開始 | | | |
 | 3＋4 auth 與前端 | 未開始 | | | |
 | 5 刪除 OpenAPI 與文件 | 未開始 | | | |
