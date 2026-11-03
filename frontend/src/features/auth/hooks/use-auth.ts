@@ -1,3 +1,7 @@
+// A client module: connect-query creates a React context when it loads, which the server build of React cannot, and
+// pages (server components) reach this file through the feature's index.ts (__tests__/client-boundary.test.ts).
+"use client";
+
 import { create } from "@bufbuild/protobuf";
 import {
   createConnectQueryKey,
