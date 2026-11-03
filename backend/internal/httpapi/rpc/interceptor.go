@@ -27,7 +27,7 @@ func convertErrors(logger *slog.Logger) connect.UnaryInterceptorFunc {
 				return resp, nil
 			}
 			c := Convert(err)
-			LogConverted(ctx, logger, req.Spec().Procedure, err, c)
+			LogConverted(ctx, logger, req.HTTPMethod(), req.Spec().Procedure, err, c)
 			return nil, c.Err
 		}
 	}

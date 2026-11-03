@@ -139,7 +139,7 @@ func TestConvertUndeclaredCodes(t *testing.T) {
 		t.Errorf("Undeclared = %v", c.Undeclared)
 	}
 	var buf bytes.Buffer
-	LogConverted(t.Context(), slog.New(slog.NewJSONHandler(&buf, nil)), "/p", c.Err, c)
+	LogConverted(t.Context(), slog.New(slog.NewJSONHandler(&buf, nil)), "POST", "/p", c.Err, c)
 	if !strings.Contains(buf.String(), "too_hot") || !strings.Contains(buf.String(), `"level":"ERROR"`) {
 		t.Errorf("log = %s", buf.String())
 	}
@@ -244,7 +244,7 @@ func TestInternalErrorLogged(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	log := buf.String()
-	if strings.Count(log, `"msg":"internal error"`) != 1 || !strings.Contains(log, `"level":"ERROR"`) ||
+	if strings.Count(log, `"msg":"internal error"`) != 1 || !strings.Contains(log, `"method":"POST"`) || !strings.Contains(log, `"level":"ERROR"`) ||
 		!strings.Contains(log, "hunter2") || !strings.Contains(log, testingv1connect.TestingAdminServiceUpdateAdminThingProcedure) {
 		t.Errorf("log = %s", log)
 	}

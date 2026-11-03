@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"strings"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
@@ -110,7 +111,7 @@ func writeError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 	if isConnect(r) {
 		c := rpc.Convert(err)
 		if !logged {
-			rpc.LogConverted(r.Context(), logger, r.URL.Path, err, c)
+			rpc.LogConverted(r.Context(), logger, r.Method, strings.TrimPrefix(r.URL.Path, "/api"), err, c)
 		}
 		rpc.WriteError(w, r, c.Err)
 		return

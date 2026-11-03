@@ -124,7 +124,7 @@
       - 把「查不到的 procedure」改成先檢查登入，「`/api/app.x.v1.NopeAppService/Get` 未登入是 `not_found`」要失敗。
     - `make coverage` 的總覆蓋率沒有把 `internal/gen` 算進去（T22）；knip 沒有對 `src/generated` 報錯，或已在 `knip.config.ts` 加上附理由的 ignore（T17）。
     - `python3 docs/plans/2026-11-03-connect-contract/check-plan.py` 輸出 `ok`。
-  - 停止條件：connect-query 2.3 與 TanStack Query 5.105 不相容；生成的 TS 在 `pnpm build` 失敗。遇到任何一種都停下來回報，不繞路。
+  - 停止條件：生成的 TS 在 `pnpm build` 失敗。遇到就停下來回報，不繞路。（connect-query 與 TanStack Query 的相容性移到步驟 3＋4，第一個呼叫端在那裡；審查 S11）
   - 完成後的狀態：Connect 的路由存在，只有測試用的 service；正式的 service 一個都沒有。
 
 - [ ] **2. items 搬到 Connect（小單元，先把做法跑通）**（被擋於：步驟 1；D2、D4）
@@ -189,7 +189,7 @@
     - mutation，前端：
       - 讓 `INVALID_CREDENTIALS` 也導向登入頁，「登入失敗留在登入頁並顯示錯誤」要失敗。
       - 在 proto 加一個 `ErrorReason` 並重新生成，沒有翻譯時 `pnpm lint` 要失敗。
-  - 停止條件：`CreateSession` 的節流需要的 client IP 或 device cookie，在 Connect handler 裡拿不到（應該在 context 裡，與現在相同）；connect-web 的 transport 在 Next.js 的 server 端無法帶上 request 的 cookie。
+  - 停止條件：`@connectrpc/connect-query` 2.3 與 `@tanstack/react-query` 5.105 不相容（安裝後 `pnpm build` 或型別檢查失敗；peer 範圍 `>=5.62.0` 已核對）；`CreateSession` 的節流需要的 client IP 或 device cookie，在 Connect handler 裡拿不到（應該在 context 裡，與現在相同）；connect-web 的 transport 在 Next.js 的 server 端無法帶上 request 的 cookie。
   - 需要人做的事：push 之後，在瀏覽器實際走一次註冊、登入、重新整理（SSR 讀得到 cookie）、登出、刪除帳號。CI 沒有 E2E，這是唯一的真實瀏覽器驗證；結果記在進度表。
 
 - [ ] **5. 刪除 OpenAPI，文件改成 Connect 版**（被擋於：步驟 3＋4）

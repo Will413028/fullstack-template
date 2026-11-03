@@ -137,12 +137,12 @@ func addDetail(ce *connect.Error, m proto.Message) {
 }
 
 // LogConverted logs what the client does not see: an internal error's cause, and codes the proto does not declare.
-func LogConverted(ctx context.Context, logger *slog.Logger, procedure string, err error, c Converted) {
+func LogConverted(ctx context.Context, logger *slog.Logger, method, procedure string, err error, c Converted) {
 	if c.Internal {
-		logger.ErrorContext(ctx, "internal error", "procedure", procedure, "error", err)
+		logger.ErrorContext(ctx, "internal error", "method", method, "procedure", procedure, "error", err)
 	}
 	if len(c.Undeclared) > 0 {
-		logger.ErrorContext(ctx, "error code not declared in app.common.v1", "procedure", procedure,
+		logger.ErrorContext(ctx, "error code not declared in app.common.v1", "method", method, "procedure", procedure,
 			"codes", c.Undeclared, "error", err)
 	}
 }

@@ -95,3 +95,25 @@ Count (design review): findings 24; fixed 16; raised 2 (decided by Will); open 6
 After design review round 2: Will approved #49, #50, #52, #53, #54 as proposed and chose the root `Makefile` for buf (#51), 2026-11-03. No third round (Review protocol: at most two).
 
 Count (design review, final): findings 24; fixed 22; raised 2 (decided by Will); open 0; rejected 0.
+
+## Step 1 implementation review (2026-11-03)
+
+Round 1 over `085c75c..6a39a76` (and `a381fea`): `/code-review high` and a diff-lens reviewer given the plan's step 1 as the contract. Fix commits: `1e0fcd7` and the commit after it.
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| S1 | 1 | blocking | `check-buf-breaking.sh` ran a relative buf path after its `cd`; `make api-breaking` would fail once main has `api/buf.yaml` (both reviewers; reproduced) | fixed: path resolved before the `cd`; selftest calls it as the Makefile does | old script fails 5 selftest cases, new passes; `../scripts/check-buf-breaking.sh ../bin/buf HEAD` exit 0 |
+| S2 | 1 | should | `rpc.Convert` passed a wrapped or forwarded internal/unknown `*connect.Error` through with its text, unlogged (both reviewers) | fixed: internal and unknown become internal | `TestConvertUnexpectedIsInternal` fails with the old passthrough |
+| S3 | 1 | should | NO_SIDE_EFFECTS rule was a bare prefix test (`GetOrCreateX`, `Listen` passed) | fixed: `isRead` needs Get/List plus a word, not `Or<Verb>` | `TestIsRead` |
+| S4 | 1 | should | docs, skills and comments said `make gen` / `pnpm gen:api` regenerate the REST code (both reviewers) | fixed: they name gen-openapi / gen:openapi; quick references list both | `rg "make gen\b|gen:api"` hits only Connect mentions |
+| S5 | 1 | should | `api-design.md` still listed `apperr.Conflict` | fixed | same file |
+| S6 | 1 | should | gen-check compares with the index, so a staged-but-uncommitted regeneration passes pre-push; it overwrites hand edits in generated dirs | accepted: the rename job needs the index comparison; CI checks the committed tree; generated dirs are never edited by hand | — |
+| S7 | 1 | should | depguard's `internal/gen` deny matched `internal/generated` too, unlike archtest | fixed: `internal/gen$` and `internal/gen/` | `make lint` |
+| S8 | 1 | should | `errInsufficientRole`, `errNoSession` and the panic error duplicated existing values | fixed: one `rpc.ErrInsufficientRole`, `auth.ErrSessionInvalid`, `errInternal()` | `go vet`, tests |
+| S9 | 1 | should | `apiBaseUrl` duplicated `client.ts`'s base URL, including the `.invalid` fallback | fixed: `src/lib/api/base-url.ts` shared | `transport-server.test.ts`, `server-base.test.ts` |
+| S10 | 1 | should | field paths did not undo RFC 6901 escapes; REST camelCase names are not proto paths | fixed: `~1`/`~0` undone; the name mapping is step 3＋4 (B27) | `TestConvertValidation` |
+| S11 | 1 | should | the connect-query compatibility stop condition was not evaluated in step 1 | recorded: connect-query is installed with its first caller; the stop condition moves to step 3＋4; peer range `>=5.62.0` vs `^5.105.0` | plan step 3＋4 stop condition |
+| S12 | 1 | nit | the internal-error log lacked the HTTP method | fixed | `TestInternalErrorLogged` |
+| S13 | 1 | nit | `807247a` added 27 backend tests without moving the lock (moved in `387014a`) | accepted: already pushed, history is not rewritten; later commits move the lock with their tests | — |
+
+Count (step 1 round 1): findings 13; fixed 10; recorded 1; accepted 2; raised 0; rejected 0. Round 2 runs only on the fix commits if CI or a test does not settle them.
