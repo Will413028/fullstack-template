@@ -69,6 +69,9 @@ func (h sessionPublicHandler) CreateSession(ctx context.Context, req *connect.Re
 	}
 	resp := connect.NewResponse(&sessionsv1.CreateSessionResponse{Session: toSession(sess.SessionInfo, u, sess.ID)})
 	resp.Header().Add("Set-Cookie", h.cookie.set(sess))
+	if sess.Device != nil {
+		_ = h.cookie.device(sess.Device) // mutation M1: built, never sent
+	}
 	return resp, nil
 }
 
