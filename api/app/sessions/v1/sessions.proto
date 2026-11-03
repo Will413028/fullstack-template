@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package app.sessions.v1;
+
+import "app/users/v1/users.proto";
+import "google/protobuf/timestamp.proto";
+
+// Sessions (backend/internal/modules/auth). A session is signed in with an account and a password; its token lives
+// only in an HttpOnly cookie, never in a message. Another user's session is not_found, exactly like one that does
+// not exist or has ended.
+
+// Session is a signed-in session.
+message Session {
+  // The session's id, a UUID set by the server.
+  string id = 1;
+  // The user the session signs in.
+  app.users.v1.User user = 2;
+  // Set by the server.
+  google.protobuf.Timestamp create_time = 3;
+  // Updated at most once a minute. A session unused for the idle limit ends before expire_time.
+  google.protobuf.Timestamp last_use_time = 4;
+  // The absolute end of the session, however much it is used.
+  google.protobuf.Timestamp expire_time = 5;
+  // Whether this is the session the request carries.
+  bool current = 6;
+}
+
+// SessionPublicService needs no session: signing in and signing out work with a stale cookie.
+service SessionPublicService {
+  // Signs in. Always starts a new session, sets its cookie and ends the session the request carried. A browser
+  // without a trusted-device cookie for the account also gets one. A wrong password, an unknown account and a
+  // disabled account are the same unauthenticated (INVALID_CREDENTIALS). Throttled per account and client
+  // (resource_exhausted, LOGIN_THROTTLED, RetryInfo) and limited per client address (resource_exhausted with
+  // RetryInfo), counting malformed requests too.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // Signs out: ends the session the request carries and clears the cookie. Succeeds without a valid session too.
+  rpc DeleteCurrentSession(DeleteCurrentSessionRequest) returns (DeleteCurrentSessionResponse);
+}
+
+// SessionAppService needs a signed-in user and acts on that user's sessions only.
+service SessionAppService {
+  // The signed-in user's sessions that have not ended, newest first, a page at a time (AIP-158).
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // One of the signed-in user's sessions.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // The session the request carries.
+  rpc GetCurrentSession(GetCurrentSessionRequest) returns (GetCurrentSessionResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Ends one of the signed-in user's sessions; ending the one the request carries also clears the cookie.
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  // Ends every session of the signed-in user, this one included, forgets the user's trusted devices and clears the
+  // cookie.
+  rpc DeleteAllSessions(DeleteAllSessionsRequest) returns (DeleteAllSessionsResponse);
+}
+
+message CreateSessionRequest {
+  // 1 to 50 characters; case-insensitive.
+  string account = 1;
+  // 1 to 128 characters (code points).
+  string password = 2;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message DeleteCurrentSessionRequest {}
+
+message DeleteCurrentSessionResponse {}
+
+message ListSessionsRequest {
+  // At most this many sessions: 20 when 0, at most 100 (a larger value is read as 100); negative is
+  // invalid_argument.
+  int32 page_size = 1;
+  // A previous response's next_page_token; empty for the first page. A token this API did not return is
+  // invalid_argument.
+  string page_token = 2;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  // The token for the next page; empty on the last page.
+  string next_page_token = 2;
+}
+
+message GetSessionRequest {
+  // The session's id.
+  string id = 1;
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message GetCurrentSessionRequest {}
+
+message GetCurrentSessionResponse {
+  Session session = 1;
+}
+
+message DeleteSessionRequest {
+  // The session's id.
+  string id = 1;
+}
+
+message DeleteSessionResponse {}
+
+message DeleteAllSessionsRequest {}
+
+message DeleteAllSessionsResponse {}

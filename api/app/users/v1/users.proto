@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package app.users.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Accounts (backend/internal/modules/auth). Signing up creates an account and signs it in; the session lives only in
+// an HttpOnly cookie that the response sets, never in a message. Admins manage accounts through
+// app.admin.users.v1.UserAdminService.
+//
+// Limits are checked by the auth service (decision D2): an invalid field is invalid_argument with a BadRequest that
+// lists every invalid field by its request path (account, password).
+
+// Role is what an account may do.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  // Calls UserAdminService and the other Admin services.
+  ROLE_ADMIN = 1;
+  ROLE_USER = 2;
+}
+
+// User is an account.
+message User {
+  // The user's id, a UUID set by the server.
+  string id = 1;
+  // Lowercase; accounts are unique regardless of case.
+  string account = 2;
+  Role role = 3;
+  // A disabled account cannot sign in and has no sessions. Always set by the server; UserAdminService.UpdateUser
+  // reads it (an explicit false enables the account without an update_mask).
+  optional bool disabled = 4;
+  // Set by the server.
+  google.protobuf.Timestamp create_time = 5;
+}
+
+// UserPublicService needs no session.
+service UserPublicService {
+  // Creates a user account and signs it in: the response sets the session cookie. Limited per client address
+  // (resource_exhausted with RetryInfo), counting malformed requests too. An account that exists in any case is
+  // already_exists (ACCOUNT_TAKEN).
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+}
+
+// UserAppService needs a signed-in user and acts on that user only.
+service UserAppService {
+  // The signed-in user.
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Deletes the signed-in user's account and everything it owns, and clears the session cookie. The session must
+  // have signed in within the last 10 minutes (permission_denied, REAUTHENTICATION_REQUIRED); the only enabled admin
+  // cannot be deleted (failed_precondition, LAST_ADMIN).
+  rpc DeleteCurrentUser(DeleteCurrentUserRequest) returns (DeleteCurrentUserResponse);
+  // The signed-in user by id; any other id is not_found, exactly like one that does not exist. Admins read other
+  // users through UserAdminService.GetUser.
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message CreateUserRequest {
+  // 3 to 50 characters: letters, digits, _ . and -. Stored lowercase.
+  string account = 1;
+  // 15 to 128 characters (code points), not on the list of common or breached passwords (PASSWORD_TOO_COMMON).
+  string password = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetCurrentUserRequest {}
+
+message GetCurrentUserResponse {
+  User user = 1;
+}
+
+message DeleteCurrentUserRequest {}
+
+message DeleteCurrentUserResponse {}
+
+message GetUserRequest {
+  // The user's id.
+  string id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
