@@ -28,4 +28,5 @@ Columns: old test, new test (file), what changed. A test that keeps its name and
 Also changed in step 2, outside `items_test.go`:
 
 - TestListQueriesDoNotGrowWithRows (`queries_test.go`): the items list is a Connect GET to `ListItems` with `{"pageSize":100}`; users and sessions stay REST until step 3＋4.
+- TestOperationAccessEnforced (`authz_test.go`): it runs one subtest per REST operation in the contract, so it lost the five items subtests (21 → 16 operations); the Connect side is TestItemsNeedSession's five subtests. The full row comes with step 3＋4.
 - TestEveryWritablePathHasGet (`spec_test.go`): its self-check removed GET from `/items/{id}`, which left the contract; it now uses `/sessions/{id}`.
