@@ -131,13 +131,18 @@ HADOLINT_SHA256_macos-arm64  := 5c09f3213f8e40406abe048233d985eebef336d4a6a20021
 HADOLINT_SHA256_linux-x86_64 := c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 HADOLINT_SHA256_linux-arm64  := f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 HADOLINT_PLATFORM := $(subst darwin,macos,$(shell uname -s | tr A-Z a-z))-$(subst aarch64,arm64,$(shell uname -m))
+# A stamp named after the pinned version makes a bump replace an existing binary (same as backend/Makefile's tools).
+HADOLINT_STAMP := bin/.hadolint-$(HADOLINT_VERSION)
 
 # Every finding fails, infos included (hadolint's default threshold).
 .PHONY: lint-docker
 lint-docker: $(HADOLINT)
 	$(HADOLINT) backend/Dockerfile
 
-$(HADOLINT):
+$(HADOLINT_STAMP):
+	@mkdir -p bin && rm -f bin/.hadolint-* && touch $@
+
+$(HADOLINT): $(HADOLINT_STAMP)
 	@sum="$(HADOLINT_SHA256_$(HADOLINT_PLATFORM))"; \
 	if [ -z "$$sum" ]; then echo "no hadolint checksum for $(HADOLINT_PLATFORM)"; exit 1; fi; \
 	mkdir -p bin && \
