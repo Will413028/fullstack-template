@@ -282,6 +282,22 @@
 - 與範圍的差異：新增 `rpc.UpdatePaths`（AIP-134 的 mask，取代 hawkr 的 `field_behavior`，見前提）與 `rpc.Under`（模組欄位對應到請求路徑）；`items.Service` 的介面沒變，只在 `Create`、`Update` 裡加 `checkTitle`。REST 仍在用的分頁 helper 與 `TestDefaultPageSizeMatchesContract` 搬到 `users.go`、`auth_resources_test.go`；`TestOperationAccessEnforced` 少了 5 個 items 的 subtest，測試數鎖 269 → 277。
 - 留給後面步驟：審查 S20–S22（`AGENTS.md` 規則 1、6 與 `add-crud` skill、`api-design.md` 的範例、page token 解兩次）都在步驟 5 處理；遠端分支 `mutation/step2-items` 刪除要 Will 同意。
 
+步驟 3＋4 的執行紀錄（2026-11-03）：
+
+- 停止條件都沒有觸發：connect-query 2.3.1 與 TanStack Query 5.105（探針用生成的 `ItemAppService` 呼叫 `useQuery`、`useMutation`，`tsc` exit 0；把參數型別寫錯時 `tsc` 報錯，證明探針有被檢查）；client IP 與 device cookie 在 Connect handler 的 context 裡（`sessions.go` 的 `CreateSession`）；SSR 用 connect-web 的 transport 帶 request 的 `cookie`（實作者以 `next start` 接假的 backend 實測：backend 收到 GET 與 cookie，過期的 cookie 導向登入頁）。
+- 本機已跑：`buf lint`；`make -C backend` 不需 DB 的檢查（fmt-check、gen-check、gen-openapi-check、buf-lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest）；`rpc`、`platform/httpx` 的測試；httpapi 不需 DB 的 62 個頂層測試：以 `go test -c -overlay` 把 `TestMain` 換成不起容器的版本，shuffle 下全部通過（含新的 `TestUnauthenticatedBeforeValidation`、`TestRolesMapped`、`TestConnectBodyTooLarge`）；前端 `pnpm lint`、`test`（50 個）、`build`、`check:deps`、`check:arch`、`gen:api:check`；`check-plan.py tests` 輸出 `ok`，刪掉後端與前端各一列時各自報出那一列。前端 mutation（實作者跑）：`INVALID_CREDENTIALS` 也導向登入頁、刪一個 reason 的翻譯（`pnpm lint` 失敗）、SSR 不帶 cookie，三條都讓對應的測試失敗。
+- 與範圍的差異：
+  - descriptor 檢查改成在同一個 proto package 掛上的 service 裡找 `Get<X>`：`CreateUser`、`CreateSession` 在 Public service，對應的 Get 在 App service（舊的 `followLocation` 也是用回應設的 cookie 去讀）。
+  - 一次回報所有無效欄位：模組把多個 `apperr.Invalid` 以 `errors.Join` 回傳（`apperr.Fields`），`rpc.Convert` 每個欄位一筆 violation；保留 REST validator「列出每個錯誤」的行為。`apperr` 的 `Pointer` 改成欄位名（B27）。
+  - `authenticate` 清除無效 cookie 改在回應開始時做，handler 自己設了 session cookie 就不清（`clearStaleCookie`）：connect-go 把 handler 的 header 附加在已寫入的 header 後面，否則重新登入會同時送出清除與新的 cookie。
+  - `openapi.yaml` 已經沒有 operation，REST 外殼（validator、strict server、problem、bind）仍編得過，照計畫留到步驟 5；以 operation 為單位、表格已空的機制（`operationAccess`、`adminOperations`、`requireRole`、`limitOperations`、`operations()`）在這一步刪除。
+  - 從步驟 5 提前：前端的 `gen-api.mjs`、`gen:openapi*`、`openapi-fetch`、`openapi-typescript`（沒有使用者，knip 會失敗），CI 與 lefthook 的 `gen:openapi:check`。
+  - `User.disabled` 是 `optional bool`：沒有 mask 的 `UpdateUser` 用明確的 false 就能啟用帳號（AIP-134 的「populated」）。`UserAppService.GetUser` 只回自己，admin 讀別人走 `UserAdminService.GetUser`（inventory O5；刻意的行為改變寫在 `tests-map.md`）。
+  - 新增 `TestConnectBodyTooLarge`：Connect 路徑的 body 上限原本沒有測試（步驟 1 起），它是 `resource_exhausted` 且沒有 `RetryInfo`。
+- 記下不做：前端對 body 超過上限（沒有 `RetryInfo` 的 `resource_exhausted`）顯示的是限流的文字，D3-A 的鍵沒有區分它；現在沒有任何前端呼叫送得出 1 MiB 的 body。觸發條件：第一個能送大 body 的呼叫（例如上傳）。
+- 規則違反（派工造成）：後端測試的實作者照我的派工跑 `go test ./internal/platform/...`，`dbtest` 套件的 `TestMain` 在本機起了 PostgreSQL 容器（約 107 秒，已確認沒有殘留）；派工把 `platform/...` 寫成不需 DB 是錯的。前端的實作者停 `next start` 時用了 `pkill -f next-server`，可能停到別的 session 的 Next server。
+- 留給後面步驟：後端 DB 測試與 mutation 在 CI 跑；瀏覽器實際走一次（需要人做）；步驟 5 的 `frontend/AGENTS.md`、`frontend/README.md`、`biome.json` 對 `schema.d.ts` 的 ignore、`osv-scanner.toml` 的 minimatch 例外。
+
 狀態值：未開始／進行中／程式完成待驗收／完成。
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
@@ -289,6 +305,6 @@
 | 0 ADR 與計畫定稿 | 完成 | `check-plan.py` 輸出 `ok`；計畫審查 2 輪（32 條）；ADR 獨立草稿 2 份；design-review 2 輪（24 條）；buf 1.50.0 的 package 刪除 fixture；見 `review-ledger.md` | 無 | 本 commit |
 | 1 工具鏈與共用層 | 完成 | CI 全綠：run 41617139179（`a381fea`）與 run 41618602232（`85381de`，含審查修正）：Backend（`make check`，含 `make test` 的 DB 測試與 `make drift`、測試數鎖 269）、Frontend（含 `gen:api:check`，測試數鎖 50）、Compose stack、Rename smoke test、Commit policy。本機：`make -C backend` 不需 DB 的全部檢查；httpapi 不需 DB 的 Connect 測試；前端 lint、knip、depcruise、test、build；rename 煙霧測試；coverage 排除 `internal/gen`；mutation 見下。審查：`/code-review high` 與 diff 視角審查者各一輪，13 條見 `review-ledger.md` S1–S13 | 無 | `323317b`、`807247a`、`387014a`、`6a39a76`、`a381fea`、`1e0fcd7`、`85381de` |
 | 2 items | 完成 | CI 全綠：run 41645470222（`25c0008`）：Backend（`make check`，含 DB 測試、`make drift`、測試數鎖 277）、Frontend、Compose stack、Rename smoke test、Commit policy；前一個 run 41644558611（`68ca2d1`）測試全過、只有鎖數不符（S26）。mutation：CI run 41645367146，四條各自讓對應測試失敗（見上）；`check-plan.py tests` 的逐列刪除。本機：`make -C backend` 不需 DB 的檢查（fmt、gen、buf lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest）；前端 gen:api:check、gen:openapi:check、lint、knip、test、build。審查：`/code-review high` 與 diff 視角審查者各一輪，S14–S26 見 `review-ledger.md` | 無 | `d2dfa2c`、`49ddb90`、`68ca2d1`、`25c0008` |
-| 3＋4 auth 與前端 | 未開始 | | | |
+| 3＋4 auth 與前端 | 程式完成待驗收 | 本機的檢查與前端 mutation 見上 | 後端的 DB 測試與 7 條 mutation（CI 待驗）；瀏覽器驗證（需要人做）；`/code-review`、design-review（完成前） | `ee08849`、`3755a1e`、`00c12f1`、`dbc7816` |
 | 5 刪除 OpenAPI 與文件 | 未開始 | | | |
 | 6 收尾 | 未開始 | | | |
