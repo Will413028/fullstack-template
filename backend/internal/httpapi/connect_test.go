@@ -551,21 +551,3 @@ func TestResourceProblemsReportsViolations(t *testing.T) {
 		t.Errorf("with UserAppService: %v", got)
 	}
 }
-
-// Every code the server sends as ErrorInfo.reason or FieldViolation.reason is declared in app.common.v1, which the
-// frontend translates value by value.
-func TestErrorCodesDeclaredInProto(t *testing.T) {
-	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled, auth.CodeLastAdmin,
-		auth.CodeReauthenticationRequired, auth.ErrSessionInvalid.Code, rpc.ErrInsufficientRole.Code, codeCrossOrigin}
-	for _, c := range codes {
-		if _, ok := commonv1.ErrorReason_value[strings.ToUpper(c)]; !ok {
-			t.Errorf("code %s is not an app.common.v1.ErrorReason value", c)
-		}
-	}
-	// field codes: the auth and items limits, ids and paging
-	for _, c := range []string{auth.CodePasswordTooCommon, "required", "too_short", "too_long", "pattern", "invalid", "out_of_range"} {
-		if _, ok := commonv1.FieldViolationReason_value[strings.ToUpper(c)]; !ok {
-			t.Errorf("field code %s is not an app.common.v1.FieldViolationReason value", c)
-		}
-	}
-}

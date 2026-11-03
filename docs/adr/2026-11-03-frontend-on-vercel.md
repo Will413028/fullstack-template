@@ -71,6 +71,8 @@ tags: [template-go-nextjs, decision, deploy, vercel, caddy, security]
 
 ## Review Notes
 
+- 2026-11-04：對外契約改用 Protobuf＋Connect（[對外 API 的契約改用 Protobuf＋Connect](2026-11-03-api-contract-protobuf-connect.md)），上面的決定不變，`/api` 前綴照舊，只是 operation 換成 RPC：`GET /users/me` 是 `UserAppService.GetCurrentUser`（仍是 GET，不受限流）；受每 IP 限流的 `createUser`、`createSession` 是 `UserPublicService.CreateUser`、`SessionPublicService.CreateSession`（`backend/internal/httpapi/server.go` 的 `connectLimited`）。
+
 ## Related
 
 - 修訂：[API 與認證基準](2026-10-18-api-and-auth-baseline.md) D1（Caddy 只服務 API；dev 不走 Caddy）、D8（`lb_try_duration` 只涵蓋 API）。

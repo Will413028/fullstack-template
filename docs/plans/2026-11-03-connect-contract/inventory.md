@@ -220,6 +220,13 @@ Added after the design review (2026-11-03): for each mechanism the plan keeps or
 | B19 | Access log (method, path, status, client_ip, request_id) | Operations and incident review | Yes; path is now the procedure, ids leave the path | Same | Keep; it also covers pre-interceptor 4xx |
 | B15 | `/health`, `/health/ready` outside the contract | Compose healthcheck and `app healthcheck` | Yes | Plain HTTP health endpoints | Keep |
 | T25 | `generated: strict` lint skip | Generated code is not reviewed by hand | Yes | Same | Keep |
+| O23, B27 | apperr string codes mapped to proto enums by name (`rpc.errorReason`, `fieldReason`) | Modules must not import generated proto (ADR invariant); RFC 9457 types were strings | Yes for the invariant; the old hand-written list in a test did not cover new codes | One source checked by machine | Keep the mapping; `TestEveryAppErrCodeIsDeclared` (`rpc/codes_test.go`) reads the code of every `apperr.New`/`Invalid` call and `apperr.Error` literal from the source (step 6, design review) |
+| B27 | `apperr.Field` (module's field name) → request path (`rpc.Under`) | Follows from modules not knowing the proto messages | Yes | Same | Keep |
+| B6 | Two error writers (`writeError` at net/http, `convertErrors` interceptor) sharing `rpc.Convert` | Checks before decoding (no procedure, unauthenticated, rate limit, cross-origin, body size) run outside connect-go | Yes (ADR `2026-11-03-api-contract-protobuf-connect.md`) | Same | Keep |
+| B26 | Page token = base64url of the last id, not bound to the query | AIP-158 needs later pages to use the same parameters | Yes today: no List takes a filter | Opaque token encoding the query | Keep; trigger: the first List with a filter or sort parameter encodes them into the token and rejects a mismatch |
+| F1 | Transport default timeout 15 s (`defaultTimeoutMs`, `Connect-Timeout-Ms`) | `docs/frontend-known-issues.md`: a hung API must not hang the page | Yes | Same | Keep |
+| F4, F6 | `authApi` facade for writes (TanStack `useMutation`), connect-query `useQuery` for reads | openapi-fetch returned `{data, error}`; `deleteAccount` chains re-sign-in and delete | The unwrapping reason is gone; the multi-step call still needs a function | Reads and writes through connect-query, functions only for multi-step flows (inferred) | Keep for now (one transport, same object); trigger: the next feature with writes uses connect-query `useMutation` and the facade shrinks to multi-step calls |
+| — | `Deps.testServices`, `Deps.testLimited` (unexported, test-only fields of `httpapi.Deps`) | Tests mount the `rpc/testdata` services through the one assembly path | Yes; unexported, not reachable from `cmd/app` | `NewHandler` taking the service list from `cmd/app` | Keep; trigger: a second production caller needs a different service set |
 
 ## Uncertainty / not covered
 
@@ -232,3 +239,45 @@ Added after the design review (2026-11-03): for each mechanism the plan keeps or
 - `frontend/src/proxy.test.ts`, `callback.ts` and `logout-button.tsx` were not read; grep shows no direct `lib/api` import in them.
 - `docs/adr/*` Options/Rationale sections were read only around decision lines; other passing mentions of REST may exist in Context sections.
 - Not checked: `SECURITY.md`, `.github/workflows/security.yml`, `tool-versions.yml` beyond a grep for openapi/oapi (no hits).
+
+## 8. Close-out check (step 6, 2026-11-04, HEAD `00a504a`)
+
+Every row of sections 1–6 checked against the code at HEAD by a read-only subagent (count: `sed -n 1,196p inventory.md | grep -cE '^\| *[OBTFRD][0-9]+ \|'` → 123: O 23, B 33, T 25, F 15, R 7, D 20); deletions confirmed with `git grep -n -I -i -E 'openapi|oapi|kin-openapi|oasdiff|nullable\.|swagger|merge-patch|problem\+json|speakeasy|httpx|operationAccess|adminOperations|followLocation|schema\.d\.ts|openapi-fetch' -- ':!docs/plans/**' ':!docs/adr/**'` (hits only: history comments, Go `Unwrap()`, Vercel's own `$schema` URL). All 123 done; "no change" means the destination was Keep.
+
+| Rows | Commits |
+|---|---|
+| O1–O16 | `00c12f1` (O1, O8 also `ee08849`; O3, O10 also `dbc7816`) |
+| O17–O21 | `68ca2d1` (O20 also `49ddb90`) |
+| O22 | `323317b`, `3755a1e` |
+| O23 | `807247a`, `fd4cd51` |
+| B1, B3–B5, B14, B20, B29, B31 | `fd4cd51` (B3 also `807247a`) |
+| B2, B6, B7, B9–B13, B15–B17, B23, B26 | `807247a` (B6, B15, B26 also `fd4cd51`; B8, B10, B12 also `00c12f1`; B23 also `68ca2d1`) |
+| B18, B21 | no change (Keep) |
+| B19 | `0224f57` |
+| B22 | `00c12f1` |
+| B24 | `d2dfa2c`, `fd4cd51` |
+| B25 | `68ca2d1`, `00c12f1` |
+| B27, B28 | `3755a1e`, `fd4cd51` |
+| B30, B32 | `807247a`, `68ca2d1`, `00c12f1`, `fd4cd51`; B30's code test replaced in step 6 by `TestEveryAppErrCodeIsDeclared` |
+| B33 | `807247a`, `1e0fcd7` |
+| T1–T7, T21–T24 | `323317b` (T1, T7, T24 also `fd4cd51`; T2, T3 also `387014a`; T6 also `1e0fcd7`). T1: the protoc plugins run through `go tool` in `backend/buf.gen.yaml`, not Makefile variables. T22: the header matches `-ignore-gen-files`; exclusion measured in step 1 |
+| T8–T11, T13, T16 | `fd4cd51` (T8–T11 also `323317b`) |
+| T12, T14, T17–T19 | `387014a` (T12 also `fd4cd51`; T14 also `dbc7816`; T18, T19 also `00c12f1`) |
+| T15 | `dbc7816` |
+| T20 | `fd4cd51`, `25c0008`, `1e0fcd7`, `387014a` (each with `Quality-Gate:`) |
+| T25, F12–F14, R1–R3, R5 | no change (Keep) |
+| F1, F3 | `387014a`, `dbc7816` |
+| F2, F4, F5, F7–F11 | `dbc7816` |
+| F6 | `dbc7816`, `acbd2ee` |
+| F15 | no change: the barrel's exports (`authApi`, `Credentials`, `User`) kept their names |
+| R4 | `807247a` |
+| R6 | `dc907a1` |
+| R7 | `00c12f1` |
+| D1–D5, D12 | `dc907a1` (D1 also `1e0fcd7`, `9ce7fd8`) |
+| D6, D7 | `085c75c` |
+| D8 | `dc907a1` |
+| D10, D11 | `807247a`, `68ca2d1`, `00c12f1`, `0224f57` |
+| D13–D17 | `1e0fcd7`, `4a21706`, `dc907a1` |
+| D18 | `fd4cd51` |
+| D19 | `dbc7816` |
+| D20 | several (`git grep -E 'api-and-auth-baseline\.md D(2|3|9)\b' backend frontend/src` empty) |

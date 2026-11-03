@@ -179,7 +179,7 @@ All test the kin-openapi validator over the stub contract `testdata/test-openapi
 |---|---|---|
 | TestValidRequestReachesHandler | TestValidRequestReachesHandler (`validate_test.go`) | Retire in step 5: the validator letting a valid body through; every Connect client test covers the Connect path. |
 | TestValidationMinLength | TestValidationMinLength (`validate_test.go`) | Retire in step 5: limits are in the services (D2); Connect: TestCreateUserLimits, TestCreateSessionLimits, TestCreateItemTitleLimits. |
-| TestValidationCodes | TestValidationCodes (`validate_test.go`) | Retire in step 5: the JSON-Schema keyword → code table (`schemaCodes`) goes with kin-openapi; the services choose `FieldViolationReason` values (TestErrorCodesDeclaredInProto). |
+| TestValidationCodes | TestValidationCodes (`validate_test.go`) | Retire in step 5: the JSON-Schema keyword → code table (`schemaCodes`) goes with kin-openapi; the services choose `FieldViolationReason` values (TestEveryAppErrCodeIsDeclared). |
 | TestValidationListsEveryError | TestValidationListsEveryError (`validate_test.go`) | Retire in step 5: Connect: TestCreateUserLimits and TestCreateSessionLimits (several violations in one `BadRequest`), TestConvertValidation (`rpc/`). |
 | TestUnsupportedMediaType | TestUnsupportedMediaType (`validate_test.go`) | Retire in step 5: connect-go answers other content types itself; Connect: TestConnectUnauthenticatedBeforeDecoding and TestUnauthenticatedBeforeValidation (`text/plain`, anonymous → `unauthenticated`). |
 | TestMalformedJSON | TestMalformedJSON (`validate_test.go`) | Retire in step 5: Connect: TestConnectUnauthenticatedBeforeDecoding and TestUnauthenticatedBeforeValidation (a Public method answers `{not json` with `invalid_argument`). |
@@ -201,7 +201,7 @@ All test the kin-openapi validator over the stub contract `testdata/test-openapi
 
 | Old test | New test | What changed |
 |---|---|---|
-| TestProblemValuesInContract | TestProblemValuesInContract (`problem_contract_test.go`) | Changed only to compile: `errInsufficientRole` (deleted `authz.go`) → `rpc.ErrInsufficientRole`. Retire in step 5 with the contract; Connect: TestErrorCodesDeclaredInProto, which now also lists the field codes the auth limits send (`required`, `too_short`, `too_long`, `pattern`). |
+| TestProblemValuesInContract | TestProblemValuesInContract (`problem_contract_test.go`) | Changed only to compile: `errInsufficientRole` (deleted `authz.go`) → `rpc.ErrInsufficientRole`. Retire in step 5 with the contract; Connect: TestEveryAppErrCodeIsDeclared (`rpc/codes_test.go`, step 6), which reads the code of every `apperr.New`/`Invalid` call and `apperr.Error` literal from the source. |
 | TestValuesOutsideContract | TestValuesOutsideContract (`problem_contract_test.go`) | Unchanged in step 3＋4; retire in step 5 with `checkProblems`. |
 
 ### `spec_test.go` (1 test)
@@ -263,7 +263,7 @@ The rows above that say "retire in step 5" or "step 5 chooses" end here. Every e
 | TestPanicAbortHandlerPropagates, TestPanicAfterResponseStartedAborts, TestErrorAfterResponseStartedAborts | same names (`errors_test.go`) | Moved with the file; "no problem appended" is "no error appended". |
 | TestValidRequestReachesHandler, TestValidationMinLength, TestValidationCodes, TestValidationListsEveryError, TestUnsupportedMediaType, TestMalformedJSON, TestBodyReadErrorIsNotValidation, TestUndefinedRoute, TestValidatedBodyTooLarge, TestPanicInOperationReturnsProblem, TestHealthOutsideValidation, TestDocs | retired with `validate_test.go` | As each row in `validate_test.go` above says. |
 | TestParamBindErrorIsValidation, TestBodyDecodeError | retired with `bind_test.go` | As in `bind_test.go` above. |
-| TestProblemValuesInContract, TestValuesOutsideContract | retired with `problem_contract_test.go` | TestErrorCodesDeclaredInProto covers the Connect codes. |
+| TestProblemValuesInContract, TestValuesOutsideContract | retired with `problem_contract_test.go` | TestEveryAppErrCodeIsDeclared covers the Connect codes. |
 | TestEveryWritablePathHasGet | retired with `spec_test.go` | TestConnectServicesReturnTheirResources. |
 | TestAuthenticateDatabaseErrorInEachFormat | TestAuthenticateDatabaseErrorIsInternal (`connect_auth_test.go`) | The REST half is gone. |
 | TestCursorRoundTrip, TestCursorTamperedIsInvalid (`internal/platform/httpx`) | TestPageAfter (`rpc/rpc_test.go`) | The page token encoding moved into `rpc` (`PageToken`, `PageAfter`): a round trip; padded base64 and one byte short are `INVALID` on `page_token`. `httpx` is deleted; the row limit and trim moved to `internal/platform/keyset` (new TestTrim). The service decodes no token any more (S22, S34). |

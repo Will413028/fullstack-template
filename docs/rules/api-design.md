@@ -123,7 +123,7 @@ if paths["description"] {
   | 其他 error、panic | `internal` | 無；內容只進 error log |
 
 - service 只回 `*apperr.Error`（`apperr.New(kind, code, detail)`、`apperr.Invalid(field, reason, detail)`）。`detail` 會送給 client：不得含 SQL、主機名稱、secret 或其他使用者的資料。modules 不 import `net/http`、`connectrpc.com/connect` 與生成的 proto（depguard、`internal/archtest`；ADR connect Invariants）。
-- 新的 reason 一定先宣告在 `api/app/common/v1/errors.proto`：沒宣告的 `ErrorInfo` reason 不送出、欄位的 reason 退成 `INVALID`，兩者都記 log（`rpc` 的 `errorReason`、`fieldReason`、`LogConverted`；`TestErrorCodesDeclaredInProto`）。新增的順序：`errors.proto` → `make -C backend gen` 與 `pnpm gen:api` → 每個語系 `frontend/messages/*.json` 的 `errors.reasons` 或 `errors.fields`（`messages.test.ts` 在編譯期檢查涵蓋每個值）→ 模組回報。
+- 新的 reason 一定先宣告在 `api/app/common/v1/errors.proto`：沒宣告的 `ErrorInfo` reason 不送出、欄位的 reason 退成 `INVALID`，兩者都記 log（`rpc` 的 `errorReason`、`fieldReason`、`LogConverted`；`TestEveryAppErrCodeIsDeclared` 從原始碼讀出每個 `apperr.New`、`apperr.Invalid` 呼叫與 `apperr.Error` literal 的 code；事後才指定的 code 看不到）。新增的順序：`errors.proto` → `make -C backend gen` 與 `pnpm gen:api` → 每個語系 `frontend/messages/*.json` 的 `errors.reasons` 或 `errors.fields`（`messages.test.ts` 在編譯期檢查涵蓋每個值）→ 模組回報。
 - 宣告過的值可以新增，**NEVER** 改名、刪除或換 code（`errors.proto` 的檔頭）。
 
 ```go

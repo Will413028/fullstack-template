@@ -191,3 +191,30 @@ Count (walk-through and its review): findings 6 (blocking 1); fixed 5; recorded 
 | S54 | 1 (C) | nit | TestCrossOriginRejectedInEachFormat names formats that no longer exist | fixed: TestCrossOriginRejectedAsPermissionDenied, in `api-design.md` and the threat model too | `rg TestCrossOriginRejectedInEachFormat` only in plan history |
 
 Count (step 5): findings 7 (blocking 0); fixed 7; recorded 0; raised 0; rejected 0.
+
+## Step 6: design-review of the whole diff (`a83acc9..00a504a`), 2026-11-04
+
+| # | Round | Severity | Finding | Disposition | Check |
+|---|---|---|---|---|---|
+| S55 | 1 (A) | should | apperr string codes and the proto enums were kept in sync by a hand-written list in TestErrorCodesDeclaredInProto; a new code outside the list only logs at run time | fixed: `TestEveryAppErrCodeIsDeclared` (`backend/internal/httpapi/rpc/codes_test.go`) reads every `apperr.New`/`Invalid` call and `apperr.Error` literal from the source; the old test removed | red-proof 5 mutants killed (new literal field code, changed cross-package constant, literal in a composite, changed constant in `rpc`, non-constant code) |
+| S56 | 1 (B) | nit | `authApi` facade for writes next to connect-query reads | recorded: inventory §7 (F4, F6) with a trigger | — |
+| S57 | 1 (B) | nit | test-only fields in `httpapi.Deps` | recorded: inventory §7 with a trigger | — |
+| S58 | 1 (A) | nit | §7 missed the code→enum mapping, `rpc.Under`, the two error writers, page tokens not bound to the query, the 15 s transport timeout | recorded: inventory §7, page token with a trigger | — |
+
+Count (step 6 design-review): findings 4 (blocking 0); fixed 1; recorded 3; raised 0; rejected 0.
+
+## Step 6: `/code-review medium` of the step 6 diff, 2026-11-04
+
+| # | Round | Severity | Finding | Disposition | Check |
+|---|---|---|---|---|---|
+| S59 | 1 | should | the scan classified field codes by constructor or `Field` key; Convert classifies by `Kind == Validation` | fixed: `apperr.New(apperr.Validation, …)` and a literal's `Kind` decide | red-proof `validation-kind-new` killed |
+| S60 | 1 | should | an empty field code was skipped, though Convert sends INVALID and logs it | fixed: only an empty ErrorInfo code is skipped | red-proof `empty-field-code` killed |
+| S61 | 1 | should | an `apperr.Error` literal without keys was skipped silently | fixed: reported as a problem | red-proof `unkeyed-literal` killed |
+| S62 | 1 | should | a parameter named like a package constant resolved to the constant | fixed: `ident.Obj` must be a constant (parser mode 0 kept for this) | red-proof shadowing mutant killed |
+| S63 | 1 | should | a code assigned later (`e.Code = …`) is not seen while the docs said "every code" | fixed in wording: test comment, `backend/AGENTS.md`, `api-design.md`, `errors.go` name the constructors and literals and say a later assignment is not seen; no such assignment exists (`git grep -n '\.Code = ' -- 'backend/*.go' ':!*_test.go' ':!backend/internal/gen'`) | — |
+| S64 | 1 | should | directory-name skip list instead of the module's package list | fixed: `go list ./...` GoFiles, `internal/gen` skipped by import path | test passes; red-proof cases above |
+| S65 | 1 | nit | module path hard-coded | fixed: from `go list`'s `Module.Path` | — |
+| S66 | 1 | nit | the scan lives in `rpc`, not `internal/archtest` | rejected: it calls `rpc`'s own `errorReason`/`fieldReason`, so it checks exactly what Convert does without exporting them | — |
+| S67 | 1 | nit | parser mode 0 does needless object resolution | rejected: S62 uses `ident.Obj`; comment says so | — |
+
+Count (step 6 /code-review): findings 9 (blocking 0); fixed 7; recorded 0; raised 0; rejected 2.

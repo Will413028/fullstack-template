@@ -42,7 +42,8 @@ type Converted struct {
 	// at error level (its text can hold SQL, hostnames or user data).
 	Internal bool
 	// Undeclared lists apperr codes that ErrorReason or FieldViolationReason does not declare; they were left out of
-	// the details, and the caller logs them (a test keeps every code the modules return declared).
+	// the details, and the caller logs them (TestEveryAppErrCodeIsDeclared keeps the codes of apperr's constructors and
+	// literals declared).
 	Undeclared []string
 }
 
