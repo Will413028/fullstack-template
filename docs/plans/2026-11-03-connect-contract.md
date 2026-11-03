@@ -193,7 +193,7 @@
   - 停止條件：`@connectrpc/connect-query` 2.3 與 `@tanstack/react-query` 5.105 不相容（安裝後 `pnpm build` 或型別檢查失敗；peer 範圍 `>=5.62.0` 已核對）；`CreateSession` 的節流需要的 client IP 或 device cookie，在 Connect handler 裡拿不到（應該在 context 裡，與現在相同）；connect-web 的 transport 在 Next.js 的 server 端無法帶上 request 的 cookie。
   - 需要人做的事：push 之後，在瀏覽器實際走一次註冊、登入、重新整理（SSR 讀得到 cookie）、登出、刪除帳號。CI 沒有 E2E，這是唯一的真實瀏覽器驗證；結果記在進度表。
 
-- [ ] **5. 刪除 OpenAPI，文件改成 Connect 版**（被擋於：步驟 3＋4）
+- [x] **5. 刪除 OpenAPI，文件改成 Connect 版**（被擋於：步驟 3＋4）
   - 範圍：
     - （刪除）`backend/api/openapi.yaml`、`backend/api/embed.go`、`internal/httpapi/gen`、`oapi-codegen.yaml`、`validate.go`、`bind.go`、`problem.go` 的 problem 寫入、`spec_test.go`、`problem_contract_test.go`、dev docs（`docs.go`、`Deps.Docs`）、`gen-api.mjs`、`gen-openapi*` 目標，以及過渡期 mux 的 REST 分支。
     - （修改）`backend/Dockerfile`：刪掉 `COPY api api`，`make lint-docker` 要過。
@@ -302,6 +302,16 @@
 - 瀏覽器走查（2026-11-04，Will 交代代做）：本機 `next dev` 加原生 PostgreSQL 18（不起容器）、Chrome 實際操作：註冊（密碼過短顯示「太短。」，後端 400）、登入後重新整理（SSR 帶 cookie，仍在 overview）、登出、登出後開 overview 轉登入頁、密碼錯誤顯示「帳號或密碼錯誤。」、登入、刪除帳號（錯誤密碼被擋、正確密碼後 `DeleteCurrentUser` 200）、刪除後登入被拒；資料庫剩 0 個 user、0 個 session。走查發現 `next dev` 下登入與註冊頁 500（S42），修正 `084e16a`（測試）、`acbd2ee`；production build 不受影響。遠端分支 `mutation/step3-auth` 經 Will 同意刪除。
 - 留給後面步驟：步驟 5 的 `api-design.md`、skills、`biome.json` 與 `.gitattributes` 對 `schema.d.ts` 的引用、`osv-scanner.toml` 的 minimatch 例外、S28、S34、S37–S39。
 
+步驟 5 的執行紀錄（2026-11-04）：
+
+- 刪除：`backend/api/`（`openapi.yaml`、`embed.go`）、`internal/httpapi/gen`、`oapi-codegen.yaml`、`validate.go`、`bind.go`、`docs.go`、problem 寫入（`problem.go` 改名 `errors.go`，只寫 Connect 錯誤）、`spec_test.go`、`problem_contract_test.go`、`testdata/test-openapi.yaml`、`Deps.Docs`、`gen-openapi*`、mux 的 REST 分支；`internal/platform/httpx` 拆成 `rpc` 的 page token（`PageToken`、`PageAfter`，格式不變，已發出的 token 仍有效）與 `internal/platform/keyset`，service 不再解 token（S22、S34）。`gen-api.mjs` 與前端的 openapi 依賴已在步驟 3＋4 提前刪除。
+- 本步驟新做的選擇（盤點表 B15 寫「REST 404 problem until step 5」，沒寫之後的格式）：不是 procedure 的路徑一律回 Connect 的 `not_found`，而且在查 session 之前判斷（S51）；`/health/ready` 在資料庫掛掉時回 `{"status":"unavailable"}`（503），和 200 的 body 同形狀。
+- 依賴：`backend/go.mod` 移除 kin-openapi、nethttp-middleware、nullable、oapi-codegen runtime；`backend/tools/go.mod` 移除 oapi-codegen，重新 tidy 後多列出 `kr/pretty`、`rogpeppe/go-internal` 兩個既有工具的間接依賴。`frontend/osv-scanner.toml` 隨 minimatch 例外刪除（T13），dependabot 的 speakeasy ignore 刪除；osv-scanner 對三份 lockfile 0 筆。
+- 鎖：後端測試 303 → 259（在 `3e85b7f` 跑退役的測試數得 45 個含子測試，加 TestTrim），CI run 41712163399 實際計數相符；Go suppression 15 → 14。
+- 驗收 `git grep` 的命中只剩 `docs/adr/` 的歷史內容，與一筆誤報：`docs/adr/2026-10-18-api-and-auth-baseline.md:23,53,55,56,79,90,94,104,110`、`docs/adr/2026-10-18-go-backend.md:90,94`（舊 ADR 的決定與 Review Notes）；`docs/adr/2026-11-03-api-contract-protobuf-connect.md:7,15,29,30,32,54,55,63,86`（新 ADR 說明它取代了什麼）；`frontend/vercel.json:2` 是 Vercel 設定檔的 `$schema` 網址（`openapi.vercel.sh`），不是 OpenAPI 的引用。
+- mutation（second-brain `scripts/red-proof.py`，副本內）：page token 不驗長度 → TestPageAfter 失敗；`keyset.Trim` 取錯列 → TestTrim 失敗；MaxBytes 不轉 `resource_exhausted` → TestConvert 失敗；拿掉 limit 防護 → TestTrim 失敗。
+- 審查：`/code-review high` 7 條（S48–S54，全修，`9ce7fd8`）；diff 視角審查者 2 條（進度表沒列 ADR 命中、`vercel.json` 誤報沒記錄），由這段紀錄處理。S28 維持 recorded。
+
 狀態值：未開始／進行中／程式完成待驗收／完成。
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
@@ -310,5 +320,5 @@
 | 1 工具鏈與共用層 | 完成 | CI 全綠：run 41617139179（`a381fea`）與 run 41618602232（`85381de`，含審查修正）：Backend（`make check`，含 `make test` 的 DB 測試與 `make drift`、測試數鎖 269）、Frontend（含 `gen:api:check`，測試數鎖 50）、Compose stack、Rename smoke test、Commit policy。本機：`make -C backend` 不需 DB 的全部檢查；httpapi 不需 DB 的 Connect 測試；前端 lint、knip、depcruise、test、build；rename 煙霧測試；coverage 排除 `internal/gen`；mutation 見下。審查：`/code-review high` 與 diff 視角審查者各一輪，13 條見 `review-ledger.md` S1–S13 | 無 | `323317b`、`807247a`、`387014a`、`6a39a76`、`a381fea`、`1e0fcd7`、`85381de` |
 | 2 items | 完成 | CI 全綠：run 41645470222（`25c0008`）：Backend（`make check`，含 DB 測試、`make drift`、測試數鎖 277）、Frontend、Compose stack、Rename smoke test、Commit policy；前一個 run 41644558611（`68ca2d1`）測試全過、只有鎖數不符（S26）。mutation：CI run 41645367146，四條各自讓對應測試失敗（見上）；`check-plan.py tests` 的逐列刪除。本機：`make -C backend` 不需 DB 的檢查（fmt、gen、buf lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest）；前端 gen:api:check、gen:openapi:check、lint、knip、test、build。審查：`/code-review high` 與 diff 視角審查者各一輪，S14–S26 見 `review-ledger.md` | 無 | `d2dfa2c`、`49ddb90`、`68ca2d1`、`25c0008` |
 | 3＋4 auth 與前端 | 完成 | CI 全綠：run 41673635223（`4a21706`，含 DB 測試、Compose 的 Connect GET 帶 cookie 探測、測試數鎖 303／50）；後端 7 條 mutation：CI run 41673873713；前端 mutation 4 條；`check-plan.py tests` 輸出 `ok`；審查 S27–S41；瀏覽器走查（2026-11-04，見上）與 S42–S47 | 無 | `ee08849`、`3755a1e`、`00c12f1`、`dbc7816`、`efe8c28`、`9a75fb6`、`4a21706`、`0224f57`、`084e16a`、`acbd2ee`、本 commit |
-| 5 刪除 OpenAPI 與文件 | 未開始 | | | |
+| 5 刪除 OpenAPI 與文件 | 完成 | CI 全綠：run 41712163399（`fd4cd51`，含 DB 測試、`make drift`、Compose stack、測試數鎖 259／52）與 run 41715963943（`9ce7fd8`，含審查修正）；本機：`make -C backend` 不需 DB 的全部子目標、`make lint-docker`（pre-push）、httpapi 不需 DB 的測試（overlay）、前端 lint／knip／depcruise／test／build、osv-scanner、`check-plan.py tests` 輸出 `ok`；mutation 4 條；審查 S48–S54 與 diff 視角 2 條 | 無 | `fd4cd51`、`dc907a1`、`9ce7fd8`、本 commit |
 | 6 收尾 | 未開始 | | | |
