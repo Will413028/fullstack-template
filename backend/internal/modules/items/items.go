@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,8 +39,8 @@ type Page struct {
 	NextCursor string
 }
 
-// Patch is a JSON Merge Patch of an item: nil Title leaves the title unchanged; SetDescription says whether
-// description was sent, in which case a nil Description clears it.
+// Patch is a partial update of an item: nil Title leaves the title unchanged; SetDescription says whether to set
+// description, in which case a nil Description clears it.
 type Patch struct {
 	Title          *string
 	SetDescription bool
@@ -60,6 +61,21 @@ func (s *Service) q() *store.Queries { return store.New(s.pool) }
 
 var errNotFound = apperr.New(apperr.NotFound, "", "item not found")
 
+// maxTitle is the longest title in characters (code points); schema.sql's CHECK holds the same limit.
+const maxTitle = 200
+
+// checkTitle enforces the title's limits (decision D2: limits live in the module, not in the contract). The field is
+// reported as /title; the HTTP layer maps it to the request's path.
+func checkTitle(title string) error {
+	switch n := utf8.RuneCountInString(title); {
+	case n == 0:
+		return apperr.Invalid("/title", "required", "title is required")
+	case n > maxTitle:
+		return apperr.Invalid("/title", "too_long", fmt.Sprintf("title must be at most %d characters", maxTitle))
+	}
+	return nil
+}
+
 // owner is the caller. The HTTP layer requires a session for every items operation before calling the service, so
 // a missing user is a wiring bug, not a client error.
 func owner(ctx context.Context) (uuid.UUID, error) {
@@ -74,6 +90,9 @@ func owner(ctx context.Context) (uuid.UUID, error) {
 func (s *Service) Create(ctx context.Context, title string, description *string) (Item, error) {
 	ownerID, err := owner(ctx)
 	if err != nil {
+		return Item{}, err
+	}
+	if err := checkTitle(title); err != nil {
 		return Item{}, err
 	}
 	row, err := s.q().CreateItem(ctx, store.CreateItemParams{Title: title, Description: description, OwnerID: ownerID})
@@ -99,7 +118,7 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (Item, error) {
 	return Item(row), nil
 }
 
-// List returns up to limit of the caller's items after cursor (nil for the first page).
+// List returns up to limit (1 to 100) of the caller's items after cursor (nil for the first page).
 func (s *Service) List(ctx context.Context, limit int, cursor *string) (Page, error) {
 	ownerID, err := owner(ctx)
 	if err != nil {
@@ -129,6 +148,11 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, p Patch) (Item, erro
 	ownerID, err := owner(ctx)
 	if err != nil {
 		return Item{}, err
+	}
+	if p.Title != nil {
+		if err := checkTitle(*p.Title); err != nil {
+			return Item{}, err
+		}
 	}
 	row, err := s.q().UpdateItem(ctx, store.UpdateItemParams{
 		Title: p.Title, SetDescription: p.SetDescription, Description: p.Description, ID: id, OwnerID: ownerID,
