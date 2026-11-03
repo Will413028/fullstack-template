@@ -105,6 +105,8 @@ tags: [fullstack-template, decision, rest, auth, security]
 
 ## Review Notes
 
+- 2026-11-03：前端改由 Vercel 部署，D1 的拓樸由 [前端改由 Vercel 部署](2026-11-03-frontend-on-vercel.md) 取代：Caddy 只服務 API，Vercel 轉送 `/api/*` 並以共用密鑰證明來源，dev 不走 Caddy。D1 的同源理由與「不信任 Next」仍成立；D8 的 `lb_try_duration` 只涵蓋 API。
+
 ## Related
 
 - 來源：2026-10-18 一個沒參與規劃的 subagent 從零查證業界基準（來源見上方各連結），repo 擁有者回覆「照建議」拍板。本 ADR 即原始紀錄。

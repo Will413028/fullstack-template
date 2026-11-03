@@ -4,7 +4,7 @@ Production-ready fullstack monorepo for new web projects.
 
 **Backend:** Go (modular monolith, OpenAPI contract-first, pgx + sqlc, Atlas migrations, opaque session cookies)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n, generated API client)
-**Infra:** Docker Compose behind Caddy, frontend and API on one origin (`/api`)
+**Infra:** API on Docker Compose behind Caddy, frontend on Vercel, one origin for the browser (Vercel routes `/api`)
 
 ## Prerequisites
 
@@ -21,11 +21,14 @@ git clone <this-repo> my-project
 cd my-project
 make rename NAME=my-project          # optional: MODULE=example.com/me/my-project/backend
 
-# 2. Setup environment: .env from .env-example, database passwords in .secrets/
+# 2. Setup environment: .env from .env-example, database passwords and the origin secret in .secrets/
 make init-env
 
-# 3. Start dev stack (rebuilds the backend on change, Next.js dev server)
+# 3. Start the backend (rebuilds on change; API at http://localhost:8000)
 make dev
+
+# 4. In another terminal: the Next.js dev server, which forwards /api to the backend
+cd frontend && pnpm install && pnpm dev
 
 # App:      http://localhost:3000
 # API:      http://localhost:3000/api
@@ -47,7 +50,7 @@ wait), secret scanning and push protection. The checks in `.github/workflows/` r
 ├── backend/                Go API (contract in backend/api/openapi.yaml)
 ├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
 ├── deploy/                 Caddyfile, PostgreSQL initdb scripts
-├── docker-compose.yml      Production stack
+├── docker-compose.yml      Production API stack (the frontend deploys to Vercel)
 ├── docker-compose.dev.yml  Dev overrides
 ├── Makefile                Docker Compose shortcuts
 ├── scripts/                rename and init_env
@@ -60,8 +63,8 @@ wait), secret scanning and push protection. The checks in `.github/workflows/` r
 ### Docker Compose (from root)
 
 ```bash
-make dev                            # Start dev stack (http://localhost:3000)
-make up                             # Start production stack (detached, http://localhost)
+make dev                            # Start the backend for development (API on http://localhost:8000)
+make up                             # Start the production API stack (detached; Caddy on :80/:443)
 make down                           # Stop stack
 make down-v                         # Stop stack + remove volumes
 make build                          # Build Docker images
@@ -129,4 +132,4 @@ See `AGENTS.md` for the overview, or:
 | i18n | next-intl (English, Traditional Chinese) |
 | Linting | golangci-lint (backend), Biome (frontend) |
 | Testing | Go integration tests with testcontainers (backend), Vitest + RTL (frontend) |
-| Infra | Docker Compose, Caddy (automatic HTTPS) |
+| Infra | Docker Compose, Caddy (automatic HTTPS) for the API; Vercel for the frontend |

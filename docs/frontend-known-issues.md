@@ -19,7 +19,7 @@
 **Decision:** The session is an opaque token in an HttpOnly cookie set by the backend
 (`__Host-session`, or `session` when `COOKIE_SECURE=false`); JS never reads it.
 **Why:** HttpOnly cookies cannot be read by XSS. localStorage or JS-readable cookies can be stolen.
-**Trade-off:** The frontend and the API must share one origin (Caddy routes `/api`), so the cookie
+**Trade-off:** The frontend and the API must share one origin (Vercel routes `/api` to the API's Caddy), so the cookie
 needs no Domain and the client sends it without `credentials: "include"`.
 
 ### CSRF: Fetch Metadata in the Backend (implemented)
@@ -39,7 +39,7 @@ client needs its origin allowed in the backend, not a frontend change.
 ### Testing Strategy
 **Decision:** Vitest + React Testing Library for unit/integration tests.
 **Why:** Vitest is faster than Jest, native ESM support, good Next.js compatibility.
-**Trade-off:** No E2E tests; the CI compose job only checks with curl that Caddy serves the API and the pages on one origin.
+**Trade-off:** No E2E tests; the CI compose job only checks with curl Caddy's origin-secret gate and the headers it hands the backend. The Vercel routing itself is checked by hand after a deploy (`docs/deploy-vps.md` §6).
 Trigger for adding Playwright: the first user flow beyond sign-up, sign-in and sign-out, or a regression
 that unit tests and the compose job both missed.
 

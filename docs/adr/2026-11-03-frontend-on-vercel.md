@@ -33,7 +33,7 @@ tags: [template-go-nextjs, decision, deploy, vercel, caddy, security]
 ## Decision
 
 - **D1**：保留 Caddy，只服務 API 網域的 `/api/*`，其餘路徑回 404。`lb_try_duration`、覆寫 `X-Request-ID`、HSTS 照舊。頁面的 HSTS 由 Vercel 負責。
-- **D2**：Caddy 檢查 `X-Origin-Secret` 是否等於 `/run/secrets/origin_secret`（`.secrets/origin_secret`，由 `make init-env` 產生），並要求它至少 43 個 URL-safe 字元。不符就回 403。相符時以 `X-Real-IP` 覆寫 `X-Forwarded-For`、把 `Host` 換成 `X-Forwarded-Host`，再拿掉密鑰 header。後端維持只信任 Caddy、照舊走 `X-Forwarded-For`。
+- **D2**：Caddy 檢查 `X-Origin-Secret` 是否等於 `/run/secrets/origin_secret`（`.secrets/origin_secret`，由 `make init-env` 產生），並要求它至少 43 個 URL-safe 字元。不符就回 403。相符時以 `X-Real-IP` 覆寫 `X-Forwarded-For`、把 `Host` 換成 `X-Forwarded-Host`，再拿掉密鑰 header。Caddy 的 access log 會記錄請求 header，所以要用 filter 刪掉 `X-Origin-Secret`（2026-11-03 實測：不加 filter 時密鑰會出現在日誌）。後端維持只信任 Caddy、照舊走 `X-Forwarded-For`。
 - **D3**：SSR 與瀏覽器一樣呼叫 `NEXT_PUBLIC_APP_URL` 的 `/api`。Next 的程式碼不持有密鑰。
 - **Vercel 端**：`frontend/vercel.json` 的 `routes` 把 `/api/(.*)` 轉到 `${API_ORIGIN}/api/$1`，並用 request header transform 設定 `X-Origin-Secret: $ORIGIN_SECRET`。`ORIGIN_SECRET` 只放在 Vercel 的 Production 環境，所以 preview 部署連不到 API。
 - **dev**：不跑 Caddy。backend 只綁 `127.0.0.1:8000`，在 host 上跑 `pnpm dev`，由 `next.config.ts` 的 dev rewrite 轉送 `/api`。

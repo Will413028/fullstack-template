@@ -137,6 +137,8 @@ jobs:
           test "$(code -H 'X-Origin-Secret;' http://localhost/api/users/me)" = 403
           test "$(code -H "X-Origin-Secret: $secret" http://localhost/en/login)" = 404
           test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' http://localhost/api/users/me)" = 401
+          # caddy's access log records request headers: the secret must not be written there
+          ! docker compose logs caddy | grep -F "$secret"
       - name: Caddy hands the backend Vercel's client address, request id and site host
         run: |
           secret="$(cat .secrets/origin_secret)"

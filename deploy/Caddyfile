@@ -3,7 +3,12 @@
 # with the visitor's address (docs/adr/2026-11-03-frontend-on-vercel.md).
 # SITE_ADDRESS is the API's domain name for automatic HTTPS, or :80 for plain http on a local machine.
 {$SITE_ADDRESS::80} {
-	log
+	# The access log records request headers; the origin secret must not be among them.
+	log {
+		format filter {
+			request>headers>X-Origin-Secret delete
+		}
+	}
 
 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
