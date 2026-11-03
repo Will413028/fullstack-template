@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -52,6 +53,14 @@ func TestAuthenticateDatabaseErrorInEachFormat(t *testing.T) {
 	_, err := testingv1connect.NewTestingAppServiceClient(connectClient(a.h, token), baseURL).
 		GetAppThing(t.Context(), connect.NewRequest(&testingv1.GetAppThingRequest{Id: "1"}))
 	assertConnectError(t, err, connect.CodeInternal, "")
+	_, err = a.me(token)
+	assertConnectError(t, err, connect.CodeInternal, "")
 
-	assertProblem(t, a.me(token), http.StatusInternalServerError, "/problems/internal")
+	// authenticate runs before the split, so a REST path (no operation left; step 5 deletes the REST layer) gets the
+	// problem
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.test/api/rest-path", http.NoBody)
+	req.Header.Set("Cookie", cookieName+"="+token)
+	a.h.ServeHTTP(rec, req)
+	assertProblem(t, rec, http.StatusInternalServerError, "/problems/internal")
 }

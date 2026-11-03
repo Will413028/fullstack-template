@@ -11,13 +11,14 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"reflect"
 	"strings"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1/sessionsv1connect"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
@@ -67,9 +68,10 @@ type Deps struct {
 	TrustedProxies []netip.Prefix
 	// Now is the clock for rate limiting and request durations; the composition root passes time.Now.
 	Now func() time.Time
-	// RateLimitPerMin is the per-IP limit on the operations limitOperations names (AUTH_RATE_LIMIT_PER_MIN).
+	// RateLimitPerMin is the per-IP limit on the procedures connectLimited names (AUTH_RATE_LIMIT_PER_MIN).
 	RateLimitPerMin int
-	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
+	// Auth serves the user and session services. Nil only in tests that call none of their methods and send no session
+	// cookie.
 	Auth   *auth.Service
 	Cookie Cookie
 	// Items serves ItemAppService. Nil only in tests that call none of its methods.
@@ -81,25 +83,28 @@ type Deps struct {
 	testLimited []string
 }
 
-// apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
-type apiServer struct {
-	auth   *auth.Service
-	cookie Cookie
-}
+// apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface), which has none left: every
+// module is served by Connect. docs/plans/2026-11-03-connect-contract.md step 5 deletes the REST layer.
+type apiServer struct{}
 
-// connectServices are the Connect services NewHandler mounts. While docs/plans/2026-11-03-connect-contract.md moves the
-// API from REST to Connect, the REST operations serve the modules not listed here; each module's services join this
-// list in the step that deletes its REST operations.
+// connectServices are the Connect services NewHandler mounts.
 func connectServices(deps Deps) []rpc.Service {
-	return append([]rpc.Service{itemsService(deps.Items)}, deps.testServices...)
+	services := []rpc.Service{itemsService(deps.Items)}
+	services = append(services, userServices(deps.Auth, deps.Cookie)...)
+	services = append(services, sessionServices(deps.Auth, deps.Cookie)...)
+	return append(services, deps.testServices...)
 }
 
-// connectLimited are the procedures the per-client rate limit applies to at the Connect entry (connectEntry). Sign-up
-// and sign-in join it when they move to Connect; until then the REST operations are limited (limitOperations).
-var connectLimited []string
+// connectLimited are the procedures the per-client rate limit applies to at the Connect entry (connectEntry): sign-up
+// and sign-in (docs/adr/2026-10-18-api-and-auth-baseline.md D6); sign-in is also throttled per account in the auth
+// module.
+var connectLimited = []string{
+	usersv1connect.UserPublicServiceCreateUserProcedure,
+	sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
+}
 
-// NewHandler builds the public handler: the API under /api (REST from the embedded contract, Connect from
-// connectServices), and the health checks.
+// NewHandler builds the public handler: the API under /api (Connect from connectServices; the REST contract has no
+// operation left), and the health checks.
 func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 	if deps.RateLimitPerMin < 1 {
 		return nil, errors.New("RateLimitPerMin must be positive")
@@ -112,23 +117,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
 	}
 	routes := http.NewServeMux()
-	// Sign-up and sign-in are limited per client address (docs/adr/2026-10-18-api-and-auth-baseline.md D6); sign-in is
-	// also throttled per account in the auth module.
-	limited, err := operations("CreateUser", "CreateSession")
-	if err != nil {
-		return nil, err
-	}
-	adminOnly, err := adminOperations(spec, operationAccess)
-	if err != nil {
-		return nil, err
-	}
-	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
-	middlewares := []gen.StrictMiddlewareFunc{
-		limitOperations(limiter, limited...),
-		requireRole(deps.Logger, auth.RoleAdmin, adminOnly...),
-	}
-	server := &apiServer{auth: deps.Auth, cookie: deps.Cookie}
-	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{
+	strict := gen.NewStrictHandlerWithOptions(apiServer{}, nil, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeBodyDecodeError(w, r, deps.Logger, err)
 		},
@@ -154,6 +143,7 @@ func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
 		}
 		connectLimit[p] = true
 	}
+	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
 	connect := connectEntry(deps.Logger, connectMux, limiter, connectLimit)
 	return assemble(deps, spec, routes, connect), nil
 }
@@ -197,19 +187,6 @@ func connectEntry(logger *slog.Logger, m *rpc.Mux, limiter *ipLimiter, limited m
 		}
 		handler.ServeHTTP(w, r)
 	})
-}
-
-// operations checks that each name is an operation as strict middleware sees it: the generated method name
-// (CreateUser for operationId createUser), not the contract's operationId. A misspelled name would otherwise make
-// its middleware silently apply to nothing.
-func operations(names ...string) ([]string, error) {
-	iface := reflect.TypeFor[gen.StrictServerInterface]()
-	for _, n := range names {
-		if _, ok := iface.MethodByName(n); !ok {
-			return nil, fmt.Errorf("no operation %q in gen.StrictServerInterface", n)
-		}
-	}
-	return names, nil
 }
 
 // assemble mounts the API behind authentication, then splits it: Connect paths (isConnect) go to connect, every

@@ -129,7 +129,7 @@ func TestCreateItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	it := resp.Msg.GetItem()
-	if it.GetTitle() != "Buy milk" || it.GetDescription() != "two litres" || it.GetOwnerId() != u.Id.String() {
+	if it.GetTitle() != "Buy milk" || it.GetDescription() != "two litres" || it.GetOwnerId() != u.GetId() {
 		t.Errorf("item = %v, want title, description and owner %s", it, u.Id)
 	}
 	if _, err := uuid.Parse(it.GetId()); err != nil || !it.GetCreateTime().AsTime().Equal(it.GetUpdateTime().AsTime()) {
@@ -151,7 +151,7 @@ func TestCreateItem(t *testing.T) {
 	resp, err = a.items(token).CreateItem(t.Context(), connect.NewRequest(&itemsv1.CreateItemRequest{
 		Item: &itemsv1.Item{Id: other, Title: "mine", OwnerId: other},
 	}))
-	if err != nil || resp.Msg.GetItem().GetId() == other || resp.Msg.GetItem().GetOwnerId() != u.Id.String() {
+	if err != nil || resp.Msg.GetItem().GetId() == other || resp.Msg.GetItem().GetOwnerId() != u.GetId() {
 		t.Errorf("create with id and owner_id = %v, %v, want both set by the server", resp, err)
 	}
 }

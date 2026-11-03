@@ -1,79 +1,82 @@
 package httpapi
 
 import (
-	"context"
 	"net/http"
 	"net/netip"
 	"testing"
 	"time"
+
+	"connectrpc.com/connect"
+
+	testingv1 "github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen/app/testing/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen/app/testing/v1/testingv1connect"
 )
 
-// newLimitedAPI is the full chain with POST /api/widgets (createWidget) limited to perMin per client address and
-// GET /api/widgets (listWidgets) not limited. The stub operations run the strict middleware the way the generated
-// strict handler does: an error goes to writeError.
+// newLimitedAPI is NewHandler with the class test services behind the trusted proxies: UpdatePublicThing is limited
+// to perMin per client address at the Connect entry, GetPublicThing is not. The clock does not move.
 func newLimitedAPI(t *testing.T, perMin int) http.Handler {
 	t.Helper()
-	mw := limitOperations(newIPLimiter(perMin, time.Now), "createWidget")
-	stub := func(context.Context, http.ResponseWriter, *http.Request, any) (any, error) { return nil, nil }
-	operation := func(id string, code int) http.HandlerFunc {
-		f := mw(stub, id)
-		return func(w http.ResponseWriter, r *http.Request) {
-			if _, err := f(r.Context(), w, r, nil); err != nil {
-				writeError(w, r, discard, err)
-				return
-			}
-			w.WriteHeader(code)
-		}
-	}
-	routes := http.NewServeMux()
-	routes.Handle("POST /api/widgets", operation("createWidget", http.StatusCreated))
-	routes.Handle("GET /api/widgets", operation("listWidgets", http.StatusOK))
-	return assemble(Deps{Ready: ok, Logger: discard, Now: time.Now, TrustedProxies: proxies}, loadTestSpec(t), routes, http.NotFoundHandler())
+	clock := &testClock{t: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}
+	return newConnectAPI(t, Deps{RateLimitPerMin: perMin, Now: clock.Now, TrustedProxies: proxies,
+		testLimited: []string{testingv1connect.TestingPublicServiceUpdatePublicThingProcedure}})
 }
 
-func postFrom(t *testing.T, h http.Handler, remote, xff string) int {
-	t.Helper()
-	headers := map[string]string{}
+// publicThingsFrom is the test Public service's client as the peer remote sees it, with X-Forwarded-For when xff is
+// not empty.
+func publicThingsFrom(h http.Handler, remote, xff string) testingv1connect.TestingPublicServiceClient {
+	opts := []requestOpt{fromPeer(remote)}
 	if xff != "" {
-		headers["X-Forwarded-For"] = xff
+		opts = append(opts, withHeader("X-Forwarded-For", xff))
 	}
-	return doFrom(t, h, http.MethodPost, "/api/widgets", remote, headers).Code
+	return testingv1connect.NewTestingPublicServiceClient(&http.Client{Transport: handlerTransport{h: h, opts: opts}}, baseURL)
+}
+
+// updateFrom calls the limited UpdatePublicThing.
+func updateFrom(t *testing.T, h http.Handler, remote, xff string) error {
+	t.Helper()
+	_, err := publicThingsFrom(h, remote, xff).UpdatePublicThing(t.Context(), connect.NewRequest(&testingv1.UpdatePublicThingRequest{
+		Thing: thingFor("1"),
+	}))
+	return err
 }
 
 func TestRateLimitPerIPBehindTrustedProxy(t *testing.T) {
 	h := newLimitedAPI(t, 2)
 	for i := range 2 {
-		if code := postFrom(t, h, proxyAddr, "198.51.100.1"); code != http.StatusCreated {
-			t.Fatalf("request %d from client 1 = %d, want 201", i+1, code)
+		if err := updateFrom(t, h, proxyAddr, "198.51.100.1"); err != nil {
+			t.Fatalf("request %d from client 1: %v", i+1, err)
 		}
 	}
-	rec := doFrom(t, h, http.MethodPost, "/api/widgets", proxyAddr, map[string]string{"X-Forwarded-For": "198.51.100.1"})
-	assertProblem(t, rec, http.StatusTooManyRequests, "/problems/rate-limited")
-	if ra := rec.Header().Get("Retry-After"); ra != "30" {
-		t.Errorf("Retry-After = %q, want 30 (one token every 30s at 2/min)", ra)
-	}
+	err := updateFrom(t, h, proxyAddr, "198.51.100.1")
+	assertConnectError(t, err, connect.CodeResourceExhausted, "")
+	assertRetryInfo(t, err, 30*time.Second) // one token every 30s at 2/min
 	// A second client behind the same proxy has its own bucket.
-	if code := postFrom(t, h, proxyAddr, "198.51.100.2"); code != http.StatusCreated {
-		t.Fatalf("client 2 = %d, want 201", code)
+	if err := updateFrom(t, h, proxyAddr, "198.51.100.2"); err != nil {
+		t.Fatalf("client 2: %v", err)
 	}
 }
 
 func TestRateLimitIgnoresXFFFromUntrustedPeer(t *testing.T) {
 	h := newLimitedAPI(t, 2)
-	postFrom(t, h, untrustedAddr, "198.51.100.1")
-	postFrom(t, h, untrustedAddr, "198.51.100.2")
-	// A forged X-Forwarded-For must not buy a fresh bucket.
-	if code := postFrom(t, h, untrustedAddr, "198.51.100.3"); code != http.StatusTooManyRequests {
-		t.Fatalf("third request with a new XFF from the same peer = %d, want 429", code)
+	for _, xff := range []string{"198.51.100.1", "198.51.100.2"} {
+		if err := updateFrom(t, h, untrustedAddr, xff); err != nil {
+			t.Fatal(err)
+		}
 	}
+	// A forged X-Forwarded-For must not buy a fresh bucket.
+	assertConnectError(t, updateFrom(t, h, untrustedAddr, "198.51.100.3"), connect.CodeResourceExhausted, "")
 }
 
 func TestRateLimitOnlyNamedOperations(t *testing.T) {
 	h := newLimitedAPI(t, 1)
-	postFrom(t, h, untrustedAddr, "")
+	if err := updateFrom(t, h, untrustedAddr, ""); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectError(t, updateFrom(t, h, untrustedAddr, ""), connect.CodeResourceExhausted, "")
 	for range 3 {
-		if code := doFrom(t, h, http.MethodGet, "/api/widgets", untrustedAddr, nil).Code; code != http.StatusOK {
-			t.Fatalf("unlimited operation = %d, want 200", code)
+		if _, err := publicThingsFrom(h, untrustedAddr, "").GetPublicThing(t.Context(),
+			connect.NewRequest(&testingv1.GetPublicThingRequest{Id: "1"})); err != nil {
+			t.Fatalf("unlimited procedure: %v", err)
 		}
 	}
 }

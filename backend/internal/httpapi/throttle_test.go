@@ -3,35 +3,32 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/google/uuid"
+
+	adminusersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/admin/users/v1"
+	sessionsv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
 const deviceCookieName = "__Host-device"
 
 // signInFrom signs in from the client address ip, with the device cookie when device is not empty.
-func (a *authAPI) signInFrom(ip, account, password, device string) *httptest.ResponseRecorder {
+func (a *authAPI) signInFrom(ip, account, password, device string) (*connect.Response[sessionsv1.CreateSessionResponse], error) {
 	a.t.Helper()
-	req := httptest.NewRequestWithContext(a.t.Context(), http.MethodPost, "http://app.test/api/sessions",
-		strings.NewReader(credentials(account, password)))
-	req.RemoteAddr = ip + ":40000"
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	opts := []requestOpt{fromPeer(ip + ":40000")}
 	if device != "" {
-		req.Header.Set("Cookie", deviceCookieName+"="+device)
+		opts = append(opts, withCookie(deviceCookieName, device))
 	}
-	rec := httptest.NewRecorder()
-	a.h.ServeHTTP(rec, req)
-	return rec
+	return a.signIn(account, password, "", opts...)
 }
 
-// deviceCookie returns the device cookie rec sets, nil without one.
-func deviceCookie(rec *httptest.ResponseRecorder) *http.Cookie {
-	for _, c := range rec.Result().Cookies() {
+// deviceCookie returns the device cookie h sets, nil without one.
+func deviceCookie(h http.Header) *http.Cookie {
+	for _, c := range responseCookies(h) {
 		if c.Name == deviceCookieName {
 			return c
 		}
@@ -43,9 +40,34 @@ func deviceCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 func (a *authAPI) lockOut(account string, n int) {
 	a.t.Helper()
 	for i := range n {
-		if rec := a.signInFrom(fmt.Sprintf("198.51.%d.%d", i/200, i%200+1), account, "not the password", ""); rec.Code != http.StatusUnauthorized {
-			a.t.Fatalf("failure %d = %d %s", i+1, rec.Code, rec.Body)
+		_, err := a.signInFrom(fmt.Sprintf("198.51.%d.%d", i/200, i%200+1), account, "not the password", "")
+		if connect.CodeOf(err) != connect.CodeUnauthenticated {
+			a.t.Fatalf("failure %d = %v, want unauthenticated", i+1, err)
 		}
+	}
+}
+
+// A browser's first sign-in to an account gets two cookies on the one response: the session, and the device cookie
+// that the account trusts from then on (two Set-Cookie headers, Header().Add). A sign-in that carries the device
+// cookie gets only the session.
+func TestFirstSignInSetsTwoCookies(t *testing.T) {
+	a := newAuthAPI(t)
+	a.mustSignUp("alice")
+	resp, err := a.signInFrom("203.0.113.1", "alice", goodPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := resp.Header().Values("Set-Cookie")
+	device := deviceCookie(resp.Header())
+	if len(set) != 2 || device == nil || a.sessionCookie(resp.Header()).MaxAge <= 0 {
+		t.Fatalf("first sign-in: Set-Cookie = %q, want the session and the device cookie", set)
+	}
+	resp, err = a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set := resp.Header().Values("Set-Cookie"); len(set) != 1 || deviceCookie(resp.Header()) != nil {
+		t.Errorf("sign-in from the trusted device: Set-Cookie = %q, want only the session", set)
 	}
 }
 
@@ -54,14 +76,14 @@ func TestSignInThrottlePerClient(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
 	for i := range 5 {
-		if rec := a.signInFrom("198.51.100.1", "alice", "not the password", ""); rec.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt %d = %d", i+1, rec.Code)
+		if _, err := a.signInFrom("198.51.100.1", "alice", "not the password", ""); connect.CodeOf(err) != connect.CodeUnauthenticated {
+			t.Fatalf("attempt %d = %v, want unauthenticated", i+1, err)
 		}
 	}
-	p := assertProblem(t, a.signInFrom("198.51.100.1", "alice", goodPassword, ""), http.StatusTooManyRequests, "/problems/rate-limited")
-	assertCode(t, p, auth.CodeLoginThrottled)
-	if rec := a.signInFrom("198.51.100.2", "alice", goodPassword, ""); rec.Code != http.StatusCreated {
-		t.Errorf("another client = %d %s, want 201", rec.Code, rec.Body)
+	_, err := a.signInFrom("198.51.100.1", "alice", goodPassword, "")
+	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
+	if _, err := a.signInFrom("198.51.100.2", "alice", goodPassword, ""); err != nil {
+		t.Errorf("another client: %v", err)
 	}
 }
 
@@ -70,27 +92,30 @@ func TestSignInThrottlePerClient(t *testing.T) {
 func TestUntrustedClientsLockedTrustedDeviceNot(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	rec := a.signInFrom("203.0.113.1", "alice", goodPassword, "")
-	device := deviceCookie(rec)
-	if rec.Code != http.StatusCreated || device == nil {
-		t.Fatalf("first sign-in = %d, device cookie %v", rec.Code, device)
+	resp, err := a.signInFrom("203.0.113.1", "alice", goodPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := deviceCookie(resp.Header())
+	if device == nil {
+		t.Fatalf("first sign-in: no device cookie in %q", resp.Header().Values("Set-Cookie"))
 	}
 	if !device.HttpOnly || !device.Secure || device.SameSite != http.SameSiteStrictMode || device.Path != "/" ||
 		device.MaxAge != int((180*24*time.Hour).Seconds()) {
 		t.Errorf("device cookie = %+v", device)
 	}
 	a.lockOut("alice", 99)
-	if rec := a.signInFrom("192.0.2.10", "alice", goodPassword, ""); rec.Code != http.StatusCreated {
-		t.Fatalf("after 99 failures = %d, want 201 (and the count starts over)", rec.Code)
+	if _, err := a.signInFrom("192.0.2.10", "alice", goodPassword, ""); err != nil {
+		t.Fatalf("after 99 failures: %v, want a session (and the count starts over)", err)
 	}
 	a.lockOut("alice", 100)
-	p := assertProblem(t, a.signInFrom("192.0.2.11", "alice", goodPassword, ""), http.StatusTooManyRequests, "/problems/rate-limited")
-	assertCode(t, p, auth.CodeLoginThrottled)
-	if rec := a.signInFrom("192.0.2.12", "alice", goodPassword, device.Value); rec.Code != http.StatusCreated {
-		t.Fatalf("trusted device = %d %s, want 201", rec.Code, rec.Body)
+	_, err = a.signInFrom("192.0.2.11", "alice", goodPassword, "")
+	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
+	if _, err := a.signInFrom("192.0.2.12", "alice", goodPassword, device.Value); err != nil {
+		t.Fatalf("trusted device: %v", err)
 	}
-	if rec := a.signInFrom("192.0.2.13", "alice", goodPassword, ""); rec.Code != http.StatusCreated {
-		t.Errorf("after the owner signed in = %d, want 201", rec.Code)
+	if _, err := a.signInFrom("192.0.2.13", "alice", goodPassword, ""); err != nil {
+		t.Errorf("after the owner signed in: %v", err)
 	}
 }
 
@@ -99,22 +124,46 @@ func TestDeviceCookieIsPerAccount(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
 	a.mustSignUp("mallory")
-	device := deviceCookie(a.signInFrom("203.0.113.1", "mallory", goodPassword, ""))
+	resp, err := a.signInFrom("203.0.113.1", "mallory", goodPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := deviceCookie(resp.Header())
 	a.lockOut("alice", 100)
-	assertProblem(t, a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value), http.StatusTooManyRequests, "/problems/rate-limited")
+	_, err = a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value)
+	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
 }
 
 // Signing out everywhere forgets the account's devices too.
 func TestSignOutEverywhereForgetsDevices(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	rec := a.signInFrom("203.0.113.1", "alice", goodPassword, "")
-	device, token := deviceCookie(rec), sessionCookie(t, rec).Value
-	if got := a.do(http.MethodDelete, "/api/sessions", token, "", ""); got.Code != http.StatusNoContent {
-		t.Fatalf("sign out everywhere = %d", got.Code)
+	resp, err := a.signInFrom("203.0.113.1", "alice", goodPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, token := deviceCookie(resp.Header()), a.sessionCookie(resp.Header()).Value
+	if _, err := a.sessions(token).DeleteAllSessions(t.Context(), connect.NewRequest(&sessionsv1.DeleteAllSessionsRequest{})); err != nil {
+		t.Fatalf("sign out everywhere: %v", err)
 	}
 	a.lockOut("alice", 100)
-	assertProblem(t, a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value), http.StatusTooManyRequests, "/problems/rate-limited")
+	_, err = a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value)
+	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
+}
+
+func (a *authAPI) signInLock(token, userID string) (*adminusersv1.SignInLock, error) {
+	a.t.Helper()
+	resp, err := a.admin(token).GetSignInLock(a.t.Context(), connect.NewRequest(&adminusersv1.GetSignInLockRequest{UserId: userID}))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg.GetSignInLock(), nil
+}
+
+func (a *authAPI) resetSignInLock(token, userID string) error {
+	a.t.Helper()
+	_, err := a.admin(token).ResetSignInLock(a.t.Context(), connect.NewRequest(&adminusersv1.ResetSignInLockRequest{UserId: userID}))
+	return err
 }
 
 // An admin sees and lifts the lock; the unlock is audited.
@@ -122,22 +171,28 @@ func TestAdminUnlocksSignIn(t *testing.T) {
 	a := newAuthAPI(t)
 	admin := a.mustAdmin()
 	alice, _ := a.mustSignUp("alice")
-	path := "/api/users/" + alice.Id.String() + "/sign-in-lock"
-	if rec := a.do(http.MethodGet, path, admin, "", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"locked":false`) {
-		t.Errorf("before = %d %s", rec.Code, rec.Body)
+	if lock, err := a.signInLock(admin, alice.GetId()); err != nil || lock.GetLocked() || lock.GetFailures() != 0 {
+		t.Errorf("before = %v, %v", lock, err)
 	}
 	a.lockOut("alice", 100)
-	if rec := a.do(http.MethodGet, path, admin, "", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"locked":true`) {
-		t.Errorf("locked = %d %s", rec.Code, rec.Body)
+	if lock, err := a.signInLock(admin, alice.GetId()); err != nil || !lock.GetLocked() || lock.GetFailures() != 100 {
+		t.Errorf("locked = %v, %v; want locked after 100 failures", lock, err)
 	}
-	if rec := a.do(http.MethodDelete, path, admin, "", ""); rec.Code != http.StatusNoContent {
-		t.Fatalf("unlock = %d %s", rec.Code, rec.Body)
+	if err := a.resetSignInLock(admin, alice.GetId()); err != nil {
+		t.Fatalf("unlock: %v", err)
 	}
-	if rec := a.signInFrom("192.0.2.20", "alice", goodPassword, ""); rec.Code != http.StatusCreated {
-		t.Errorf("after unlock = %d, want 201", rec.Code)
+	if _, err := a.signInFrom("192.0.2.20", "alice", goodPassword, ""); err != nil {
+		t.Errorf("after unlock: %v", err)
 	}
 	events := a.auditEvents()
-	if e := events[len(events)-1]; e.action != auth.AuditUserUnlocked || e.target != alice.Id {
+	if e := events[len(events)-1]; e.action != auth.AuditUserUnlocked || e.target != uuid.MustParse(alice.GetId()) {
 		t.Errorf("audit row = %+v, want user.unlocked for alice", e)
 	}
+	missing := uuid.Must(uuid.NewV7()).String()
+	_, err := a.signInLock(admin, missing)
+	assertConnectError(t, err, connect.CodeNotFound, "")
+	assertConnectError(t, a.resetSignInLock(admin, missing), connect.CodeNotFound, "")
+	_, err = a.signInLock(admin, "42")
+	assertFieldViolation(t, err, "user_id", "INVALID")
+	assertFieldViolation(t, a.resetSignInLock(admin, "42"), "user_id", "INVALID")
 }

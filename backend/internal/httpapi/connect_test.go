@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -15,9 +16,11 @@ import (
 
 	"connectrpc.com/connect"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	commonv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/common/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	testingv1 "github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen/app/testing/v1"
 	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen/app/testing/v1/testingv1connect"
@@ -107,10 +110,12 @@ func classServices() []rpc.Service {
 func withTestServices(_ *auth.Config, d *Deps) { d.testServices = classServices() }
 
 // handlerTransport serves a client's requests with h, in memory. Requests come from the same origin, as the
-// frontend's do, unless the request sets Sec-Fetch-Site itself; cookie, when set, is the session cookie.
+// frontend's do, unless the request sets Sec-Fetch-Site itself; cookie, when set, is the session cookie. opts change
+// each request last (another peer address, more cookies or headers: auth_client_test.go).
 type handlerTransport struct {
 	h      http.Handler
 	cookie string
+	opts   []requestOpt
 }
 
 func (tr handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -121,6 +126,9 @@ func (tr handlerTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	if tr.cookie != "" {
 		req.Header.Add("Cookie", cookieName+"="+tr.cookie)
+	}
+	for _, o := range tr.opts {
+		o(req)
 	}
 	rec := httptest.NewRecorder()
 	tr.h.ServeHTTP(rec, req)
@@ -207,8 +215,29 @@ type wireError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Details []struct {
-		Type string `json:"type"`
+		Type  string `json:"type"`
+		Value string `json:"value"` // the detail's binary Protobuf, unpadded base64
 	} `json:"details"`
+}
+
+// reason is the ErrorInfo reason the error carries, "" without one.
+func (e wireError) reason(t *testing.T) string {
+	t.Helper()
+	for _, d := range e.Details {
+		if d.Type != "google.rpc.ErrorInfo" {
+			continue
+		}
+		b, err := base64.RawStdEncoding.DecodeString(d.Value)
+		if err != nil {
+			t.Fatalf("ErrorInfo value %q: %v", d.Value, err)
+		}
+		var info errdetails.ErrorInfo
+		if err := proto.Unmarshal(b, &info); err != nil {
+			t.Fatalf("ErrorInfo: %v", err)
+		}
+		return info.GetReason()
+	}
+	return ""
 }
 
 func decodeWireError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) wireError {
@@ -324,6 +353,20 @@ func TestConnectUnknownProcedureNotFound(t *testing.T) {
 	}
 }
 
+// A body over maxBodyBytes is resource_exhausted without RetryInfo: connect-go turns the MaxBytesReader error into it,
+// and the missing RetryInfo is what tells it from the rate limit (B16).
+func TestConnectBodyTooLarge(t *testing.T) {
+	h := newConnectAPI(t, Deps{})
+	body := `{"thing":{"id":"1","name":"` + strings.Repeat("x", maxBodyBytes) + `"}}`
+	e := decodeWireError(t, connectPost(t, h, testingv1connect.TestingPublicServiceUpdatePublicThingProcedure, body, nil),
+		http.StatusTooManyRequests, "resource_exhausted")
+	for _, d := range e.Details {
+		if d.Type == "google.rpc.RetryInfo" {
+			t.Errorf("a body over the limit carries RetryInfo, which only the rate limit sends")
+		}
+	}
+}
+
 // The entry rate limit runs before decoding: a malformed request takes a token, and over the limit it is
 // resource_exhausted with RetryInfo instead of invalid_argument.
 func TestConnectRateLimitBeforeDecoding(t *testing.T) {
@@ -411,14 +454,24 @@ func TestNewHandlerRejectsSideEffectsOnGet(t *testing.T) {
 }
 
 // resourceProblems checks what replaces the REST rule "every 201 has a Location you can GET" (B23, AIP-121/133/134):
-// every Create<X> and Update<X> has a Get<X> in its service and returns the resource Get<X> returns (the response's
-// message field of the resource's type).
+// every Create<X> and Update<X> returns the resource a Get<X> returns (the response's message field of the resource's
+// type), and that Get<X> is a method of a mounted service in the same proto package. Not necessarily the same
+// service: sign-up and sign-in are Public (UserPublicService.CreateUser, SessionPublicService.CreateSession) and their
+// resources are read through App services (UserAppService.GetUser, SessionAppService.GetSession) with the session the
+// response sets, as the old followLocation read a 201's Location (TestCreateUserSetsSessionCookie,
+// TestCreateSessionReturnsSession). A Get<X> in another package does not count: admin.users.v1's GetUser is not
+// users.v1's.
 func resourceProblems(services []rpc.Service) []string {
+	byPackage := map[protoreflect.FullName][]protoreflect.ServiceDescriptor{}
+	for _, s := range services {
+		pkg := s.Desc.ParentFile().Package()
+		byPackage[pkg] = append(byPackage[pkg], s.Desc)
+	}
 	var problems []string
 	for _, s := range services {
 		methods := s.Desc.Methods()
 		for i := range methods.Len() {
-			if p := resourceProblem(methods, methods.Get(i)); p != "" {
+			if p := resourceProblem(byPackage[s.Desc.ParentFile().Package()], methods.Get(i)); p != "" {
 				problems = append(problems, p)
 			}
 		}
@@ -427,8 +480,9 @@ func resourceProblems(services []rpc.Service) []string {
 	return problems
 }
 
-// resourceProblem is what is wrong with a Create or Update method, "" when nothing is (or md is neither).
-func resourceProblem(methods protoreflect.MethodDescriptors, md protoreflect.MethodDescriptor) string {
+// resourceProblem is what is wrong with a Create or Update method, "" when nothing is (or md is neither). siblings are
+// the mounted services of md's package, md's own included.
+func resourceProblem(siblings []protoreflect.ServiceDescriptor, md protoreflect.MethodDescriptor) string {
 	name := string(md.Name())
 	resource, ok := strings.CutPrefix(name, "Create")
 	if !ok {
@@ -437,14 +491,21 @@ func resourceProblem(methods protoreflect.MethodDescriptors, md protoreflect.Met
 	if !ok {
 		return ""
 	}
-	get := methods.ByName(protoreflect.Name("Get" + resource))
-	if get == nil {
-		return rpc.Procedure(md) + " has no Get" + resource
+	hasGet := false
+	for _, svc := range siblings {
+		get := svc.Methods().ByName(protoreflect.Name("Get" + resource))
+		if get == nil {
+			continue
+		}
+		hasGet = true
+		if want := resourceType(get.Output()); want != "" && resourceType(md.Output()) == want {
+			return ""
+		}
 	}
-	if want := resourceType(get.Output()); want == "" || resourceType(md.Output()) != want {
-		return rpc.Procedure(md) + " does not return the resource Get" + resource + " returns"
+	if !hasGet {
+		return rpc.Procedure(md) + " has no Get" + resource + " in " + string(md.ParentFile().Package())
 	}
-	return ""
+	return rpc.Procedure(md) + " does not return the resource Get" + resource + " returns"
 }
 
 // resourceType is the full name of the one message-typed field of a response, "" when there is not exactly one.
@@ -474,14 +535,29 @@ func TestConnectServicesReturnTheirResources(t *testing.T) {
 	}
 }
 
-// the check itself: an Update without a Get, returning no resource, is reported
+// the check itself: an Update without a Get, returning no resource, is reported; so is a Create whose Get is only in
+// another package, or not mounted
 func TestResourceProblemsReportsViolations(t *testing.T) {
 	var impl testThings
 	got := resourceProblems([]rpc.Service{testService("TestingOrphanAppService", testingv1connect.TestingOrphanAppServiceHandler(impl),
 		testingv1connect.NewTestingOrphanAppServiceHandler)})
-	want := []string{testingv1connect.TestingOrphanAppServiceUpdateOrphanThingProcedure + " has no GetOrphanThing"}
+	want := []string{testingv1connect.TestingOrphanAppServiceUpdateOrphanThingProcedure + " has no GetOrphanThing in app.testing.v1"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	mounted := map[protoreflect.Name]rpc.Service{}
+	for _, s := range connectServices(Deps{}) {
+		mounted[s.Desc.Name()] = s
+	}
+	// UserAdminService.GetUser (app.admin.users.v1) does not read back what UserPublicService.CreateUser creates
+	got = resourceProblems([]rpc.Service{mounted["UserPublicService"], mounted["UserAdminService"]})
+	want = []string{usersv1connect.UserPublicServiceCreateUserProcedure + " has no GetUser in app.users.v1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("without UserAppService: got %v, want %v", got, want)
+	}
+	if got := resourceProblems([]rpc.Service{mounted["UserPublicService"], mounted["UserAppService"]}); len(got) > 0 {
+		t.Errorf("with UserAppService: %v", got)
 	}
 }
 
@@ -489,13 +565,14 @@ func TestResourceProblemsReportsViolations(t *testing.T) {
 // frontend translates value by value (replaces TestProblemValuesInContract for Connect).
 func TestErrorCodesDeclaredInProto(t *testing.T) {
 	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled, auth.CodeLastAdmin,
-		auth.CodeReauthenticationRequired, auth.ErrSessionInvalid.Code, errInsufficientRole.Code, codeCrossOrigin}
+		auth.CodeReauthenticationRequired, auth.ErrSessionInvalid.Code, rpc.ErrInsufficientRole.Code, codeCrossOrigin}
 	for _, c := range codes {
 		if _, ok := commonv1.ErrorReason_value[strings.ToUpper(c)]; !ok {
 			t.Errorf("code %s is not an app.common.v1.ErrorReason value", c)
 		}
 	}
-	for _, c := range []string{auth.CodePasswordTooCommon, "invalid", "out_of_range"} {
+	// field codes: the auth and items limits, ids and paging
+	for _, c := range []string{auth.CodePasswordTooCommon, "required", "too_short", "too_long", "pattern", "invalid", "out_of_range"} {
 		if _, ok := commonv1.FieldViolationReason_value[strings.ToUpper(c)]; !ok {
 			t.Errorf("field code %s is not an app.common.v1.FieldViolationReason value", c)
 		}

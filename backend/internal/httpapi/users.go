@@ -2,263 +2,261 @@ package httpapi
 
 import (
 	"context"
+	"math"
 	"net/http"
 
-	"github.com/google/uuid"
-	"github.com/oapi-codegen/nullable"
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	adminusersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/admin/users/v1"
+	adminusersv1connect "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/admin/users/v1/usersv1connect"
+	usersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
-// The auth operations: accounts (/users) and sessions (/sessions).
+// The account services: app.users.v1 (sign-up, the signed-in user) and app.admin.users.v1 (account management). The
+// auth service checks the limits, the throttles and who may see whom; these handlers map the messages, the field paths
+// and the cookies. A handler of an App or Admin service always has a signed-in user: connectEntry refuses anonymous
+// calls before decoding, and the admin interceptor refuses non-admins.
 
-// defaultPageSize is the Limit parameter's default in api/openapi.yaml; the validator does not fill defaults in.
-// TestDefaultPageSizeMatchesContract keeps the two equal.
-const defaultPageSize = 20
+// Page sizes of ListUsers and ListSessions, as the protos document them.
+const (
+	defaultAuthPage = 20
+	maxAuthPage     = 100
+)
 
-// nextCursor is a page's next_cursor: null on the last page, where the service returns no cursor.
-func nextCursor(cursor string) nullable.Nullable[string] {
-	if cursor == "" {
-		return nullable.NewNullNullable[string]()
-	}
-	return nullable.NewNullableWithValue(cursor)
-}
+// userWritable are the User fields UserAdminService.UpdateUser may set.
+var userWritable = []string{"disabled"}
 
-// pageSize is the Limit parameter, or its default when the client sent none.
-func pageSize(limit *int) int {
-	if limit == nil {
-		return defaultPageSize
-	}
-	return *limit
-}
+// roles maps the auth module's roles to the proto's. users.role's CHECK allows only these (TestRolesMapped).
+var roles = map[string]usersv1.Role{auth.RoleAdmin: usersv1.Role_ROLE_ADMIN, auth.RoleUser: usersv1.Role_ROLE_USER}
 
-func toUser(u auth.User) gen.User {
-	return gen.User{Id: u.ID, Account: u.Account, Role: gen.UserRole(u.Role), IsDisabled: u.IsDisabled, CreatedAt: u.CreatedAt.UTC()}
-}
+// errUserNotFound is UserAppService.GetUser's answer for any id but the caller's: the same as a user that does not
+// exist.
+var errUserNotFound = apperr.New(apperr.NotFound, "", "user not found")
 
-// toSession shows a session of u. current is the id of the session the request carries.
-func toSession(sess auth.SessionInfo, u auth.User, current uuid.UUID) gen.Session {
-	return gen.Session{
-		Id: sess.ID, User: toUser(u), CreatedAt: sess.CreatedAt.UTC(), LastUsedAt: sess.LastUsedAt.UTC(),
-		ExpiresAt: sess.ExpiresAt.UTC(), Current: sess.ID == current,
+func toUser(u auth.User) *usersv1.User {
+	return &usersv1.User{
+		Id: u.ID.String(), Account: u.Account, Role: roles[u.Role], Disabled: proto.Bool(u.IsDisabled),
+		CreateTime: timestamppb.New(u.CreatedAt),
 	}
 }
 
-func (s *apiServer) CreateUser(ctx context.Context, req gen.CreateUserRequestObject) (gen.CreateUserResponseObject, error) {
-	u, sess, err := s.auth.CreateUser(ctx, req.Body.Account, req.Body.Password)
-	if err != nil {
-		return nil, err
-	}
-	location, cookie := "/api/users/"+u.ID.String(), s.cookie.set(sess)
-	return gen.CreateUser201JSONResponse{
-		Body:    toUser(u),
-		Headers: gen.CreateUser201ResponseHeaders{Location: &location, SetCookie: &cookie},
-	}, nil
-}
-
-func (s *apiServer) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
+// signedIn returns the signed-in user, for App and Admin handlers.
+func signedIn(ctx context.Context) (auth.User, error) {
 	u, ok := currentUser(ctx)
 	if !ok {
-		return nil, auth.ErrSessionInvalid
+		return auth.User{}, auth.ErrSessionInvalid
 	}
-	return gen.GetCurrentUser200JSONResponse(toUser(u)), nil
+	return u, nil
 }
 
-// ListUsers is admin-only (requireRole).
-func (s *apiServer) ListUsers(ctx context.Context, req gen.ListUsersRequestObject) (gen.ListUsersResponseObject, error) {
-	page, err := s.auth.ListUsers(ctx, pageSize(req.Params.Limit), req.Params.Cursor)
+// pageRequest reads AIP-158 paging for the auth service's lists: the page size, and the cursor the service takes
+// (nil for the first page). A bad page_token is reported on page_token.
+func pageRequest(size int32, token string) (int, *string, error) {
+	n, err := rpc.PageSize(size, defaultAuthPage, maxAuthPage)
+	if err != nil {
+		return 0, nil, err
+	}
+	if _, err := rpc.PageAfter(token); err != nil {
+		return 0, nil, err
+	}
+	if token == "" {
+		return n, nil, nil
+	}
+	return n, &token, nil
+}
+
+func userServices(svc *auth.Service, cookie Cookie) []rpc.Service {
+	return []rpc.Service{
+		{
+			Desc: usersv1.File_app_users_v1_users_proto.Services().ByName("UserPublicService"),
+			New: func(opts ...connect.HandlerOption) (string, http.Handler) {
+				return usersv1connect.NewUserPublicServiceHandler(userPublicHandler{auth: svc, cookie: cookie}, opts...)
+			},
+		},
+		{
+			Desc: usersv1.File_app_users_v1_users_proto.Services().ByName("UserAppService"),
+			New: func(opts ...connect.HandlerOption) (string, http.Handler) {
+				return usersv1connect.NewUserAppServiceHandler(userAppHandler{auth: svc, cookie: cookie}, opts...)
+			},
+		},
+		{
+			Desc: adminusersv1.File_app_admin_users_v1_users_proto.Services().ByName("UserAdminService"),
+			New: func(opts ...connect.HandlerOption) (string, http.Handler) {
+				return adminusersv1connect.NewUserAdminServiceHandler(userAdminHandler{auth: svc}, opts...)
+			},
+		},
+	}
+}
+
+// userPublicHandler serves app.users.v1.UserPublicService.
+type userPublicHandler struct {
+	auth   *auth.Service
+	cookie Cookie
+}
+
+// CreateUser signs the new account in: the response sets the session cookie. The entry limits it per client address
+// (connectLimited).
+func (h userPublicHandler) CreateUser(ctx context.Context, req *connect.Request[usersv1.CreateUserRequest]) (*connect.Response[usersv1.CreateUserResponse], error) {
+	u, sess, err := h.auth.CreateUser(ctx, req.Msg.GetAccount(), req.Msg.GetPassword())
 	if err != nil {
 		return nil, err
 	}
-	resp := gen.ListUsers200JSONResponse{Users: make([]gen.User, 0, len(page.Users)), NextCursor: nextCursor(page.NextCursor)}
+	resp := connect.NewResponse(&usersv1.CreateUserResponse{User: toUser(u)})
+	resp.Header().Add("Set-Cookie", h.cookie.set(sess))
+	return resp, nil
+}
+
+// userAppHandler serves app.users.v1.UserAppService.
+type userAppHandler struct {
+	auth   *auth.Service
+	cookie Cookie
+}
+
+func (h userAppHandler) GetCurrentUser(ctx context.Context, _ *connect.Request[usersv1.GetCurrentUserRequest]) (*connect.Response[usersv1.GetCurrentUserResponse], error) {
+	u, err := signedIn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&usersv1.GetCurrentUserResponse{User: toUser(u)}), nil
+}
+
+// DeleteCurrentUser deletes the caller's account and clears the cookie; the service requires a recent sign-in.
+func (h userAppHandler) DeleteCurrentUser(ctx context.Context, _ *connect.Request[usersv1.DeleteCurrentUserRequest]) (*connect.Response[usersv1.DeleteCurrentUserResponse], error) {
+	if err := h.auth.DeleteOwnAccount(ctx, currentSessionID(ctx)); err != nil {
+		return nil, err
+	}
+	resp := connect.NewResponse(&usersv1.DeleteCurrentUserResponse{})
+	resp.Header().Add("Set-Cookie", h.cookie.clear())
+	return resp, nil
+}
+
+// GetUser serves the caller only; admins read other users through UserAdminService.GetUser.
+func (h userAppHandler) GetUser(ctx context.Context, req *connect.Request[usersv1.GetUserRequest]) (*connect.Response[usersv1.GetUserResponse], error) {
+	id, err := rpc.ParseID("id", req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	u, err := signedIn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if id != u.ID {
+		return nil, errUserNotFound
+	}
+	return connect.NewResponse(&usersv1.GetUserResponse{User: toUser(u)}), nil
+}
+
+// userAdminHandler serves app.admin.users.v1.UserAdminService; the admin interceptor has checked the role.
+type userAdminHandler struct {
+	auth *auth.Service
+}
+
+func (h userAdminHandler) ListUsers(ctx context.Context, req *connect.Request[adminusersv1.ListUsersRequest]) (*connect.Response[adminusersv1.ListUsersResponse], error) {
+	size, cursor, err := pageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	page, err := h.auth.ListUsers(ctx, size, cursor)
+	if err != nil {
+		return nil, err
+	}
+	resp := &adminusersv1.ListUsersResponse{Users: make([]*usersv1.User, 0, len(page.Users)), NextPageToken: page.NextCursor}
 	for _, u := range page.Users {
 		resp.Users = append(resp.Users, toUser(u))
 	}
-	return resp, nil
+	return connect.NewResponse(resp), nil
 }
 
-// GetUser serves the user themselves and admins; the auth service answers 404 to anyone else.
-func (s *apiServer) GetUser(ctx context.Context, req gen.GetUserRequestObject) (gen.GetUserResponseObject, error) {
-	u, err := s.auth.User(ctx, req.Id)
+func (h userAdminHandler) GetUser(ctx context.Context, req *connect.Request[adminusersv1.GetUserRequest]) (*connect.Response[adminusersv1.GetUserResponse], error) {
+	id, err := rpc.ParseID("id", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetUser200JSONResponse(toUser(u)), nil
+	u, err := h.auth.User(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&adminusersv1.GetUserResponse{User: toUser(u)}), nil
 }
 
-// PatchUser is admin-only (requireRole). The patch has one field; an empty patch returns the user unchanged.
-func (s *apiServer) PatchUser(ctx context.Context, req gen.PatchUserRequestObject) (gen.PatchUserResponseObject, error) {
+// UpdateUser changes disabled when the mask lists it (or, without a mask, when it is set); otherwise it returns the
+// user unchanged.
+func (h userAdminHandler) UpdateUser(ctx context.Context, req *connect.Request[adminusersv1.UpdateUserRequest]) (*connect.Response[adminusersv1.UpdateUserResponse], error) {
+	in := req.Msg.GetUser()
+	if in == nil {
+		in = &usersv1.User{}
+	}
+	id, err := rpc.ParseID("id", in.GetId())
+	if err != nil {
+		return nil, rpc.Under("user", err)
+	}
+	paths, err := rpc.UpdatePaths(req.Msg.GetUpdateMask(), in, userWritable...)
+	if err != nil {
+		return nil, err
+	}
 	var u auth.User
-	var err error
-	if req.Body.IsDisabled == nil {
-		u, err = s.auth.User(ctx, req.Id)
+	if paths["disabled"] {
+		u, err = h.auth.SetDisabled(ctx, id, in.GetDisabled())
 	} else {
-		u, err = s.auth.SetDisabled(ctx, req.Id, *req.Body.IsDisabled)
+		u, err = h.auth.User(ctx, id)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return gen.PatchUser200JSONResponse(toUser(u)), nil
+	return connect.NewResponse(&adminusersv1.UpdateUserResponse{User: toUser(u)}), nil
 }
 
-func (s *apiServer) CreateSession(ctx context.Context, req gen.CreateSessionRequestObject) (gen.CreateSessionResponseObject, error) {
-	// withRequestInfo always finds an address on a TCP listener; without one (a unix socket) every client would share
-	// the "unknown" bucket, so serve listens on TCP only.
-	address := "unknown"
-	if ip := clientIPFrom(ctx); ip.IsValid() {
-		address = limitKey(ip).String()
-	}
-	client := auth.Client{Address: address, DeviceToken: deviceTokenFrom(ctx)}
-	u, sess, err := s.auth.SignIn(ctx, req.Body.Account, req.Body.Password, sessionTokenFrom(ctx), client)
+// DeleteUser deletes an account; the service requires the admin's recent sign-in.
+func (h userAdminHandler) DeleteUser(ctx context.Context, req *connect.Request[adminusersv1.DeleteUserRequest]) (*connect.Response[adminusersv1.DeleteUserResponse], error) {
+	id, err := rpc.ParseID("id", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
-	location, cookie := "/api/sessions/"+sess.ID.String(), s.cookie.set(sess)
-	resp := gen.CreateSession201JSONResponse{
-		Body:    toSession(sess.SessionInfo, u, sess.ID),
-		Headers: gen.CreateSession201ResponseHeaders{Location: &location, SetCookie: &cookie},
+	if err := h.auth.DeleteUser(ctx, currentSessionID(ctx), id); err != nil {
+		return nil, err
 	}
-	if sess.Device == nil {
-		return resp, nil
-	}
-	return withDeviceCookie{resp, s.cookie.device(sess.Device)}, nil
+	return connect.NewResponse(&adminusersv1.DeleteUserResponse{}), nil
 }
 
-// withDeviceCookie is a 201 that also sets the device cookie. The generated response sets its one Set-Cookie with
-// Header().Set, so the device cookie is added after that, just before the status is written.
-type withDeviceCookie struct {
-	gen.CreateSession201JSONResponse
-	cookie string
-}
-
-func (r withDeviceCookie) VisitCreateSessionResponse(w http.ResponseWriter) error {
-	return r.CreateSession201JSONResponse.VisitCreateSessionResponse(addCookieOnWrite{ResponseWriter: w, cookie: r.cookie})
-}
-
-type addCookieOnWrite struct {
-	http.ResponseWriter
-	cookie string
-}
-
-func (w addCookieOnWrite) WriteHeader(code int) {
-	w.Header().Add("Set-Cookie", w.cookie)
-	w.ResponseWriter.WriteHeader(code)
-}
-
-// GetSignInLock is admin-only (requireRole).
-func (s *apiServer) GetSignInLock(ctx context.Context, req gen.GetSignInLockRequestObject) (gen.GetSignInLockResponseObject, error) {
-	lock, err := s.auth.SignInLock(ctx, req.Id)
+func (h userAdminHandler) GetSignInLock(ctx context.Context, req *connect.Request[adminusersv1.GetSignInLockRequest]) (*connect.Response[adminusersv1.GetSignInLockResponse], error) {
+	id, err := rpc.ParseID("user_id", req.Msg.GetUserId())
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetSignInLock200JSONResponse{Locked: lock.Locked, Failures: lock.Failures}, nil
-}
-
-// DeleteSignInLock is admin-only (requireRole).
-func (s *apiServer) DeleteSignInLock(ctx context.Context, req gen.DeleteSignInLockRequestObject) (gen.DeleteSignInLockResponseObject, error) {
-	if err := s.auth.UnlockSignIn(ctx, req.Id); err != nil {
-		return nil, err
-	}
-	return gen.DeleteSignInLock204Response{}, nil
-}
-
-func (s *apiServer) DeleteCurrentSession(ctx context.Context, _ gen.DeleteCurrentSessionRequestObject) (gen.DeleteCurrentSessionResponseObject, error) {
-	if err := s.auth.SignOut(ctx, sessionTokenFrom(ctx)); err != nil {
-		return nil, err
-	}
-	cookie := s.cookie.clear()
-	return gen.DeleteCurrentSession204Response{Headers: gen.DeleteCurrentSession204ResponseHeaders{SetCookie: &cookie}}, nil
-}
-
-func (s *apiServer) DeleteAllSessions(ctx context.Context, _ gen.DeleteAllSessionsRequestObject) (gen.DeleteAllSessionsResponseObject, error) {
-	u, ok := currentUser(ctx)
-	if !ok {
-		return nil, auth.ErrSessionInvalid
-	}
-	if err := s.auth.SignOutAll(ctx, u.ID); err != nil {
-		return nil, err
-	}
-	cookie := s.cookie.clear()
-	return gen.DeleteAllSessions204Response{Headers: gen.DeleteAllSessions204ResponseHeaders{SetCookie: &cookie}}, nil
-}
-
-func (s *apiServer) ListSessions(ctx context.Context, req gen.ListSessionsRequestObject) (gen.ListSessionsResponseObject, error) {
-	u, ok := currentUser(ctx)
-	if !ok {
-		return nil, auth.ErrSessionInvalid
-	}
-	page, err := s.auth.Sessions(ctx, pageSize(req.Params.Limit), req.Params.Cursor)
+	lock, err := h.auth.SignInLock(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	current := currentSessionID(ctx)
-	resp := gen.ListSessions200JSONResponse{
-		Sessions: make([]gen.Session, 0, len(page.Sessions)), NextCursor: nextCursor(page.NextCursor),
-	}
-	for _, sess := range page.Sessions {
-		resp.Sessions = append(resp.Sessions, toSession(sess, u, current))
-	}
-	return resp, nil
+	return connect.NewResponse(&adminusersv1.GetSignInLockResponse{SignInLock: &adminusersv1.SignInLock{
+		Locked: lock.Locked, Failures: clampInt32(lock.Failures),
+	}}), nil
 }
 
-func (s *apiServer) GetSession(ctx context.Context, req gen.GetSessionRequestObject) (gen.GetSessionResponseObject, error) {
-	u, ok := currentUser(ctx)
-	if !ok {
-		return nil, auth.ErrSessionInvalid
-	}
-	sess, err := s.auth.Session(ctx, req.Id)
+func (h userAdminHandler) ResetSignInLock(ctx context.Context, req *connect.Request[adminusersv1.ResetSignInLockRequest]) (*connect.Response[adminusersv1.ResetSignInLockResponse], error) {
+	id, err := rpc.ParseID("user_id", req.Msg.GetUserId())
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetSession200JSONResponse(toSession(sess, u, currentSessionID(ctx))), nil
-}
-
-// GetCurrentSession is GetSession for the session the request carries, as /users/me is for the user.
-func (s *apiServer) GetCurrentSession(ctx context.Context, _ gen.GetCurrentSessionRequestObject) (gen.GetCurrentSessionResponseObject, error) {
-	u, ok := currentUser(ctx)
-	if !ok {
-		return nil, auth.ErrSessionInvalid
-	}
-	current := currentSessionID(ctx)
-	sess, err := s.auth.Session(ctx, current)
-	if e, ok := apperr.As(err); ok && e.Kind == apperr.NotFound {
-		// revoked or expired since authenticate read it: the request no longer has a session
-		return nil, auth.ErrSessionInvalid
-	}
-	if err != nil {
+	if err := h.auth.UnlockSignIn(ctx, id); err != nil {
 		return nil, err
 	}
-	return gen.GetCurrentSession200JSONResponse(toSession(sess, u, current)), nil
+	return connect.NewResponse(&adminusersv1.ResetSignInLockResponse{}), nil
 }
 
-// DeleteSession revokes one of the caller's sessions; revoking the one the request carries also clears the cookie.
-func (s *apiServer) DeleteSession(ctx context.Context, req gen.DeleteSessionRequestObject) (gen.DeleteSessionResponseObject, error) {
-	if err := s.auth.RevokeSession(ctx, req.Id); err != nil {
-		return nil, err
+// clampInt32 is n within int32's range. A sign-in lock's failure count stops growing long before it (the lock starts at
+// 100), but the column is a bigint.
+func clampInt32(n int64) int32 {
+	switch {
+	case n > math.MaxInt32:
+		return math.MaxInt32
+	case n < math.MinInt32:
+		return math.MinInt32
 	}
-	var resp gen.DeleteSession204Response
-	if req.Id == currentSessionID(ctx) {
-		cookie := s.cookie.clear()
-		resp.Headers.SetCookie = &cookie
-	}
-	return resp, nil
-}
-
-// DeleteCurrentUser deletes the caller's account; the service requires a recent sign-in.
-func (s *apiServer) DeleteCurrentUser(ctx context.Context, _ gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
-	if err := s.auth.DeleteOwnAccount(ctx, currentSessionID(ctx)); err != nil {
-		return nil, err
-	}
-	cookie := s.cookie.clear()
-	return gen.DeleteCurrentUser204Response{Headers: gen.DeleteCurrentUser204ResponseHeaders{SetCookie: &cookie}}, nil
-}
-
-// DeleteUser is admin-only (requireRole); the service also requires a recent sign-in.
-func (s *apiServer) DeleteUser(ctx context.Context, req gen.DeleteUserRequestObject) (gen.DeleteUserResponseObject, error) {
-	if err := s.auth.DeleteUser(ctx, currentSessionID(ctx), req.Id); err != nil {
-		return nil, err
-	}
-	return gen.DeleteUser204Response{}, nil
+	return int32(n)
 }

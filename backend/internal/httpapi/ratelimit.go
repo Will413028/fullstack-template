@@ -1,17 +1,11 @@
 package httpapi
 
 import (
-	"context"
-	"net/http"
 	"net/netip"
-	"slices"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
-
-	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // ipLimiter is an in-memory token bucket per client: perMin requests a minute, bursting up to perMin. An IPv6
@@ -83,23 +77,6 @@ func (l *ipLimiter) sweep(now time.Time) {
 	for addr, b := range l.buckets {
 		if now.Sub(b.lastSeen) >= l.refill {
 			delete(l.buckets, addr)
-		}
-	}
-}
-
-// limitOperations applies l to the named operations (generated method names, see operations), keyed by the client address
-// withRequestInfo resolved. Over the limit, the operation is not called and the client gets a 429 problem with
-// Retry-After (writeError). It runs after request validation, so a request the contract rejects uses no token.
-func limitOperations(l *ipLimiter, names ...string) gen.StrictMiddlewareFunc {
-	return func(f gen.StrictHandlerFunc, name string) gen.StrictHandlerFunc {
-		if !slices.Contains(names, name) {
-			return f
-		}
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			if d := l.wait(clientIPFrom(ctx)); d > 0 {
-				return nil, &apperr.Error{Kind: apperr.RateLimited, Detail: "too many requests from this address", RetryAfter: d}
-			}
-			return f(ctx, w, r, request)
 		}
 	}
 }

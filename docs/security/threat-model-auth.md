@@ -25,19 +25,18 @@
 5. backend → PostgreSQL：用 app 角色，只有 DML 權限（`deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go`）。
 6. backend → Have I Been Pwned range API：只在 `PASSWORD_HIBP_CHECK=true` 時（`backend/internal/platform/hibp/hibp.go`）。
 
-**入口**（`backend/api/openapi.yaml` 的 operation；誰能呼叫由 `httpapi/authz.go` 的 `operationAccess` 決定，啟動時與契約比對；已搬到 Connect 的模組見下一段）
+**入口**（`api/` 的 Connect service，路徑是 `/api/app.<package>.<Service>/<Method>`；掛載清單是 `httpapi/server.go` 的 `connectServices`；[ADR 對外 API 改用 Protobuf＋Connect](../adr/2026-11-03-api-contract-protobuf-connect.md)）
 
-| operationId | Route | 誰能呼叫 |
+| Service | Method | 誰能呼叫 |
 |---|---|---|
-| `createUser` | `POST /api/users` | 匿名；每個 IP 限流 |
-| `createSession` | `POST /api/sessions` | 匿名；每個 IP 限流，每個帳號節流 |
-| `deleteCurrentSession` | `DELETE /api/sessions/current` | 匿名也可，讓過期的 cookie 也能登出 |
-| `getCurrentUser`、`getUser` | `GET /api/users/me`、`GET /api/users/{id}` | 登入者；`getUser` 只能看自己，admin 例外 |
-| `listSessions`、`getSession`、`deleteSession`、`deleteAllSessions`、`getCurrentSession` | `/api/sessions…` | 登入者，只限自己的 session |
-| `deleteCurrentUser` | `DELETE /api/users/me` | 登入者；session 必須是 10 分鐘內登入的，否則 403 `reauthentication_required` |
-| `listUsers`、`patchUser`、`deleteUser` | `GET /api/users`、`PATCH`／`DELETE /api/users/{id}` | 只有 admin |
+| `app.users.v1.UserPublicService` | `CreateUser` | 匿名；每個 IP 限流 |
+| `app.sessions.v1.SessionPublicService` | `CreateSession`、`DeleteCurrentSession` | 匿名；`CreateSession` 每個 IP 限流、每個帳號節流；`DeleteCurrentSession` 讓過期的 cookie 也能登出 |
+| `app.users.v1.UserAppService` | `GetCurrentUser`、`GetUser`、`DeleteCurrentUser` | 登入者，只限自己（`GetUser` 別人的 id 是 `not_found`）；`DeleteCurrentUser` 的 session 必須是 10 分鐘內登入的，否則 `permission_denied`（`REAUTHENTICATION_REQUIRED`） |
+| `app.sessions.v1.SessionAppService` | `ListSessions`、`GetSession`、`GetCurrentSession`、`DeleteSession`、`DeleteAllSessions` | 登入者，只限自己的 session |
+| `app.items.v1.ItemAppService` | `CreateItem`、`GetItem`、`ListItems`、`UpdateItem`、`DeleteItem` | 登入者，只限自己的 item |
+| `app.admin.users.v1.UserAdminService` | `ListUsers`、`GetUser`、`UpdateUser`、`DeleteUser`、`GetSignInLock`、`ResetSignInLock` | 只有 admin |
 
-**過渡期的 Connect 入口**（[計畫](../plans/2026-11-03-connect-contract.md)；[ADR 對外 API 改用 Protobuf＋Connect](../adr/2026-11-03-api-contract-protobuf-connect.md)）：`/api/app.` 開頭的路徑在 `authenticate` 之後改走 Connect（`httpapi/server.go` 的 `assemble`、`connectEntry`），其他 `/api` 路徑照舊走上表的 REST。目前掛上的正式 service 是 `app.items.v1.ItemAppService`（步驟 2，取代 REST 的 5 個 items operation 與它們在 `operationAccess` 的項目），另有測試用的 service（`httpapi/rpc/testdata`）；其他正式的 service 隨搬遷的步驟加入 `connectServices`，同一步刪掉對應的 REST operation。誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）兩條路相同，錯誤依請求的格式寫成 Connect 錯誤或 problem（`writeError`）。
+誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。App 與 Admin 的匿名呼叫、入口限流在 net/http 這一層、Connect 解碼請求之前處理（`httpapi/server.go` 的 `connectEntry`）；admin 的角色由 interceptor 檢查（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）包住所有請求。`/api` 底下其他的路徑仍經過 REST 的 validator，但 `backend/api/openapi.yaml` 已經沒有 operation，一律回 404 problem；[計畫](../plans/2026-11-03-connect-contract.md)的步驟 5 刪掉 REST 層。另有測試用的 service（`httpapi/rpc/testdata`），只在測試裡掛載。
 
 不在範圍內：`items` 的各個 operation（擁有者範圍之外）、主機與 Docker 的強化、Caddy 的 TLS 設定。
 
@@ -46,8 +45,8 @@
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
 | 對單一帳號線上猜密碼 | 每個「帳號＋來源」（位址，IPv6 以 /64；或信任的裝置）各自節流，在比對密碼之前計數，第 5 次失敗起等待時間加倍、上限 1 小時；沒有該帳號裝置 cookie 的來源另外合計，連續失敗 100 次（NIST SP 800-63B 3.2.2）起全部拒絕，直到登入成功、admin 解鎖或 24 小時沒有嘗試（`auth/devices.go`、`auth/queries/sign_in_throttles.sql`）。測試：`TestSignInThrottlePerClient`、`TestUntrustedClientsLockedTrustedDeviceNot`、`TestLoginThrottlePerAccount`、`TestLoginThrottleConcurrent`、`TestLoginThrottleSchedule` | 已緩解 |
-| 從同一位址對多個帳號噴灑密碼 | `CreateUser`、`CreateSession` 的每 IP token bucket，預設每分鐘 5 次，IPv6 以 /64 為鍵（`httpapi/ratelimit.go`）。測試：`TestRateLimitAuthOperations`、`TestIPLimiterKeysIPv6By64` | 單一副本內已緩解；見「已接受的風險」 |
-| 弱密碼或外洩過的密碼 | 15 到 128 字元（契約）、NFKC 正規化、內建常見密碼清單、可選的 HIBP 檢查（`auth/auth.go`、`auth/password.go`）。測試：`TestCreateUserPasswordTooShort`、`TestCreateUserCommonPassword`、`TestCreateUserBreachedPassword`、`TestPasswordNormalized` | 已緩解。HIBP 預設關閉，查詢失敗時放行：接受，外部服務故障不該擋住註冊 |
+| 從同一位址對多個帳號噴灑密碼 | `CreateUser`、`CreateSession` 的每 IP token bucket，預設每分鐘 5 次，IPv6 以 /64 為鍵（`httpapi/ratelimit.go`；清單是 `httpapi/server.go` 的 `connectLimited`）。在入口、Connect 解碼之前扣：格式錯誤的請求也用掉額度。測試：`TestRateLimitAuthOperations`、`TestIPLimiterKeysIPv6By64` | 單一副本內已緩解；見「已接受的風險」 |
+| 弱密碼或外洩過的密碼 | 15 到 128 字元（`auth/limits.go`，HTTP、`seed-admin` 與 `recover-admin` 共用）、NFKC 正規化、內建常見密碼清單、可選的 HIBP 檢查（`auth/auth.go`、`auth/password.go`）。測試：`TestCreateUserLimits`、`TestSeedAdminRejectsShortPassword`、`TestRecoverAdminRejectsShortPassword`、`TestCreateUserCommonPassword`、`TestCreateUserBreachedPassword`、`TestPasswordNormalized` | 已緩解。HIBP 預設關閉，查詢失敗時放行：接受，外部服務故障不該擋住註冊 |
 | 猜 session token | `crypto/rand` 產生的 256-bit token（`auth/sessions.go`）。測試：`TestCreateUserSetsSessionCookie` | 已緩解 |
 | Session fixation | 每次登入都發新 token，並刪掉請求帶來的舊 token。測試：`TestCreateSessionIssuesNewToken` | 已緩解 |
 | 登出、停用或過期後重用 token | 每個請求都重讀 session 與使用者；idle 預設 1 天、絕對期限 7 天；停用會刪掉該使用者所有 session。測試：`TestSessionIdleExpiry`、`TestSessionAbsoluteExpiry`、`TestDeleteCurrentSessionRevokes`、`TestDeleteAllSessions`、`TestAdminDisablesUserRevokesSessions`、`TestMeDisabledAccount`、`TestMeAfterUserDeleted` | 已緩解 |
@@ -60,9 +59,9 @@
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`（Connect，`permission_denied`／`CROSS_ORIGIN_REQUEST`）；CI compose job 的同站與跨站 `POST /api/sessions` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
+| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`（Connect，`permission_denied`／`CROSS_ORIGIN_REQUEST`）；CI compose job 的同站 `CreateSession` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
 | 註冊時自己指定角色 | 請求 schema 拒絕未定義的欄位；service 一律寫入 `user`。測試：`TestValidationCodes`（`additional_property`）、`TestCreateUserSetsSessionCookie`（角色是 `user`） | 已緩解 |
-| 同一帳號名稱同時註冊 | 由唯一索引決定，恰好一個成功，其餘 409。測試：`TestCreateUserConcurrentSameAccount` | 已緩解 |
+| 同一帳號名稱同時註冊 | 由唯一索引決定，恰好一個成功，其餘 `already_exists`。測試：`TestCreateUserConcurrentSameAccount` | 已緩解 |
 | Token 走明文 http | 除非 `COOKIE_SECURE=false`，cookie 帶 `Secure` 與 `__Host-` 前綴；網站網域的 HSTS 由 Vercel 送，API 網域的由 Caddy 送。測試：`TestCookieNameFollowsSecure`、`TestConfigDefaults` | `SITE_ADDRESS` 是網域時已緩解；`:80` 只供本機使用 |
 | 在日誌裡偽造 request id | 只接受受信任來源、格式為 `[A-Za-z0-9-]{1,64}` 的值；Caddy 覆寫 client 送的值。測試：`TestRequestIDFromUntrustedPeerReplaced`、`TestRequestIDMalformedReplaced` | 已緩解 |
 | SQL injection | 查詢只經過 sqlc 產生的程式碼；手寫 pgx `Query` 會被 lint 擋（`backend/.golangci.yml` forbidigo） | 已緩解 |
@@ -83,10 +82,10 @@
 | 資料庫外洩導致密碼外洩 | argon2id m=19 MiB、t=2、p=1、16 byte salt，比對用 constant time（`auth/password.go`）。測試：`TestArgon2Hash` | 已緩解 |
 | 密碼或 token 寫進日誌 | 註冊、登入成功與失敗、驗證錯誤、格式錯誤的 body、未知的 token、登出、HIBP 查詢失敗，全部跑一遍後檢查日誌（含 debug 級）。測試：`TestCredentialsNeverLogged` | 已緩解 |
 | Script 讀到 token（XSS） | cookie 是 `HttpOnly`；頁面有 nonce 型 CSP，`connect-src 'self'`、`frame-ancestors 'none'`（`frontend/src/proxy.ts`）。測試：`TestCreateUserSetsSessionCookie`、前端 `proxy.test.ts` | build 出來的版本已緩解；`next dev` 不設 CSP |
-| 登入時從回應或時間差列舉帳號 | 不存在的帳號也跑一次 dummy hash，回同樣的 problem；節流也套用在不存在的帳號名。測試：`TestCreateSessionUnknownAccountRunsHash`、`TestLoginThrottlePerAccount` | 已緩解 |
-| 註冊時列舉帳號 | 帳號已存在回 `409 account_taken`。測試：`TestCreateUserDuplicate` | 接受：用帳號名而不是 email，無法隱藏名稱已被使用（ADR D6）；註冊有每 IP 限流 |
+| 登入時從回應或時間差列舉帳號 | 不存在的帳號也跑一次 dummy hash，回同樣的錯誤（`unauthenticated`、`INVALID_CREDENTIALS`）；節流也套用在不存在的帳號名。測試：`TestCreateSessionUnknownAccountRunsHash`、`TestLoginThrottlePerAccount` | 已緩解 |
+| 註冊時列舉帳號 | 帳號已存在回 `already_exists`（`ACCOUNT_TAKEN`）。測試：`TestCreateUserDuplicate` | 接受：用帳號名而不是 email，無法隱藏名稱已被使用（ADR D6）；註冊有每 IP 限流 |
 | 讀到別人的使用者資料或 session | 非擁有者一律 404（`auth/auth.go`、`auth/queries/sessions.sql`）。測試：`TestGetOtherUserNotFound`、`TestDeleteOtherUsersSession`、`TestNonAdminCannotListUsers` | 已緩解 |
-| 內部錯誤洩漏細節 | 非預期錯誤變成不帶細節的 500，細節只進日誌（`httpapi/problem.go`）。測試：`TestUnhandledErrorHidden` | 已緩解 |
+| 內部錯誤洩漏細節 | 非預期錯誤變成不帶細節的 `internal`，細節只進日誌（`httpapi/rpc/errors.go` 的 `Convert`、`LogConverted`）。測試：`TestConvertUnexpectedIsInternal`、`TestInternalErrorLogged`、`TestUnhandledErrorHidden` | 已緩解 |
 | 密碼送到 HIBP | 只送 SHA-1 的前 5 個 hex 字元，帶 `Add-Padding`（`hibp.go`）。測試：`TestBreached` | 已緩解。HIBP 網路錯誤的訊息含請求網址，也就是同樣的 5 個字元，會寫進本機日誌（推論自 `net/http` 的 `*url.Error`）：接受，內容與送出去的相同 |
 | API 契約與 Swagger UI 外露 | 只在 `MODE=dev` 提供，預設 `prod`。測試：`TestDocs` | 已緩解 |
 | backend ↔ PostgreSQL 傳輸未加密 | 連線必須 `sslmode=verify-full`；只有設定 `DATABASE_PLAINTEXT=same-host` 才接受不加密，範本只在 compose 裡設定（同一台主機的內部網路，資料不出主機）。改接遠端資料庫卻沒加密時，backend 與 migrate 拒絕啟動（`internal/platform/config`）。測試：`TestDatabaseURLRequiresVerifiedTLS` | 已緩解。compose 內部不加密是接受的取捨：要防同一網路上被入侵的容器，或資料庫搬到另一台主機時，改用 TLS |
@@ -97,21 +96,21 @@
 |---|---|---|
 | 大量雜湊耗盡記憶體或 CPU | 同時最多 `runtime.NumCPU()` 個 argon2id 雜湊，等待者隨 context 結束（`auth/password.go`）。測試：`TestArgonConcurrencyBounded` | 已緩解 |
 | 過大或過慢的請求 | body 上限 1 MiB；header、讀、寫逾時（`httpapi/server.go`）。測試：`TestBodyTooLarge`、`TestSlowHeaderClosed` | 已緩解 |
-| 故意登入失敗把受害者鎖在門外 | 節流以「帳號＋來源」為單位，攻擊者的失敗只讓自己的來源等待；帳號層級的鎖只擋沒有該帳號裝置 cookie 的來源，本人曾登入過的瀏覽器照常登入（OWASP「Slow Down Online Guessing Attacks with Device Cookies」）；admin 可查看與解鎖（`GET`／`DELETE /api/users/{id}/sign-in-lock`，寫入稽核）。全部登出、停用、救援時忘掉該帳號的裝置。測試：`TestUntrustedClientsLockedTrustedDeviceNot`、`TestDeviceCookieIsPerAccount`、`TestSignOutEverywhereForgetsDevices`、`TestAdminUnlocksSignIn` | 已緩解。本人在新裝置上仍可能被鎖，要等 admin 解鎖；加了 email 之後改成鎖定期間可用重設密碼解鎖（ADR api-and-auth D6 的重新評估條件） |
+| 故意登入失敗把受害者鎖在門外 | 節流以「帳號＋來源」為單位，攻擊者的失敗只讓自己的來源等待；帳號層級的鎖只擋沒有該帳號裝置 cookie 的來源，本人曾登入過的瀏覽器照常登入（OWASP「Slow Down Online Guessing Attacks with Device Cookies」）；admin 可查看與解鎖（`UserAdminService.GetSignInLock`、`ResetSignInLock`，寫入稽核）。全部登出、停用、救援時忘掉該帳號的裝置。測試：`TestUntrustedClientsLockedTrustedDeviceNot`、`TestDeviceCookieIsPerAccount`、`TestSignOutEverywhereForgetsDevices`、`TestAdminUnlocksSignIn` | 已緩解。本人在新裝置上仍可能被鎖，要等 admin 解鎖；加了 email 之後改成鎖定期間可用重設密碼解鎖（ADR api-and-auth D6 的重新評估條件） |
 | 用亂數帳號名塞滿 `sign_in_throttles` | 不存在的帳號名也會建立紀錄（每次嘗試最多兩列：來源一列、帳號合計一列）；每 IP 限流限制速率，閒置 24 小時的紀錄每小時清掉。測試：`TestCleanup` | 單一副本內已緩解 |
-| Admin 停用最後一個 admin，包括自己 | 停用時先鎖住所有啟用中的 admin，目標是唯一一個就回 409 `last_admin`（`auth.ErrLastAdmin`）；兩個 admin 同時互相停用只會成功一個。所有 admin 都登不進來時，`make recover-admin` 在主機上替既有的 admin 設新密碼、啟用並清掉節流。測試：`TestLastAdminCannotBeDisabled`、`TestConcurrentAdminDisableLeavesOne`、`TestRecoverAdmin` | 已緩解 |
+| Admin 停用最後一個 admin，包括自己 | 停用時先鎖住所有啟用中的 admin，目標是唯一一個就回 `failed_precondition`（`LAST_ADMIN`）（`auth.ErrLastAdmin`）；兩個 admin 同時互相停用只會成功一個。所有 admin 都登不進來時，`make recover-admin` 在主機上替既有的 admin 設新密碼、啟用並清掉節流。測試：`TestLastAdminCannotBeDisabled`、`TestConcurrentAdminDisableLeavesOne`、`TestRecoverAdmin` | 已緩解 |
 | 其他 operation 不限次數 | 每 IP 限流只涵蓋 `CreateUser`、`CreateSession`；其他 operation 都要登入 | 範本接受；衍生專案依需要加進清單（`docs/rules/api-design.md` 限流） |
 
 ## Elevation of privilege（權限提升）
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 一般使用者呼叫 admin 操作 | REST：`operationAccess` 列出每個 operation 誰能呼叫；漏列的 operation、列了不存在的 operation、或「公開」與契約的 `security: []` 不一致，server 啟動就失敗（`adminOperations`）。`requireRole` 在 handler 之前以 403 拒絕。測試：`TestAdminOperationsChecksTable`、`TestOperationAccessEnforced`（逐一呼叫契約裡每個 operation：沒登入要 401，一般使用者呼叫 admin 操作要 403）。Connect：service 名稱決定類別，`AdminService` 由 interceptor 檢查 admin 角色，App 與 Admin 的未登入呼叫在解碼之前回 `unauthenticated`（`TestConnectAdminServiceNeedsAdminRole`、`TestConnectUnauthenticatedBeforeDecoding`、`TestItemsNeedSession`） | 已緩解 |
+| 一般使用者呼叫 admin 操作 | service 名稱決定類別，名稱不屬於三類就不能掛載（`rpc.NewMux`）；`AdminService` 的方法由 interceptor 檢查 admin 角色，以 `permission_denied`（`INSUFFICIENT_ROLE`）拒絕並記 `authz.denied`。測試：`TestProcedureAccessEnforced`（逐一呼叫 `connectServices` 掛上的每個 procedure：App 與 Admin 沒登入要 `unauthenticated`，一般使用者呼叫 Admin 要 `permission_denied`）、`TestConnectAdminServiceNeedsAdminRole`、`TestNonAdminCannotListUsers` | 已緩解 |
 | 一般使用者呼叫 Connect 的 Admin service | service 的名稱決定類別，不屬於三類的 service 啟動就失敗；Admin service 的每個方法由 interceptor 檢查 admin 角色，拒絕時回 `permission_denied`（`INSUFFICIENT_ROLE`）並記 `authz.denied`（`httpapi/rpc/interceptor.go` 的 `requireAdmin`）。測試：`TestAdminServiceNeedsAdminRole`、`TestConnectAdminServiceNeedsAdminRole`、`TestNewHandlerRejectsUnclassifiedService` | 已緩解 |
 | 匿名請求在 Connect 解碼之前得到解碼或欄位錯誤 | connect-go 先解碼才跑 interceptor，所以未登入檢查放在 net/http 層：App 與 Admin 的方法在 Connect handler 之前回 `unauthenticated`；不存在的 procedure 一律 `not_found`，不先要求登入。測試：`TestConnectUnauthenticatedBeforeDecoding`、`TestConnectUnknownProcedureNotFound` | 已緩解 |
 | 用 GET 繞過 CSRF 檢查呼叫有副作用的方法 | CrossOriginProtection 不檢查 GET；只有 `Get*`、`List*` 方法可以標 `NO_SIDE_EFFECTS`（connect-go 只對這種方法接受 GET），其他的標了就啟動失敗（`rpc.NewMux`）。測試：`TestNewHandlerRejectsSideEffectsOnGet`、`TestCrossOriginRejectedInEachFormat` | 已緩解 |
 | 角色變更後仍用舊角色 | 每個請求都從資料庫讀角色。目前沒有改角色或改密碼的 operation；後端規則 8 要求這類功能撤銷該使用者所有 session（`backend/AGENTS.md`） | 已緩解 |
-| 匿名請求到達受保護的 handler | 契約宣告 security，validator 在參數與 body 之前檢查。測試：`TestUnauthenticatedBeforeValidation`、`TestOperationAccessEnforced` | 已緩解 |
+| 匿名請求到達受保護的 handler | App 與 Admin 的匿名呼叫在 net/http 層、Connect 解碼之前回 `unauthenticated`（`connectEntry`），看不到解碼錯誤或欄位錯誤。測試：`TestUnauthenticatedBeforeValidation`、`TestConnectUnauthenticatedBeforeDecoding`、`TestProcedureAccessEnforced` | 已緩解 |
 | backend 被入侵後改 schema | app 角色只有 DML。測試：`TestAppRoleCannotDDL` | 已緩解；所有表的資料仍可寫入，見「已接受的風險」 |
 | 偷到或忘了登出的 session 被拿來刪除帳號 | 刪除自己的帳號要求 session 在 10 分鐘內登入過（`auth.ReauthenticateWithin`），前端先用密碼重新登入再刪除。測試：`TestDeleteCurrentUser`、`delete-account.test.tsx` | 已緩解 |
 | 透過 API 建立 admin | 註冊一律寫 `user`；`EnsureAdmin` 只在 `seed-admin` 呼叫。測試：`TestSeedAdminCreatesAdmin` | 已緩解 |
@@ -129,7 +128,7 @@
 
 ## 何時更新這份文件
 
-- `backend/api/openapi.yaml` 新增與認證有關的 operation，或 `operationAccess`、限流清單（`httpapi/server.go` 的 `limitOperations` 與 `connectLimited`）有增減；`connectServices` 掛上新的 service。
+- `api/` 新增與認證有關的 service 或方法、限流清單（`httpapi/server.go` 的 `connectLimited`）有增減；`connectServices` 掛上新的 service。
 - 新增角色，或改變授予角色的方式。
 - Session 期限、cookie 名稱或屬性、token 格式改變。
 - 新增外部身分提供者、MFA、Bearer token 或任何非瀏覽器的 client。

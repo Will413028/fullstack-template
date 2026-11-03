@@ -50,7 +50,7 @@ func recoverPanics(logger *slog.Logger) connect.UnaryInterceptorFunc {
 	}
 }
 
-// ErrInsufficientRole refuses a signed-in user whose role may not call a method (REST's requireRole uses it too).
+// ErrInsufficientRole refuses a signed-in user whose role may not call a method.
 var ErrInsufficientRole = apperr.New(apperr.Forbidden, "insufficient_role", "the signed-in user's role may not do this")
 
 // requireAdmin lets only users with adminRole call Admin services. The role is the one read from the database for

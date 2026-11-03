@@ -3,97 +3,111 @@ package httpapi
 import (
 	"maps"
 	"net/http"
-	"net/http/httptest"
+	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Will413028/template-go-nextjs/backend/api"
+	adminusersv1connect "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/admin/users/v1/usersv1connect"
+	usersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
-func TestAdminOperationsChecksTable(t *testing.T) {
-	spec, err := loadSpec(t.Context(), api.Spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin, err := adminOperations(spec, operationAccess)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"DeleteSignInLock", "DeleteUser", "GetSignInLock", "ListUsers", "PatchUser"}; !slices.Equal(admin, want) {
-		t.Errorf("admin operations = %v, want %v", admin, want)
-	}
+// Authorization follows the service (rpc.ClassOf): Public services need no session, App services a signed-in user,
+// Admin services an admin. The tests below read the procedures from connectServices, so a new service or method is
+// covered without a change here.
 
-	for _, tc := range []struct {
-		name   string
-		change func(map[string]access)
-		want   string
-	}{
-		{"missing operation", func(m map[string]access) { delete(m, "ListUsers") },
-			"operation ListUsers has no entry"},
-		{"unknown entry", func(m map[string]access) { m["ListWidgets"] = accessUser },
-			"names ListWidgets, which is not an operation"},
-		{"public in the table only", func(m map[string]access) { m["GetUser"] = accessPublic },
-			"operation GetUser: operationAccess says public true, the contract false"},
-		{"public in the contract only", func(m map[string]access) { m["CreateUser"] = accessUser },
-			"operation CreateUser: operationAccess says public false, the contract true"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			table := maps.Clone(operationAccess)
-			tc.change(table)
-			if _, err := adminOperations(spec, table); err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("error = %v, want one containing %q", err, tc.want)
-			}
-		})
-	}
-}
-
-// Every operation in the contract is called the way an attacker would: without a session it is a 401 unless the
-// operation is public, and with a plain user's session an admin operation is a 403.
-func TestOperationAccessEnforced(t *testing.T) {
-	spec, err := loadSpec(t.Context(), api.Spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := newAuthAPI(t)
-	_, userToken := a.mustSignUp("alice")
-	for path, item := range spec.Paths.Map() {
-		for method, op := range item.Operations() {
-			name := methodName(op.OperationID)
-			url, contentType, body := anyRequest(path, method, op)
-			t.Run(name, func(t *testing.T) {
-				if operationAccess[name] != accessPublic {
-					assertProblem(t, a.do(method, url, "", contentType, body), http.StatusUnauthorized,
-						"/problems/unauthenticated")
-				}
-				if operationAccess[name] == accessAdmin {
-					assertProblem(t, a.do(method, url, userToken, contentType, body), http.StatusForbidden,
-						"/problems/forbidden")
-				}
-			})
+// mountedProcedures are the procedures connectServices mounts in production, with their class.
+func mountedProcedures(t *testing.T) map[string]rpc.Class {
+	t.Helper()
+	out := map[string]rpc.Class{}
+	for _, s := range connectServices(Deps{}) {
+		class, ok := rpc.ClassOf(s.Desc.FullName())
+		if !ok {
+			t.Fatalf("service %s has no class", s.Desc.FullName())
+		}
+		methods := s.Desc.Methods()
+		for i := range methods.Len() {
+			out[rpc.Procedure(methods.Get(i))] = class
 		}
 	}
+	if len(out) == 0 {
+		t.Fatal("connectServices mounts nothing")
+	}
+	return out
 }
 
-var pathParam = regexp.MustCompile(`\{[^}]+\}`)
+// Every mounted procedure is called the way an attacker would: without a session an App or Admin procedure is
+// unauthenticated and a Public one reaches its handler; with a plain user's session an Admin procedure is
+// permission_denied (INSUFFICIENT_ROLE) before its handler runs.
+func TestProcedureAccessEnforced(t *testing.T) {
+	a := newAuthAPI(t)
+	_, user := a.mustSignUp("alice")
+	asUser := map[string]string{"Cookie": cookieName + "=" + user}
+	for procedure, class := range mountedProcedures(t) {
+		t.Run(procedure, func(t *testing.T) { assertAccess(t, a.h, procedure, class, asUser) })
+	}
+}
 
-// anyRequest builds a request for op that passes the contract's checks: a fresh UUID for each path parameter, and an
-// empty JSON object as the body when op takes one.
-func anyRequest(path, method string, op *openapi3.Operation) (url, contentType, body string) {
-	url = "/api" + pathParam.ReplaceAllString(path, uuid.Must(uuid.NewV7()).String())
-	if op.RequestBody == nil {
-		return url, "", ""
+// assertAccess calls procedure anonymously and, for an Admin procedure, with the headers of a plain user.
+func assertAccess(t *testing.T, h http.Handler, procedure string, class rpc.Class, asUser map[string]string) {
+	t.Helper()
+	rec := connectPost(t, h, procedure, `{}`, nil)
+	if class == rpc.Public {
+		switch rec.Code {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError:
+			t.Errorf("anonymous = %d %s, want the handler's answer", rec.Code, rec.Body)
+		}
+		return
 	}
-	if method == http.MethodPatch {
-		return url, "application/merge-patch+json", "{}"
+	if r := decodeWireError(t, rec, http.StatusUnauthorized, "unauthenticated").reason(t); r != "SESSION_INVALID" {
+		t.Errorf("anonymous: reason = %q, want SESSION_INVALID", r)
 	}
-	return url, "application/json", "{}"
+	if class != rpc.Admin {
+		return
+	}
+	rec = connectPost(t, h, procedure, `{}`, asUser)
+	if r := decodeWireError(t, rec, http.StatusForbidden, "permission_denied").reason(t); r != "INSUFFICIENT_ROLE" {
+		t.Errorf("as a user: reason = %q, want INSUFFICIENT_ROLE", r)
+	}
+}
+
+// Every role an account can have, the ones users.role's CHECK allows, is a role the auth module defines and is sent as
+// a proto Role other than ROLE_UNSPECIFIED, each as its own value. No database: the CHECK is read from schema.sql.
+func TestRolesMapped(t *testing.T) {
+	schema, err := os.ReadFile("../modules/auth/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := regexp.MustCompile(`\brole\s+text\b[^\n]*CHECK \(role IN \(([^)]*)\)\)`).FindSubmatch(schema)
+	if check == nil {
+		t.Fatal("users.role's CHECK (role IN (...)) not found in the auth module's schema.sql")
+	}
+	var allowed []string
+	for _, v := range strings.Split(string(check[1]), ",") {
+		allowed = append(allowed, strings.Trim(strings.TrimSpace(v), "'"))
+	}
+	slices.Sort(allowed)
+	if want := []string{auth.RoleAdmin, auth.RoleUser}; !slices.Equal(allowed, want) {
+		t.Errorf("users.role allows %v, the auth module defines %v", allowed, want)
+	}
+	sent := map[usersv1.Role]string{}
+	for _, role := range allowed {
+		got := toUser(auth.User{Role: role}).GetRole()
+		if got == usersv1.Role_ROLE_UNSPECIFIED {
+			t.Errorf("role %q is sent as %s", role, got)
+		}
+		if other, dup := sent[got]; dup {
+			t.Errorf("roles %q and %q are both sent as %s", other, role, got)
+		}
+		sent[got] = role
+	}
 }
 
 type auditRow struct {
@@ -119,64 +133,69 @@ func (a *authAPI) auditEvents() []auditRow {
 	return rows
 }
 
-// Every admin operation that changes state leaves one audit row naming the admin, the action, the target and the
-// request id (OWASP Logging Cheat Sheet: user administration). A new state-changing admin operation fails this test
-// until it is added to send, so it cannot ship unaudited.
-func TestAdminChangesAreAudited(t *testing.T) {
-	spec, err := loadSpec(t.Context(), api.Spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := newAuthAPI(t)
-	admin := a.mustAdmin()
-	adminID := a.currentSession(admin).User.Id
-	send := map[string]struct {
-		action string
-		call   func(target uuid.UUID) *httptest.ResponseRecorder
-	}{
-		"PatchUser": {auth.AuditUserDisabled, func(id uuid.UUID) *httptest.ResponseRecorder {
-			return a.patchUser(admin, id, `{"is_disabled":true}`)
-		}},
-		"DeleteUser": {auth.AuditUserDeleted, func(id uuid.UUID) *httptest.ResponseRecorder {
-			return a.do(http.MethodDelete, "/api/users/"+id.String(), admin, "", "")
-		}},
-		"DeleteSignInLock": {auth.AuditUserUnlocked, func(id uuid.UUID) *httptest.ResponseRecorder {
-			return a.do(http.MethodDelete, "/api/users/"+id.String()+"/sign-in-lock", admin, "", "")
-		}},
-	}
-	for _, name := range stateChangingAdminOperations(spec) {
-		if _, ok := send[name]; !ok {
-			t.Errorf("admin operation %s changes state but has no case here", name)
+// stateChangingAdminProcedures are the mounted Admin procedures that may change state: every one not marked
+// NO_SIDE_EFFECTS.
+func stateChangingAdminProcedures(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	for _, s := range connectServices(Deps{}) {
+		if class, _ := rpc.ClassOf(s.Desc.FullName()); class != rpc.Admin {
+			continue
+		}
+		methods := s.Desc.Methods()
+		for i := range methods.Len() {
+			if md := methods.Get(i); !rpc.SideEffectFree(md) {
+				out = append(out, rpc.Procedure(md))
+			}
 		}
 	}
-	for name, c := range send {
-		t.Run(name, func(t *testing.T) {
-			u, _ := a.mustSignUp("target-" + strings.ToLower(name))
+	slices.Sort(out)
+	return out
+}
+
+// Every Admin procedure that changes state leaves one audit row naming the admin, the action, the target and the
+// request id (OWASP Logging Cheat Sheet: user administration). The procedures come from the mounted services, so a new
+// state-changing Admin procedure fails this test until it has a case here, and cannot ship unaudited
+// (backend/AGENTS.md rule 11).
+func TestAdminChangesAreAudited(t *testing.T) {
+	a := newAuthAPI(t)
+	admin := a.mustAdmin()
+	adminID := uuid.MustParse(a.currentSession(admin).GetUser().GetId())
+	send := map[string]struct {
+		action string
+		call   func(target string) error
+	}{
+		adminusersv1connect.UserAdminServiceUpdateUserProcedure: {auth.AuditUserDisabled, func(id string) error {
+			_, err := a.disable(admin, id, true)
+			return err
+		}},
+		adminusersv1connect.UserAdminServiceDeleteUserProcedure: {auth.AuditUserDeleted, func(id string) error {
+			return a.deleteUser(admin, id)
+		}},
+		adminusersv1connect.UserAdminServiceResetSignInLockProcedure: {auth.AuditUserUnlocked, func(id string) error {
+			return a.resetSignInLock(admin, id)
+		}},
+	}
+	cases := slices.Sorted(maps.Keys(send))
+	if procedures := stateChangingAdminProcedures(t); !slices.Equal(cases, procedures) {
+		t.Errorf("cases %v, state-changing Admin procedures %v: each needs a case, and each case a procedure", cases,
+			procedures)
+	}
+	for procedure, c := range send {
+		t.Run(procedure, func(t *testing.T) {
+			u, _ := a.mustSignUp("target-" + strings.ToLower(path.Base(procedure)))
 			before := len(a.auditEvents())
-			if rec := c.call(u.Id); rec.Code >= 300 {
-				t.Fatalf("%s = %d %s", name, rec.Code, rec.Body)
+			if err := c.call(u.GetId()); err != nil {
+				t.Fatalf("%s: %v", procedure, err)
 			}
 			events := a.auditEvents()
 			if len(events) != before+1 {
 				t.Fatalf("audit rows %d -> %d, want one more", before, len(events))
 			}
 			e := events[len(events)-1]
-			if e.actor == nil || *e.actor != adminID || e.action != c.action || e.target != u.Id || e.requestID == nil {
-				t.Errorf("audit row = %+v, want actor %s, action %s, target %s and a request id", e, adminID, c.action, u.Id)
+			if e.actor == nil || *e.actor != adminID || e.action != c.action || e.target.String() != u.GetId() || e.requestID == nil {
+				t.Errorf("audit row = %+v, want actor %s, action %s, target %s and a request id", e, adminID, c.action, u.GetId())
 			}
 		})
 	}
-}
-
-// stateChangingAdminOperations lists the admin operations that are not GETs.
-func stateChangingAdminOperations(spec *openapi3.T) []string {
-	var names []string
-	for _, item := range spec.Paths.Map() {
-		for method, op := range item.Operations() {
-			if name := methodName(op.OperationID); method != http.MethodGet && operationAccess[name] == accessAdmin {
-				names = append(names, name)
-			}
-		}
-	}
-	return names
 }

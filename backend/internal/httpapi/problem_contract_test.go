@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
@@ -124,7 +125,7 @@ func TestProblemValuesInContract(t *testing.T) {
 	}
 
 	codes := []string{auth.CodeAccountTaken, auth.CodeInvalidCredentials, auth.CodeLoginThrottled, auth.CodeLastAdmin,
-		auth.ErrSessionInvalid.Code, errInsufficientRole.Code, codeCrossOrigin}
+		auth.ErrSessionInvalid.Code, rpc.ErrInsufficientRole.Code, codeCrossOrigin}
 	for _, c := range codes {
 		if !inContract("code", c) {
 			t.Errorf("problem code %s is not in the contract", c)
