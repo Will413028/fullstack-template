@@ -143,8 +143,10 @@ export type UpdateUserRequest = Message<"app.admin.users.v1.UpdateUserRequest"> 
   user?: User | undefined;
 
   /**
-   * The fields to change: disabled, or "*". Without a mask, disabled is changed when it is set. The fields the server
-   * sets (id, account, role, create_time) are ignored when listed; any other path is invalid_argument.
+   * The fields to change: disabled, or "*". A listed disabled that is unset is false (AIP-134: a listed field takes the
+   * request's value, unset is the default), which enables the account. Without a mask, disabled is changed when it is
+   * set. The fields the server sets (id, account, role, create_time) are ignored when listed; any other path is
+   * invalid_argument.
    *
    * @generated from field: google.protobuf.FieldMask update_mask = 2;
    */

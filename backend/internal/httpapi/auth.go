@@ -63,8 +63,9 @@ func currentSessionID(ctx context.Context) uuid.UUID {
 // authenticate resolves the session cookie before any handler. A missing or invalid session leaves the request
 // anonymous: the Public services (sign-in, sign-up, sign-out) must work with a stale cookie. An invalid cookie is
 // also cleared on the response: it is HttpOnly, so only the server can remove it, and the frontend treats a present
-// cookie as signed in (wiki tech/login-death-loop-stale-cookie). A handler that sets the session cookie itself (a
-// sign-in) replaces the clearing (clearStaleCookie). A database error is an internal error.
+// cookie as signed in (wiki tech/login-death-loop-stale-cookie). The clearing is on the response from the start, so
+// every answer carries it, a panic's included; a handler that sets the session cookie itself (a sign-in) replaces it
+// (clearStaleCookie). A database error is an internal error.
 func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, next http.Handler) http.Handler {
 	if sessions == nil {
 		return next
@@ -87,7 +88,9 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 			ctx = context.WithValue(ctx, currentSessionKey{}, sessionID)
 			ctx = authctx.With(ctx, authctx.User{ID: u.ID, Role: u.Role})
 		case errors.Is(err, auth.ErrSessionInvalid):
-			w = &clearStaleCookie{ResponseWriter: w, name: cookie.Name, clear: cookie.clear()}
+			clear := cookie.clear()
+			w.Header().Add("Set-Cookie", clear)
+			w = &clearStaleCookie{ResponseWriter: w, name: cookie.Name, clear: clear}
 		default:
 			writeError(w, r, logger, err)
 			return
@@ -96,9 +99,10 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 	})
 }
 
-// clearStaleCookie clears the session cookie when the response starts, unless the handler set that cookie itself:
-// connect-go adds a handler's response headers to the ones already on w, so clearing up front would send a sign-in
-// both the clearing and the new session.
+// clearStaleCookie takes authenticate's clearing back off the response when it starts, if the handler set the session
+// cookie itself: connect-go adds a handler's response headers to the ones already on w, so a sign-in would otherwise
+// send both the clearing and the new session. A response written around it (an outer panic, a Flush through Unwrap)
+// keeps the clearing.
 type clearStaleCookie struct {
 	http.ResponseWriter
 	name, clear string
@@ -123,12 +127,22 @@ func (w *clearStaleCookie) start() {
 		return
 	}
 	w.started = true
-	for _, c := range w.Header().Values("Set-Cookie") {
+	values := w.Header().Values("Set-Cookie")
+	own := 0
+	for _, c := range values {
 		if strings.HasPrefix(c, w.name+"=") {
+			own++
+		}
+	}
+	if own < 2 { // only the clearing: the handler did not set the session cookie
+		return
+	}
+	for i, c := range values {
+		if c == w.clear { // the first copy is authenticate's
+			w.Header()["Set-Cookie"] = append(values[:i:i], values[i+1:]...)
 			return
 		}
 	}
-	w.Header().Add("Set-Cookie", w.clear)
 }
 
 var errNoSession = errors.New("no valid session")

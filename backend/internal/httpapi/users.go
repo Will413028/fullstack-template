@@ -55,22 +55,6 @@ func signedIn(ctx context.Context) (auth.User, error) {
 	return u, nil
 }
 
-// pageRequest reads AIP-158 paging for the auth service's lists: the page size, and the cursor the service takes
-// (nil for the first page). A bad page_token is reported on page_token.
-func pageRequest(size int32, token string) (int, *string, error) {
-	n, err := rpc.PageSize(size, defaultAuthPage, maxAuthPage)
-	if err != nil {
-		return 0, nil, err
-	}
-	if _, err := rpc.PageAfter(token); err != nil {
-		return 0, nil, err
-	}
-	if token == "" {
-		return n, nil, nil
-	}
-	return n, &token, nil
-}
-
 func userServices(svc *auth.Service, cookie Cookie) []rpc.Service {
 	return []rpc.Service{
 		{
@@ -158,7 +142,7 @@ type userAdminHandler struct {
 }
 
 func (h userAdminHandler) ListUsers(ctx context.Context, req *connect.Request[adminusersv1.ListUsersRequest]) (*connect.Response[adminusersv1.ListUsersResponse], error) {
-	size, cursor, err := pageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
 	if err != nil {
 		return nil, err
 	}

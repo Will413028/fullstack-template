@@ -36,6 +36,17 @@ func deviceCookie(h http.Header) *http.Cookie {
 	return nil
 }
 
+// mustDeviceCookie is the device cookie h sets; a test that needs it fails without it (rather than dereferencing
+// nil, which would abort the package and hide every other test's result).
+func mustDeviceCookie(t *testing.T, h http.Header) *http.Cookie {
+	t.Helper()
+	c := deviceCookie(h)
+	if c == nil {
+		t.Fatalf("no device cookie in %q", h.Values("Set-Cookie"))
+	}
+	return c
+}
+
 // lockOut fails n sign-ins for account, each from its own address, so only the account-wide count can stop them.
 func (a *authAPI) lockOut(account string, n int) {
 	a.t.Helper()
@@ -128,7 +139,7 @@ func TestDeviceCookieIsPerAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	device := deviceCookie(resp.Header())
+	device := mustDeviceCookie(t, resp.Header())
 	a.lockOut("alice", 100)
 	_, err = a.signInFrom("203.0.113.1", "alice", goodPassword, device.Value)
 	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
@@ -142,7 +153,7 @@ func TestSignOutEverywhereForgetsDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	device, token := deviceCookie(resp.Header()), a.sessionCookie(resp.Header()).Value
+	device, token := mustDeviceCookie(t, resp.Header()), a.sessionCookie(resp.Header()).Value
 	if _, err := a.sessions(token).DeleteAllSessions(t.Context(), connect.NewRequest(&sessionsv1.DeleteAllSessionsRequest{})); err != nil {
 		t.Fatalf("sign out everywhere: %v", err)
 	}

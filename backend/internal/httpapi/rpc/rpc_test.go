@@ -122,6 +122,11 @@ func TestConvertValidation(t *testing.T) {
 		got[0].GetReason() != "TOO_SHORT" || got[1].GetField() != "password" || got[1].GetReason() != "TOO_LONG" {
 		t.Errorf("violations = %v", got)
 	}
+	// a join wrapped by the service is the same
+	wrapped := fmt.Errorf("create user: %w", errors.Join(apperr.Invalid("account", "too_short", ""), apperr.Invalid("password", "too_long", "")))
+	if got := detail[errdetails.BadRequest](t, Convert(wrapped).Err).GetFieldViolations(); len(got) != 2 {
+		t.Errorf("wrapped join: violations = %v, want account and password", got)
+	}
 	// a join that is not only invalid fields is an unexpected error
 	if c = Convert(errors.Join(apperr.Invalid("account", "too_short", ""), errors.New("db down"))); !c.Internal {
 		t.Errorf("mixed join = %v, want internal", c.Err)
@@ -333,5 +338,25 @@ func TestIsRead(t *testing.T) {
 		if got := isRead(protoreflect.Name(name)); got != want {
 			t.Errorf("isRead(%s) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// PageRequest is AIP-158 paging for a list whose service takes a size and a cursor.
+func TestPageRequest(t *testing.T) {
+	if n, cursor, err := PageRequest(0, "", 20, 100); err != nil || n != 20 || cursor != nil {
+		t.Errorf("first page = %d, %v, %v; want 20, nil", n, cursor, err)
+	}
+	if n, _, err := PageRequest(1000, "", 20, 100); err != nil || n != 100 {
+		t.Errorf("page_size 1000 = %d, %v; want 100", n, err)
+	}
+	if _, _, err := PageRequest(-1, "", 20, 100); !isInvalid(err, "page_size") {
+		t.Errorf("negative page_size = %v", err)
+	}
+	if _, _, err := PageRequest(0, "not a token", 20, 100); !isInvalid(err, "page_token") {
+		t.Errorf("bad page_token = %v", err)
+	}
+	token := httpx.EncodeCursor(uuid.Must(uuid.NewV7()))
+	if _, cursor, err := PageRequest(0, token, 20, 100); err != nil || cursor == nil || *cursor != token {
+		t.Errorf("page_token = %v, %v; want the token as the cursor", cursor, err)
 	}
 }

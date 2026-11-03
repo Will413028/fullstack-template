@@ -96,7 +96,7 @@ func (h sessionAppHandler) ListSessions(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	size, cursor, err := pageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken())
+	size, cursor, err := rpc.PageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), defaultAuthPage, maxAuthPage)
 	if err != nil {
 		return nil, err
 	}
