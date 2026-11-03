@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the release binaries pinned in Makefiles (golangci-lint, hadolint, Atlas) current, with verified checksums.
+"""Keep the release binaries pinned in Makefiles (golangci-lint, hadolint, buf, Atlas) current, with verified checksums.
 
 Dependabot reads manifests, not Makefiles, so these pins would otherwise age unnoticed. Tools that ship as packages
 are pinned where Dependabot looks instead (backend/tools: go.mod, package.json, requirements.txt).
@@ -63,6 +63,7 @@ def set_make_var(text: str, name: str, value: str) -> str:
 GOLANGCI_PLATFORMS = ["darwin-arm64", "linux-amd64", "linux-arm64"]
 HADOLINT_PLATFORMS = ["macos-arm64", "linux-x86_64", "linux-arm64"]
 ATLAS_PLATFORMS = ["darwin-arm64", "linux-amd64", "linux-arm64"]
+BUF_PLATFORMS = ["Darwin-arm64", "Linux-x86_64", "Linux-aarch64"]
 
 
 def github_latest(repo: str, cooldown: dt.date) -> tuple[str, dt.date]:
@@ -119,6 +120,7 @@ def atlas_latest(current: str, cooldown: dt.date) -> tuple[str, dt.date]:
 TOOLS = {
     "golangci-lint": {"file": BACKEND_MAKEFILE, "version_var": "GOLANGCI_LINT_VERSION"},
     "hadolint": {"file": ROOT_MAKEFILE, "version_var": "HADOLINT_VERSION"},
+    "buf": {"file": ROOT_MAKEFILE, "version_var": "BUF_VERSION"},
     "atlas": {"file": BACKEND_MAKEFILE, "version_var": "ATLAS_VERSION"},
 }
 
@@ -133,6 +135,8 @@ def latest(tool: str, cooldown: dt.date) -> tuple[str, dt.date]:
         return github_latest("golangci/golangci-lint", cooldown)
     if tool == "hadolint":
         return github_latest("hadolint/hadolint", cooldown)
+    if tool == "buf":
+        return github_latest("bufbuild/buf", cooldown)
     return atlas_latest(pinned("atlas"), cooldown)
 
 
@@ -147,6 +151,9 @@ def new_checksums(tool: str, version: str) -> dict[str, str]:
             fetch_text(f"https://github.com/hadolint/hadolint/releases/download/v{version}/checksums.sha256")
         )
         return {f"HADOLINT_SHA256_{p}": sums[f"hadolint-{p}"] for p in HADOLINT_PLATFORMS}
+    if tool == "buf":
+        sums = checksum_lines(fetch_text(f"https://github.com/bufbuild/buf/releases/download/v{version}/sha256.txt"))
+        return {f"BUF_SHA256_{p}": sums[f"buf-{p}"] for p in BUF_PLATFORMS}
     out = {}
     for build, prefix in (("atlas", "ATLAS_SHA256"), ("atlas-community", "ATLAS_COMMUNITY_SHA256")):
         for p in ATLAS_PLATFORMS:

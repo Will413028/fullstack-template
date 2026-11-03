@@ -3,7 +3,11 @@
 
 Usage: python3 scripts/rename.py <name> [--module <go module path>]
 Run from the repository root. The module path defaults to github.com/Will413028/<name>/backend. Every import of the
-old module path is rewritten and `go build ./...` checks the result. Review the changes with `git diff`.
+old module path is rewritten, the generated Connect code is regenerated (`make -C backend gen`, which downloads the
+pinned buf), and `go build ./...` checks the result. Review the changes with `git diff`.
+
+The proto packages keep their root `app` (docs/adr/2026-11-03-api-contract-protobuf-connect.md D5), so the contract
+in api/ is not renamed.
 """
 
 import argparse
@@ -27,8 +31,11 @@ BRAND_FILES = (
     "AGENTS.md",
     "README.md",
 )
-# Text files under backend/ that may name the module path (imports, depguard rules).
+# Text files under backend/ that may name the module path (imports, depguard rules, buf.gen.yaml).
 MODULE_FILE_SUFFIXES = (".go", ".yml", ".yaml")
+# Generated Connect code (backend/Makefile GEN_DIRS): protoc-gen-go stores go_package, the module path included, with
+# a length prefix in each file's raw descriptor, so a text replacement would make it panic at init. It is regenerated.
+GENERATED_DIRS = (pathlib.PurePath("internal/gen"), pathlib.PurePath("internal/httpapi/rpc/testdata/gen"))
 NAME_PATTERN = re.compile(r"[a-z](?:[a-z0-9-]*[a-z0-9])?")
 
 
@@ -57,6 +64,8 @@ def rename_module(backend: pathlib.Path, old: str, new: str) -> list[pathlib.Pat
     for path in sorted(backend.rglob("*")):
         rel = path.relative_to(backend)
         if not path.is_file() or path.suffix not in MODULE_FILE_SUFFIXES or rel.parts[0] == "bin":
+            continue
+        if any(rel.is_relative_to(d) for d in GENERATED_DIRS):
             continue
         if update(path, lambda t: pattern.sub(new, t)):
             changed.append(path)
@@ -107,6 +116,10 @@ def main() -> int:
         go_files = [str(p) for p in changed if p.suffix == ".go"]
         if go_files:
             subprocess.run(["gofmt", "-w", *go_files], check=True)
+        print("Regenerating the Connect code for the new module path: make -C backend gen")
+        if subprocess.run(["make", "-C", "backend", "gen"], check=False).returncode != 0:
+            print("error: make -C backend gen failed after the rename", file=sys.stderr)
+            return 1
 
     print("Checking the backend builds: go build ./...")
     if subprocess.run(["go", "build", "./..."], cwd=backend, check=False).returncode != 0:

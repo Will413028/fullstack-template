@@ -1,0 +1,8 @@
+# Services that only the tests of internal/httpapi mount: one per caller class (Public, App, Admin) to reach the
+# Connect entry through NewHandler, and fixtures the startup and descriptor checks must reject. This module is not the
+# contract: it is outside ../api, so no breaking check and no frontend generation cover it, and a derived project
+# never serves it. `make gen` generates its Go code into gen/; `make buf-lint` lints it with the contract's rules.
+version: v2
+lint:
+  use:
+    - STANDARD

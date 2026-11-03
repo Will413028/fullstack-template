@@ -1,0 +1,136 @@
+syntax = "proto3";
+
+package app.testing.v1;
+
+// Thing is the resource every test service reads and writes.
+message Thing {
+  string id = 1;
+  string name = 2;
+}
+
+// TestingPublicService needs no session.
+service TestingPublicService {
+  rpc GetPublicThing(GetPublicThingRequest) returns (GetPublicThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc UpdatePublicThing(UpdatePublicThingRequest) returns (UpdatePublicThingResponse);
+}
+
+message GetPublicThingRequest {
+  string id = 1;
+}
+
+message GetPublicThingResponse {
+  Thing thing = 1;
+}
+
+message UpdatePublicThingRequest {
+  Thing thing = 1;
+}
+
+message UpdatePublicThingResponse {
+  Thing thing = 1;
+}
+
+// TestingAppService needs a signed-in user.
+service TestingAppService {
+  rpc GetAppThing(GetAppThingRequest) returns (GetAppThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc UpdateAppThing(UpdateAppThingRequest) returns (UpdateAppThingResponse);
+}
+
+message GetAppThingRequest {
+  string id = 1;
+}
+
+message GetAppThingResponse {
+  Thing thing = 1;
+}
+
+message UpdateAppThingRequest {
+  Thing thing = 1;
+}
+
+message UpdateAppThingResponse {
+  Thing thing = 1;
+}
+
+// TestingAdminService needs a signed-in admin.
+service TestingAdminService {
+  rpc GetAdminThing(GetAdminThingRequest) returns (GetAdminThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc UpdateAdminThing(UpdateAdminThingRequest) returns (UpdateAdminThingResponse);
+}
+
+message GetAdminThingRequest {
+  string id = 1;
+}
+
+message GetAdminThingResponse {
+  Thing thing = 1;
+}
+
+message UpdateAdminThingRequest {
+  Thing thing = 1;
+}
+
+message UpdateAdminThingResponse {
+  Thing thing = 1;
+}
+
+// The services below are fixtures the checks must reject; the tests mount them only to see NewHandler refuse.
+
+// TestingInternalService belongs to no caller class: its name ends in none of PublicService, AppService, AdminService.
+service TestingInternalService {
+  rpc GetInternalThing(GetInternalThingRequest) returns (GetInternalThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message GetInternalThingRequest {
+  string id = 1;
+}
+
+message GetInternalThingResponse {
+  Thing thing = 1;
+}
+
+// TestingSideEffectAppService marks a method that changes state as NO_SIDE_EFFECTS, so browsers could call it with GET,
+// which CrossOriginProtection does not check.
+service TestingSideEffectAppService {
+  rpc GetSideEffectThing(GetSideEffectThingRequest) returns (GetSideEffectThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc UpdateSideEffectThing(UpdateSideEffectThingRequest) returns (UpdateSideEffectThingResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message GetSideEffectThingRequest {
+  string id = 1;
+}
+
+message GetSideEffectThingResponse {
+  Thing thing = 1;
+}
+
+message UpdateSideEffectThingRequest {
+  Thing thing = 1;
+}
+
+message UpdateSideEffectThingResponse {
+  Thing thing = 1;
+}
+
+// TestingOrphanAppService updates a resource it has no Get for, and returns something other than the resource.
+service TestingOrphanAppService {
+  rpc UpdateOrphanThing(UpdateOrphanThingRequest) returns (UpdateOrphanThingResponse);
+}
+
+message UpdateOrphanThingRequest {
+  Thing thing = 1;
+}
+
+message UpdateOrphanThingResponse {}

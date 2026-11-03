@@ -1,0 +1,21 @@
+# Go code for the public API in ../api (Protobuf + Connect); `make gen` runs it, `make gen-check` fails when the
+# committed code is stale. The plugins are pinned in tools/go.mod and run locally (no remote plugins). Error details
+# use genproto's errdetails instead of generated googleapis code: Go's registry accepts a full name only once.
+version: v2
+# Empty each plugin's out directory first, so a deleted proto leaves no stale file.
+clean: true
+managed:
+  enabled: true
+  override:
+    # make rename rewrites this module path, then regenerates: the path is also inside each file's raw descriptor.
+    - file_option: go_package_prefix
+      value: github.com/Will413028/template-go-nextjs/backend/internal/gen
+plugins:
+  - local: [go, tool, -modfile=tools/go.mod, protoc-gen-go]
+    out: internal/gen
+    opt: paths=source_relative
+  - local: [go, tool, -modfile=tools/go.mod, protoc-gen-connect-go]
+    out: internal/gen
+    opt: paths=source_relative
+inputs:
+  - directory: ../api

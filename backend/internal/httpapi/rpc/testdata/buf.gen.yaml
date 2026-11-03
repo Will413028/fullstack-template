@@ -1,0 +1,19 @@
+# Go code for the test services in this directory (buf.yaml); run from here by `make gen`, plugins from tools/go.mod.
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc/testdata/gen
+plugins:
+  - local: [go, tool, -modfile=../../../../tools/go.mod, protoc-gen-go]
+    out: gen
+    opt: paths=source_relative
+  - local: [go, tool, -modfile=../../../../tools/go.mod, protoc-gen-connect-go]
+    out: gen
+    opt: paths=source_relative
+inputs:
+  - directory: .
+    exclude_paths:
+      - gen

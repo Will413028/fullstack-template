@@ -24,6 +24,7 @@ MAX_LINES = 1000
 LOCKS = "scripts/quality-locks.json"
 # Files whose edits can switch a check off or lower a bar. A new checker's configuration belongs here.
 GATE_FILES = {
+    "api/buf.yaml",
     "backend/.golangci.yml",
     "backend/.squawk.toml",
     "frontend/.dependency-cruiser.cjs",
