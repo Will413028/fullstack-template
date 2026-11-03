@@ -63,8 +63,8 @@ CREATE UNIQUE INDEX sessions_id_key ON sessions (id);
 | 二進位（雜湊等） | `bytea` + `CHECK (octet_length(x) = n)` | hex 字串存 `text` |
 
 - 主鍵由 DB 的 `uuidv7()`（PostgreSQL 18 內建）產生，JSON 裡是字串。UUIDv7 依時間排序，可以直接當 keyset 分頁的排序鍵（ADR go-backend D3）。
-- 長度與 enum 的 CHECK 數值必須和 `backend/api/openapi.yaml` 一致：契約是第一道防線，CHECK 是第二道，任何不合長度或 enum 的資料在 DB 層就寫不進去（ADR go-backend Expected Outcome）。
-- 新增狀態值時，在同一個 PR 改契約的 `enum` 與 `schema.sql` 的 CHECK。
+- 長度與 enum 的 CHECK 數值必須和模組 service 的檢查一致（`api/` 的 proto 註解寫出同一個上限）：service 是第一道防線，CHECK 是第二道，任何不合長度或 enum 的資料在 DB 層就寫不進去（ADR go-backend Expected Outcome）。
+- 新增狀態值時，在同一個 PR 改 proto 的 `enum`、service 的檢查與 `schema.sql` 的 CHECK。
 
 ```sql
 -- 正確：internal/modules/auth/schema.sql
@@ -204,7 +204,7 @@ err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 - **NEVER** 繞過 sqlc：在 Go 裡組 SQL 字串、用 ORM、手改生成碼
 - **NEVER** 在模組的查詢讀其他模組的表；**NEVER** 新增指向 `users` 以外的跨模組 FK
 - **NEVER** 用 `serial` 或 `int` 自增當主鍵；主鍵一律 `uuid DEFAULT uuidv7()`
-- **NEVER** 用 `varchar(n)`；有長度限制用 `text` + CHECK，數值與契約一致
+- **NEVER** 用 `varchar(n)`；有長度限制用 `text` + CHECK，數值與 service 的檢查一致
 - **NEVER** 用 PG `ENUM` 型別，或讓狀態欄沒有 `CHECK (x IN (...))`
 - **NEVER** 存不帶時區的時間；**NEVER** 用 `float` 存金額
 - **NEVER** 對資源表寫一個不設 `updated_at = now()` 的 UPDATE 查詢

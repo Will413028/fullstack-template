@@ -86,24 +86,26 @@ Same origin → the browser calls /api on the page's own origin; on Vercel
               Server-side calls use /api on NEXT_PUBLIC_APP_URL the same way.
               No CORS, no API URL in the bundle, no secret in Next's code.
 
-Sign up → POST /api/users (JSON) → 201 with the User; the backend sets the
+Sign up → UserPublicService.CreateUser → the User; the backend sets the
           session cookie (__Host-session, or session with COOKIE_SECURE=false)
-Sign in → POST /api/sessions (JSON) → 201 with a Session; the user is .user
+Sign in → SessionPublicService.CreateSession → the Session; the user is .user
 
 API call → the browser sends the cookie on its own (same origin); JS never
            reads it
 
-401 → the client sends the user to /login. There is no refresh: the session is
-      one opaque token, valid until its idle or absolute limit. A 401 from
-      signing in is a wrong password and stays in the form.
+unauthenticated → the client sends the user to /login. There is no refresh:
+      the session is one opaque token, valid until its idle or absolute
+      limit. Signing in with a wrong password (reason INVALID_CREDENTIALS)
+      stays in the form.
 
 Protected route → proxy.ts redirects only when no session cookie is present
                  (UX only; it never sends /login on to /overview, because the
                  cookie may be stale). The (dashboard) layout calls
-                 getServerUser() server-side: a 401 redirects to /login, any
+                 getServerUser() server-side: unauthenticated redirects to /login, any
                  other failure throws to the error boundary (the real gate)
 
-Sign out → DELETE /api/sessions/current → 204; the backend clears the cookie
+Sign out → SessionPublicService.DeleteCurrentSession; the backend clears the
+           cookie
 ```
 
 ## Adding a Feature Module

@@ -36,7 +36,7 @@
 | `app.items.v1.ItemAppService` | `CreateItem`、`GetItem`、`ListItems`、`UpdateItem`、`DeleteItem` | 登入者，只限自己的 item |
 | `app.admin.users.v1.UserAdminService` | `ListUsers`、`GetUser`、`UpdateUser`、`DeleteUser`、`GetSignInLock`、`ResetSignInLock` | 只有 admin |
 
-誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。App 與 Admin 的匿名呼叫、入口限流在 net/http 這一層、Connect 解碼請求之前處理（`httpapi/server.go` 的 `connectEntry`）；admin 的角色由 interceptor 檢查（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）包住所有請求。`/api` 底下其他的路徑仍經過 REST 的 validator，但 `backend/api/openapi.yaml` 已經沒有 operation，一律回 404 problem；[計畫](../plans/2026-11-03-connect-contract.md)的步驟 5 刪掉 REST 層。另有測試用的 service（`httpapi/rpc/testdata`），只在測試裡掛載。
+誰能呼叫跟著 service 的名稱走：`<Module>PublicService` 匿名、`<Module>AppService` 登入者、`<Module>AdminService` 只有 admin；名稱不屬於這三類的 service 不能掛載，server 啟動就失敗（`rpc.NewMux`）。App 與 Admin 的匿名呼叫、入口限流在 net/http 這一層、Connect 解碼請求之前處理（`httpapi/server.go` 的 `connectEntry`）；admin 的角色由 interceptor 檢查（`rpc.NewMux`）。外層的保護（request id、存取日誌、安全標頭、panic、CrossOriginProtection、body 上限）包住所有請求。不是 procedure 的路徑（`/api` 底下或其他）一律回 Connect 的 `not_found`。另有測試用的 service（`httpapi/rpc/testdata`），只在測試裡掛載。
 
 不在範圍內：`items` 的各個 operation（擁有者範圍之外）、主機與 Docker 的強化、Caddy 的 TLS 設定。
 
@@ -87,7 +87,6 @@
 | 讀到別人的使用者資料或 session | 非擁有者一律 404（`auth/auth.go`、`auth/queries/sessions.sql`）。測試：`TestGetOtherUserNotFound`、`TestDeleteOtherUsersSession`、`TestNonAdminCannotListUsers` | 已緩解 |
 | 內部錯誤洩漏細節 | 非預期錯誤變成不帶細節的 `internal`，細節只進日誌（`httpapi/rpc/errors.go` 的 `Convert`、`LogConverted`）。測試：`TestConvertUnexpectedIsInternal`、`TestInternalErrorLogged`、`TestUnhandledErrorHidden` | 已緩解 |
 | 密碼送到 HIBP | 只送 SHA-1 的前 5 個 hex 字元，帶 `Add-Padding`（`hibp.go`）。測試：`TestBreached` | 已緩解。HIBP 網路錯誤的訊息含請求網址，也就是同樣的 5 個字元，會寫進本機日誌（推論自 `net/http` 的 `*url.Error`）：接受，內容與送出去的相同 |
-| API 契約與 Swagger UI 外露 | 只在 `MODE=dev` 提供，預設 `prod`。測試：`TestDocs` | 已緩解 |
 | backend ↔ PostgreSQL 傳輸未加密 | 連線必須 `sslmode=verify-full`；只有設定 `DATABASE_PLAINTEXT=same-host` 才接受不加密，範本只在 compose 裡設定（同一台主機的內部網路，資料不出主機）。改接遠端資料庫卻沒加密時，backend 與 migrate 拒絕啟動（`internal/platform/config`）。測試：`TestDatabaseURLRequiresVerifiedTLS` | 已緩解。compose 內部不加密是接受的取捨：要防同一網路上被入侵的容器，或資料庫搬到另一台主機時，改用 TLS |
 
 ## Denial of service（阻斷服務）

@@ -2,7 +2,7 @@
 
 Production-ready fullstack monorepo for new web projects.
 
-**Backend:** Go (modular monolith, OpenAPI contract-first, pgx + sqlc, Atlas migrations, opaque session cookies)
+**Backend:** Go (modular monolith, Protobuf + Connect contract, pgx + sqlc, Atlas migrations, opaque session cookies)
 **Frontend:** Next.js 16 (App Router, TypeScript, Tailwind v4, shadcn/ui, i18n, generated API client)
 **Infra:** API on Docker Compose behind Caddy, frontend on Vercel, one origin for the browser (Vercel routes `/api`)
 
@@ -32,7 +32,6 @@ cd frontend && pnpm install && pnpm dev
 
 # App:      http://localhost:3000
 # API:      http://localhost:3000/api
-# API docs: http://localhost:3000/api/docs (MODE=dev)
 
 # 4. Create an admin account (in another terminal)
 make seed ADMIN_ACCOUNT=admin
@@ -47,7 +46,7 @@ wait), secret scanning and push protection. The checks in `.github/workflows/` r
 ## Project Structure
 
 ```
-├── backend/                Go API (contract in backend/api/openapi.yaml)
+├── backend/                Go API (contract in api/, Protobuf)
 ├── frontend/               Next.js 16 (React 19, TypeScript, Tailwind v4)
 ├── deploy/                 Caddyfile, PostgreSQL initdb scripts
 ├── docker-compose.yml      Production API stack (the frontend deploys to Vercel)
@@ -84,7 +83,6 @@ make reset-db ADMIN_ACCOUNT=<name>  # Reset DB (clear volumes + migrate + seed)
 make run                  # API server (port 8000) with backend/.env
 make test                 # Integration tests (Docker)
 make check                # Everything CI runs
-make gen-openapi          # Regenerate the HTTP server from the REST contract
 make gen                  # Regenerate the Connect code from api/ (Protobuf)
 make sqlc                 # Regenerate query code
 ```
@@ -121,9 +119,9 @@ See `AGENTS.md` for the overview, or:
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go, stdlib `net/http`, oapi-codegen (strict server) + kin-openapi validator, pgx, sqlc, `log/slog` |
+| Backend | Go, stdlib `net/http`, connect-go, pgx, sqlc, `log/slog` |
 | Database | PostgreSQL 18, Atlas declarative schema (migrations generated from `schema.sql`), UUIDv7 keys |
-| API | OpenAPI 3.0.3 contract-first, RFC 9457 problems, keyset pagination, JSON Merge Patch |
+| API | Protobuf + Connect (`/api/<package>.<Service>/<Method>`), buf lint and breaking checks, Connect errors with `ErrorInfo`/`BadRequest`, AIP-158 pagination, AIP-134 `update_mask` |
 | Auth | Opaque DB sessions in a `__Host-` HttpOnly cookie, `CrossOriginProtection`, argon2id, per-account throttling, breached-password list |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
 | UI | shadcn/ui, Lucide icons |

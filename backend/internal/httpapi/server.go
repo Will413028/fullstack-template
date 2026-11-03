@@ -183,7 +183,7 @@ func assemble(deps Deps, connect http.Handler) http.Handler {
 
 // protect applies the protections every request gets, outermost first:
 //   - withRequestInfo resolves the client address and the request id. It is outermost so that every log line,
-//     the panic log included, and every response, problems included, carry the request id.
+//     the panic log included, and every response, errors included, carry the request id.
 //   - accessLog logs the request once it ends, with the status recoverPanics chose.
 //   - securityHeaders, set before any handler writes.
 //   - A panic becomes a logged internal error.

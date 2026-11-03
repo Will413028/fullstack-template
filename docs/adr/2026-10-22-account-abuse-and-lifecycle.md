@@ -82,6 +82,8 @@ tags: [fullstack-template, decision, auth, security, privacy]
 
 ## Review Notes
 
+- 2026-11-04：對外契約改用 Protobuf＋Connect（[對外 API 的契約改用 Protobuf＋Connect](2026-11-03-api-contract-protobuf-connect.md)），上面的決定不變，只是 REST 的路徑與狀態碼換成 RPC：D1 的 409 `last_admin` 是 `failed_precondition`（`LAST_ADMIN`）；D3 的 `DELETE /api/users/me` 是 `UserAppService.DeleteCurrentUser`，403 `reauthentication_required` 是 `permission_denied`（`REAUTHENTICATION_REQUIRED`），admin 的 `DELETE /api/users/{id}` 是 `UserAdminService.DeleteUser`；D4 的 `GET`／`DELETE /api/users/{id}/sign-in-lock` 是 `UserAdminService.GetSignInLock`／`ResetSignInLock`。D3 理由裡「RFC 9110 沒有定義 DELETE 的 body」對 RPC 已不成立，重新登入的理由改記在新 ADR。
+
 ## Related
 
 - 來源：2026-10-22 方法論簡報，由沒參與的 subagent 核對來源與批判（13 項發現，3 項 HIGH 已採納），repo 擁有者回覆「都照建議」。

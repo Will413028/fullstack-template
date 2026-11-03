@@ -331,7 +331,7 @@ func TestConnectUnauthenticatedBeforeDecoding(t *testing.T) {
 }
 
 // A Connect path whose procedure is not mounted is not_found, without asking for a session (TestUnknownPathNotFound
-// covers REST paths).
+// covers paths that are not a procedure).
 func TestConnectUnknownProcedureNotFound(t *testing.T) {
 	h := newConnectAPI(t, Deps{})
 	for _, procedure := range []string{

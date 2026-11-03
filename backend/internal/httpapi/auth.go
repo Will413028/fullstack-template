@@ -47,7 +47,8 @@ func sessionTokenFrom(ctx context.Context) string {
 	return v
 }
 
-// currentUser returns the signed-in user; the validator guarantees one for operations that declare security.
+// currentUser returns the signed-in user; connectEntry guarantees one for App and Admin
+// procedures.
 func currentUser(ctx context.Context) (auth.User, bool) {
 	u, ok := ctx.Value(currentUserKey{}).(auth.User)
 	return u, ok

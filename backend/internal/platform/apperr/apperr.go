@@ -1,6 +1,6 @@
 // Package apperr is how services report expected failures: a kind that decides the response's status, and a stable
-// code clients translate. Services return *Error; internal/httpapi turns it into an RFC 9457 problem (problem.go) or,
-// for Connect, into a Connect code with error details (internal/httpapi/rpc). Any other error is unexpected and
+// code clients translate. Services return *Error; internal/httpapi/rpc turns it into a Connect code with error
+// details. Any other error is unexpected and
 // becomes an internal error whose details stay in the log.
 package apperr
 
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Kind is the category of failure; each maps to one problem type and one Connect code. The two conflicts follow
+// Kind is the category of failure; each maps to one Connect code. The two conflicts follow
 // gRPC's status-code guidance: AlreadyExists when the thing to create exists, FailedPrecondition when the system is
 // not in the state the call requires (retrying will not help until that state changes).
 type Kind int
