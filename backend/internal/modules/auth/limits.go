@@ -15,8 +15,8 @@ import (
 const (
 	minAccount  = 3
 	maxAccount  = 50
-	minPassword = 15 // NIST SP 800-63B-4: at least 15 when the password is the only factor
-	maxPassword = 128
+	minPassword = 15      // NIST SP 800-63B-4: at least 15 when the password is the only factor
+	maxPassword = 1 << 20 // mutation M6: no practical maximum
 )
 
 // accountPattern is the characters an account name may use.

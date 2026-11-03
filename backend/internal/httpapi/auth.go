@@ -164,3 +164,6 @@ func (c Cookie) cookie(name, value string, maxAge int, sameSite http.SameSite) s
 		Name: name, Value: value, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: c.Secure, SameSite: sameSite,
 	}).String()
 }
+
+// mutation M1 keeps the builder
+var _ = Cookie.device

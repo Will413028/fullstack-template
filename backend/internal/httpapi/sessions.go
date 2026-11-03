@@ -63,20 +63,20 @@ func (h sessionPublicHandler) CreateSession(ctx context.Context, req *connect.Re
 		address = limitKey(ip).String()
 	}
 	client := auth.Client{Address: address, DeviceToken: deviceTokenFrom(ctx)}
-	u, sess, err := h.auth.SignIn(ctx, req.Msg.GetAccount(), req.Msg.GetPassword(), sessionTokenFrom(ctx), client)
+	u, sess, err := h.auth.SignIn(ctx, req.Msg.GetAccount(), req.Msg.GetPassword(), "", client)
 	if err != nil {
 		return nil, err
 	}
 	resp := connect.NewResponse(&sessionsv1.CreateSessionResponse{Session: toSession(sess.SessionInfo, u, sess.ID)})
 	resp.Header().Add("Set-Cookie", h.cookie.set(sess))
-	if sess.Device != nil {
-		resp.Header().Add("Set-Cookie", h.cookie.device(sess.Device))
-	}
 	return resp, nil
 }
 
 // DeleteCurrentSession signs out the session the request carries, valid or not, and clears the cookie.
 func (h sessionPublicHandler) DeleteCurrentSession(ctx context.Context, _ *connect.Request[sessionsv1.DeleteCurrentSessionRequest]) (*connect.Response[sessionsv1.DeleteCurrentSessionResponse], error) {
+	if _, err := signedIn(ctx); err != nil {
+		return nil, err
+	}
 	if err := h.auth.SignOut(ctx, sessionTokenFrom(ctx)); err != nil {
 		return nil, err
 	}
@@ -158,9 +158,7 @@ func (h sessionAppHandler) DeleteSession(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 	resp := connect.NewResponse(&sessionsv1.DeleteSessionResponse{})
-	if id == currentSessionID(ctx) {
-		resp.Header().Add("Set-Cookie", h.cookie.clear())
-	}
+	resp.Header().Add("Set-Cookie", h.cookie.clear())
 	return resp, nil
 }
 

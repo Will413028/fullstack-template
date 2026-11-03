@@ -213,9 +213,6 @@ func (s *Service) CreateUser(ctx context.Context, account, password string) (Use
 // EnsureAdmin creates an admin account unless the account exists, in which case nothing changes and created is
 // false. The account and password go through the same rules as CreateUser.
 func (s *Service) EnsureAdmin(ctx context.Context, account, password string) (created bool, err error) {
-	if err := checkNewAccount(account, password); err != nil {
-		return false, err
-	}
 	hash, err := s.newPasswordHash(ctx, password)
 	if err != nil {
 		return false, err

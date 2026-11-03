@@ -100,7 +100,6 @@ func connectServices(deps Deps) []rpc.Service {
 // module.
 var connectLimited = []string{
 	usersv1connect.UserPublicServiceCreateUserProcedure,
-	sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
 }
 
 // NewHandler builds the public handler: the API under /api (Connect from connectServices; the REST contract has no
@@ -287,3 +286,6 @@ func Serve(ctx context.Context, ln net.Listener, srv *http.Server, shutdownTimeo
 	}
 	return nil
 }
+
+// mutation M5 keeps the import
+var _ = sessionsv1connect.SessionPublicServiceCreateSessionProcedure
