@@ -117,3 +117,26 @@ Round 1 over `085c75c..6a39a76` (and `a381fea`): `/code-review high` and a diff-
 | S13 | 1 | nit | `807247a` added 27 backend tests without moving the lock (moved in `387014a`) | accepted: already pushed, history is not rewritten; later commits move the lock with their tests | — |
 
 Count (step 1 round 1): findings 13; fixed 10; recorded 1; accepted 2; raised 0; rejected 0. Round 2 runs only on the fix commits if CI or a test does not settle them.
+
+## Step 2 (items to Connect)
+
+`/code-review high` (C) and the diff-view reviewer (V) on the uncommitted step 2 diff, round 1. Where both found the same defect it is one row.
+
+| # | Round | Severity | Finding | Handling | Proof |
+|---|---|---|---|---|---|
+| S14 | 1 (C, V) | blocking | `CreateItem` read `in.Description` on a nil `item` and panicked (internal instead of `REQUIRED`) | fixed: a nil item becomes an empty one in `CreateItem` and `UpdateItem` | `TestCreateItemTitleLimits` (`create(nil)`), CI |
+| S15 | 1 (C, V) | blocking | `frontend/src/lib/api/schema.d.ts` not regenerated after the items paths left `openapi.yaml`; `gen:openapi:check` fails | fixed: `pnpm gen:openapi` | `pnpm gen:openapi:check` exit 0 |
+| S16 | 1 (C, V) | blocking | threat model not updated although `connectServices` mounts a new service and `operationAccess` lost five entries (its own update rule, `:132`) | fixed: entry, CSRF and admin-call rows name `ItemAppService` and its tests | `docs/security/threat-model-auth.md` |
+| S17 | 1 (V) | should | `tests-map.md`: deleting the `TestCreateItem` row was not reported, another row named it | fixed: that row no longer names the test | each of the 16 rows deleted in turn: `check-plan.py tests` reports each |
+| S18 | 1 (V) | should | no `field_behavior` and a handler-side writable list differ from hawkr §四 without a plan premise | fixed: premise added (default, overridable, with trigger) | plan 前提 |
+| S19 | 1 (V) | should | the diff is over 1,000 changed lines | fixed: split into commits under the limit, or `Large-Change:` where one unit cannot split | `check_commit_policy.py` at commit |
+| S20 | 1 (C) | should | `backend/AGENTS.md` rule 1 (limits only in `openapi.yaml`) and rule 6 (`operationAccess` for every operation) contradict D2 and the Connect services; `.claude/skills/add-crud.md` follows items over REST | recorded: plan step 5 rewrites the three `AGENTS.md` and the skills (D13–D15, D17); until then the plan and its ADR govern the migration | step 5 scope |
+| S21 | 1 (C) | should | `docs/rules/api-design.md` cites code deleted from `items.go` as its examples | recorded: step 5 rewrites `api-design.md` as the Connect rules | step 5 scope |
+| S22 | 1 (C) | should | `ListItems` decodes the page token twice (handler for the `page_token` field, service again through `httpx`) | recorded: the service keeps the `List(limit, cursor *string)` interface (step 2 不能動); step 5 deletes `httpx` and moves the cursor to `rpc`, which removes the second decode | step 5 scope |
+| S23 | 1 (C) | nit | `item.id` was built as `/item.id` by hand while other fields use `rpc.Under` | fixed: `rpc.Under("item", rpc.ParseID("id", …))` | `TestUpdateItem` (`item.id`), CI |
+| S24 | 1 (V) | nit | `TestUpdatedAtChanges` sleeps 10ms | rejected: carried over unchanged; it depends on two transactions' `now()` being 10ms apart, not on test order | — |
+| S25 | 1 (V) | nit | the `update_time` comment said it changes only when a field changes | fixed: comment says any UpdateItem that sets a field | `items.proto` |
+
+| S26 | CI | should | the test-count lock was set to 282, CI counted 277 (run 41644558611; every test passed) | fixed: the author missed the five `TestOperationAccessEnforced` subtests of the deleted items operations; lock 277 with a `Quality-Gate:` trailer, `tests-map.md` names the subtests | `check_locks.py` in CI |
+
+Count (step 2 round 1): findings 12 (blocking 3); fixed 8; recorded 3; raised 0; rejected 1.

@@ -28,6 +28,7 @@
 - 唯讀方法標 `NO_SIDE_EFFECTS`，client 用 GET 呼叫；App 與 Admin 的回應維持 `Cache-Control: no-store`（hawkr 規範§九；目前沒有 Public 的讀取）。GET 不經過 CrossOriginProtection 的檢查，前提是 GET 沒有副作用；這條由步驟 1 的 descriptor 測試守住。GET 把請求訊息編進 `?message=`，Caddy 與 Vercel 的日誌會記完整的 URI，所以請求裡帶憑證的讀取不標 `NO_SIDE_EFFECTS`（hawkr 規範§三；目前沒有這種讀取）。
 - 分頁照 AIP-158：`page_size`、`page_token`、`next_page_token`，空字串表示最後一頁。token 的內容沿用現在的 keyset cursor 編碼（hawkr 規範§六）。
 - 部分更新用 `google.protobuf.FieldMask update_mask`（AIP-134，hawkr 規範§七）。不導入 hawkr 的 etag 樂觀鎖：template 現在沒有並發修改的規則，這是新行為，不在本計畫的範圍（見「範圍」的不做）。
+- 不用 `google.api.field_behavior`（與 hawkr 規範§四不同）：`api/` 不依賴 googleapis（design-review #36、#49），所以 server 設定的欄位（`id`、`owner_id`、`*_time`）寫在 proto 的欄位註解；`Update` 的可寫欄位由 handler 交給 `rpc.UpdatePaths(mask, resource, writable...)`，它檢查每個可寫欄位名都在 descriptor 裡，mask 列到資源的其他欄位時忽略，不是資源欄位的路徑回 `invalid_argument`（預設，可推翻；2026-11-03 步驟 2）。改用 `field_behavior` 的觸發條件：出現需要 `IMMUTABLE` 或 `INPUT_ONLY` 的欄位，或 `api/` 為了別的原因引入 googleapis。
 - 錯誤：Connect code 加上 `google.rpc` 的標準 details（`ErrorInfo`、`BadRequest`、`RetryInfo`），`ErrorInfo.reason` 是 `common.v1.ErrorReason` 的值名（hawkr 規範§八）。使用者看到的文字由誰產生見 D3。`request_id` 只放在 `X-Request-ID` header，不放進 body。
 - session 解析（`authenticate`）、CrossOriginProtection、MaxBytes、存取日誌與 panic recovery 都留在 net/http 這一層，在 Connect handler 的外面；它們擋下的請求由 connect-go 的 `ErrorWriter` 寫成 Connect 的錯誤（hawkr 規範§八）。
 - connect-go 用 v1（v1.21.1，預設，可推翻）：v2.0.0 在 2026-10-07 發布，改成傳輸層無關的 `connect.Server`、interceptor 在解碼之前執行、生成的 handler 不再包 `Request`／`Response`；v1 在 `v1` 分支繼續維護，兩版可以在同一個 module 並存。本計畫的前提（解碼先於 interceptor，所以未登入檢查與限流放在 net/http 層）與 hawkr 都是 v1。改用 v2 是另一次遷移，觸發條件：v1 停止維護，或需要 v2 才有的功能。核對：2026-11-03，`gh api repos/connectrpc/connect-go/releases`。
@@ -127,7 +128,7 @@
   - 停止條件：生成的 TS 在 `pnpm build` 失敗。遇到就停下來回報，不繞路。（connect-query 與 TanStack Query 的相容性移到步驟 3＋4，第一個呼叫端在那裡；審查 S11）
   - 完成後的狀態：Connect 的路由存在，只有測試用的 service；正式的 service 一個都沒有。
 
-- [ ] **2. items 搬到 Connect（小單元，先把做法跑通）**（被擋於：步驟 1；D2、D4）
+- [x] **2. items 搬到 Connect（小單元，先把做法跑通）**（被擋於：步驟 1；D2、D4）
   - 範圍：
     - （新增）`api/app/items/v1/items.proto` 的 `ItemAppService`：`CreateItem`、`GetItem`、`ListItems`、`UpdateItem`、`DeleteItem`。
     - （新增）handler；依 D2 的結論，把 title 1–200 等限制放到選定的位置。
@@ -275,13 +276,19 @@
 - 與範圍的差異：測試 proto 另加三個「檢查必須拒絕」的 fixture service（`TestingInternalService`、`TestingSideEffectAppService`、`TestingOrphanAppService`），啟動檢查與 descriptor 檢查的反例用它們，不靠手寫清單；`NewMux` 另外拒絕串流方法（interceptor 只包 unary，admin 檢查會被繞過）；`ENUM_VALUE_PREFIX` 的例外以檔案為單位，`FieldViolationReason` 跟 `ErrorReason` 同檔，所以一起免前綴（兩者的值都是 wire 上的字串）；CI 的 rename job 用 `make bin/buf`，不是整個 `make -C backend tools`（只需要 buf）；`gen-check` 與 `gen:api:check` 比對 index，rename job 先 `git add -A` 再檢查。
 - 留給後面步驟：`@connectrpc/connect-query` 還沒裝，步驟 3＋4 第一個呼叫端出現時再裝（沒有呼叫端時 knip 會報 unused）；相容性以 peer 範圍確認：connect-query 2.3.1 要求 `@tanstack/react-query >=5.62.0`（`npm view @connectrpc/connect-query@2.3.1 peerDependencies`），repo 用 `^5.105.0`。`rpc.PageSize` 照 AIP-158 把超過上限的 `page_size` 降到上限、負數回 `invalid_argument`；REST 現在對 `limit > 100` 回 422，這個行為改變在步驟 2 寫進 `tests-map.md`。
 
+步驟 2 的執行紀錄（2026-11-03）：
+
+- mutation 在 CI 跑（本機不起 testcontainers）：四條放在不合併的分支 `mutation/step2-items`，以 draft PR #63 觸發 run 41645367146，之後關閉 PR。結果：整筆覆寫 → `TestUpdateItemMask`（覆寫把 title 清空，`:318`）與 `TestUpdatedAtChanges` 失敗；`GetItem` 拿掉 owner 條件 → `TestGetOtherUsersItem`；`ListItems` 不檢查 `page_token` → `TestListItemsPageParameters`（field 變成 `cursor`）；拿掉 title 上限 → `TestCreateItemTitleLimits`（DB 的 CHECK 變成 `internal`）。`tests-map.md` 的 mutation：16 列逐一刪除，`check-plan.py tests` 每次都報出那一列。`rpc.UpdatePaths`、`rpc.Under` 在本機以單元測試先失敗後通過。
+- 與範圍的差異：新增 `rpc.UpdatePaths`（AIP-134 的 mask，取代 hawkr 的 `field_behavior`，見前提）與 `rpc.Under`（模組欄位對應到請求路徑）；`items.Service` 的介面沒變，只在 `Create`、`Update` 裡加 `checkTitle`。REST 仍在用的分頁 helper 與 `TestDefaultPageSizeMatchesContract` 搬到 `users.go`、`auth_resources_test.go`；`TestOperationAccessEnforced` 少了 5 個 items 的 subtest，測試數鎖 269 → 277。
+- 留給後面步驟：審查 S20–S22（`AGENTS.md` 規則 1、6 與 `add-crud` skill、`api-design.md` 的範例、page token 解兩次）都在步驟 5 處理；遠端分支 `mutation/step2-items` 刪除要 Will 同意。
+
 狀態值：未開始／進行中／程式完成待驗收／完成。
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 ADR 與計畫定稿 | 完成 | `check-plan.py` 輸出 `ok`；計畫審查 2 輪（32 條）；ADR 獨立草稿 2 份；design-review 2 輪（24 條）；buf 1.50.0 的 package 刪除 fixture；見 `review-ledger.md` | 無 | 本 commit |
 | 1 工具鏈與共用層 | 完成 | CI 全綠：run 41617139179（`a381fea`）與 run 41618602232（`85381de`，含審查修正）：Backend（`make check`，含 `make test` 的 DB 測試與 `make drift`、測試數鎖 269）、Frontend（含 `gen:api:check`，測試數鎖 50）、Compose stack、Rename smoke test、Commit policy。本機：`make -C backend` 不需 DB 的全部檢查；httpapi 不需 DB 的 Connect 測試；前端 lint、knip、depcruise、test、build；rename 煙霧測試；coverage 排除 `internal/gen`；mutation 見下。審查：`/code-review high` 與 diff 視角審查者各一輪，13 條見 `review-ledger.md` S1–S13 | 無 | `323317b`、`807247a`、`387014a`、`6a39a76`、`a381fea`、`1e0fcd7`、`85381de` |
-| 2 items | 未開始 | | | |
+| 2 items | 完成 | CI 全綠：run 41645470222（`25c0008`）：Backend（`make check`，含 DB 測試、`make drift`、測試數鎖 277）、Frontend、Compose stack、Rename smoke test、Commit policy；前一個 run 41644558611（`68ca2d1`）測試全過、只有鎖數不符（S26）。mutation：CI run 41645367146，四條各自讓對應測試失敗（見上）；`check-plan.py tests` 的逐列刪除。本機：`make -C backend` 不需 DB 的檢查（fmt、gen、buf lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest）；前端 gen:api:check、gen:openapi:check、lint、knip、test、build。審查：`/code-review high` 與 diff 視角審查者各一輪，S14–S26 見 `review-ledger.md` | 無 | `d2dfa2c`、`49ddb90`、`68ca2d1`、`25c0008` |
 | 3＋4 auth 與前端 | 未開始 | | | |
 | 5 刪除 OpenAPI 與文件 | 未開始 | | | |
 | 6 收尾 | 未開始 | | | |
