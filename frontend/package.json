@@ -12,8 +12,10 @@
     "start": "next start",
     "lint": "tsc --noEmit && biome check --error-on-warnings .",
     "format": "biome format --write",
-    "gen:api": "node scripts/gen-api.mjs",
-    "gen:api:check": "node scripts/gen-api.mjs --check",
+    "gen:api": "make -s -C .. bin/buf && ../bin/buf generate",
+    "gen:api:check": "pnpm gen:api && git diff --exit-code --stat -- src/generated && test -z \"$(git ls-files --others --exclude-standard -- src/generated)\" || { echo 'src/generated is stale: run pnpm gen:api and commit it'; exit 1; }",
+    "gen:openapi": "node scripts/gen-api.mjs",
+    "gen:openapi:check": "node scripts/gen-api.mjs --check",
     "check:deps": "knip",
     "check:arch": "depcruise src --config .dependency-cruiser.cjs",
     "test": "vitest run",
@@ -23,6 +25,9 @@
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 || exit 0; lefthook install || echo 'warning: lefthook install failed, git hooks are not active' >&2"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
+    "@connectrpc/connect": "2.3.0",
+    "@connectrpc/connect-web": "2.3.0",
     "@hookform/resolvers": "^6.0.0",
     "@tanstack/react-query": "^5.105.0",
     "@tanstack/react-query-devtools": "^5.105.0",
@@ -43,6 +48,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
+    "@bufbuild/protoc-gen-es": "2.16.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",

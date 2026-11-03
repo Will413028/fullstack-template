@@ -27,7 +27,7 @@ const output = COMMENT_HEADER + astToString(ast);
 if (process.argv.includes("--check")) {
   const current = await readFile(target, "utf8").catch(() => "");
   if (current !== output) {
-    console.error("src/lib/api/schema.d.ts is stale: run pnpm gen:api");
+    console.error("src/lib/api/schema.d.ts is stale: run pnpm gen:openapi");
     process.exit(1);
   }
 } else {

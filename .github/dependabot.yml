@@ -92,5 +92,9 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:
+      # the generated code (protoc-gen-es) and its runtime (@bufbuild/protobuf, @connectrpc/*) must move together:
+      # one PR, regenerated with pnpm gen:api
+      connect:
+        patterns: ["@bufbuild/*", "@connectrpc/*"]
       frontend-minor-patch:
         update-types: [minor, patch]
