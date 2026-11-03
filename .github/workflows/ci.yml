@@ -94,7 +94,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - run: make rename NAME=ci-probe
       - name: No file still names the template's module path
-        run: '! git grep -n "github.com/Will413028/fullstack-template/backend" -- backend'
+        run: '! git grep -n "github.com/Will413028/template-go-nextjs/backend" -- backend'
       - run: go vet ./...
         working-directory: backend
 
@@ -114,11 +114,7 @@ jobs:
           docker compose config --format json > /tmp/compose.json
           test "$(jq -c '.services.backend.secrets | map(.source)' /tmp/compose.json)" = '["db_app_password"]'
           test "$(jq -c '.services.migrate.secrets | map(.source)' /tmp/compose.json)" = '["db_owner_password"]'
-          test "$(jq -c '.services.frontend.secrets // []' /tmp/compose.json)" = '[]'
-          jq -e '.services.frontend.environment' /tmp/compose.json > /dev/null
-          if jq -r '.services.frontend.environment | keys[]' /tmp/compose.json | grep -E '^(DATABASE|MIGRATE|POSTGRES|DB_)'; then
-            echo "frontend receives database settings"; exit 1
-          fi
+          test "$(jq -c '.services.caddy.secrets | map(.source)' /tmp/compose.json)" = '["origin_secret","origin_secret_previous"]'
       # Logs hold client addresses and paths: every service rotates them (docs/privacy/data-inventory.md)
       - name: Every service rotates its logs
         run: test "$(jq -c '[.services | to_entries[] | select(.value.logging.options["max-size"] == null) | .key]' /tmp/compose.json)" = '[]'
@@ -130,17 +126,38 @@ jobs:
         run: |
           test "$(docker compose ps -a migrate --format '{{.ExitCode}}')" = 0
           docker compose exec -T backend /usr/local/bin/app healthcheck
-      - name: Caddy serves the API and the pages on one origin
+      # Caddy is the API's entry for Vercel (docs/adr/2026-11-03-frontend-on-vercel.md); these requests play Vercel's
+      # edge, which sends the origin secret, X-Real-IP and X-Forwarded-Host.
+      - name: Caddy passes only requests that carry the origin secret
         run: |
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/api/users/me)" = 401
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/en/login)" = 200
+          secret="$(cat .secrets/origin_secret)"
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code http://localhost/api/users/me)" = 403
+          test "$(code -H 'X-Origin-Secret: wrong' http://localhost/api/users/me)" = 403
+          # origin_secret_previous is empty outside a rotation: an empty header must not match it
+          test "$(code -H 'X-Origin-Secret;' http://localhost/api/users/me)" = 403
+          test "$(code -H "X-Origin-Secret: $secret" http://localhost/en/login)" = 404
+          test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' http://localhost/api/users/me)" = 401
+          # caddy's access log records request headers: the secret must not be written there
+          if docker compose logs caddy | grep -qF "$secret"; then echo "caddy logged the origin secret"; exit 1; fi
+      - name: Caddy hands the backend Vercel's client address, request id and site host
+        run: |
+          secret="$(cat .secrets/origin_secret)"
           # the backend believes caddy's request id, so caddy must not pass on the client's, or a client could write
           # any string into the log
-          id="$(curl -s -o /dev/null -D - -H 'X-Request-ID: client-chosen' http://localhost/api/users/me | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')"
+          id="$(curl -s -o /dev/null -D - -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Request-ID: client-chosen' http://localhost/api/users/me | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')"
           test -n "$id" && test "$id" != client-chosen
+          # the client address the backend logs is the X-Real-IP Vercel wrote, not caddy's peer or a client's XFF
+          curl -s -o /dev/null -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Real-IP: 203.0.113.7' -H 'X-Forwarded-For: 198.51.100.9' http://localhost/api/users/me
+          docker compose logs backend | grep -F "$id" > /dev/null
+          docker compose logs backend | grep 'users/me' | grep -F '203.0.113.7' > /dev/null
+          if docker compose logs backend | grep -qF '198.51.100.9'; then echo "the backend took the client's X-Forwarded-For"; exit 1; fi
+          # an old browser without Sec-Fetch-Site: CrossOriginProtection compares Origin with Host, which caddy sets
+          # to the site's host, so a same-site sign-in is not rejected as cross-origin
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: app.example.com' -H 'Origin: https://app.example.com' -H 'Content-Type: application/json' -d '{"account":"nobody","password":"wrong-password-123"}' http://localhost/api/sessions)" = 401
       - name: The app role cannot change the schema
         run: |
-          out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U fullstack_app -d fullstack -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
+          out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U template_go_nextjs_app -d template_go_nextjs -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
           echo "$out"
           grep -q 'permission denied for schema public' <<< "$out"
       - if: failure()
@@ -158,7 +175,7 @@ jobs:
           persist-credentials: false
       # Node.js 26 and the pnpm version in package.json's packageManager, then pnpm install --frozen-lockfile with the
       # store cached. pnpm/setup succeeds pnpm/action-setup for pnpm 11 and newer.
-      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+      - uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
         with:
           working-directory: frontend
           runtime: node@26
@@ -177,3 +194,20 @@ jobs:
       - run: python3 scripts/check_locks.py --vitest-report frontend/test-report.json
         working-directory: .
       - run: pnpm build
+
+  gate:
+    # The only required check on main: it passes when every other job in this workflow succeeded or was skipped.
+    name: gate (ci)
+    if: always()
+    needs: [backend, policy, rename, stack, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "a needed job ended with: $r"; exit 1 ;; esac
+          done

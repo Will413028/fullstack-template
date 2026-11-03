@@ -2,13 +2,14 @@
 # created by `make init-env`), mounted at /run/secrets/<name> and read through <KEY>_FILE.
 # Database roles (deploy/postgres/initdb/10-roles.sh): the superuser only initializes the volume; migrate connects
 # as the owner role; backend connects as the app role, which has DML only.
-# Only caddy publishes ports (deploy/Caddyfile): /api goes to the backend, the rest to Next, one origin for the
-# browser. Ports Docker publishes bypass ufw, so nothing else is published.
+# Only caddy publishes ports (deploy/Caddyfile): it is the API's entry, and Vercel, which serves the pages, forwards
+# /api to it (docs/adr/2026-11-03-frontend-on-vercel.md). Ports Docker publishes bypass ufw, so nothing else is
+# published.
 
 x-db-names: &db-names
-  POSTGRES_DB: ${POSTGRES_DB:-fullstack}
-  DB_OWNER_USER: ${DB_OWNER_USER:-fullstack_owner}
-  DB_APP_USER: ${DB_APP_USER:-fullstack_app}
+  POSTGRES_DB: ${POSTGRES_DB:-template_go_nextjs}
+  DB_OWNER_USER: ${DB_OWNER_USER:-template_go_nextjs_owner}
+  DB_APP_USER: ${DB_APP_USER:-template_go_nextjs_app}
 
 # Every container's log is rotated: at most 5 files of 10 MB each, then the oldest is dropped. Without this Docker's
 # default json-file driver keeps logs until the container is removed (docs/privacy/data-inventory.md, 日誌).
@@ -43,16 +44,16 @@ services:
   # Same image as backend, built once by the backend service.
   migrate:
     logging: *logging
-    image: fullstack-template-backend
+    image: template-go-nextjs-backend
     pull_policy: never
     command: ["migrate"]
     environment:
       MODE: ${MODE:-prod}
-      MIGRATE_DATABASE_URL: postgres://${DB_OWNER_USER:-fullstack_owner}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
+      MIGRATE_DATABASE_URL: postgres://${DB_OWNER_USER:-template_go_nextjs_owner}@postgres:5432/${POSTGRES_DB:-template_go_nextjs}?sslmode=disable
       # plaintext only because postgres is on this host's compose network (backend config, DATABASE_PLAINTEXT)
       DATABASE_PLAINTEXT: same-host
       MIGRATE_DATABASE_PASSWORD_FILE: /run/secrets/db_owner_password
-      DB_APP_USER: ${DB_APP_USER:-fullstack_app}
+      DB_APP_USER: ${DB_APP_USER:-template_go_nextjs_app}
     secrets: [db_owner_password]
     depends_on:
       postgres:
@@ -62,21 +63,20 @@ services:
   backend:
     logging: *logging
     build: ./backend
-    image: fullstack-template-backend
+    image: template-go-nextjs-backend
     restart: unless-stopped
     # longer than the 30s graceful shutdown, so in-flight requests finish before SIGKILL
     stop_grace_period: 35s
     environment:
       MODE: ${MODE:-prod}
-      DATABASE_URL: postgres://${DB_APP_USER:-fullstack_app}@postgres:5432/${POSTGRES_DB:-fullstack}?sslmode=disable
+      DATABASE_URL: postgres://${DB_APP_USER:-template_go_nextjs_app}@postgres:5432/${POSTGRES_DB:-template_go_nextjs}?sslmode=disable
       # plaintext only because postgres is on this host's compose network (backend config, DATABASE_PLAINTEXT)
       DATABASE_PLAINTEXT: same-host
       DATABASE_PASSWORD_FILE: /run/secrets/db_app_password
       SESSION_ABSOLUTE: ${SESSION_ABSOLUTE:-}
       SESSION_IDLE: ${SESSION_IDLE:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-}
-      # caddy's fixed address: only it may set X-Forwarded-For and X-Request-ID. Next is on the same network but is
-      # not a proxy, so its server-side calls cannot choose the client address.
+      # caddy's fixed address: only it may set X-Forwarded-For and X-Request-ID.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.30.0.2/32}
       DB_MAX_CONNS: ${DB_MAX_CONNS:-}
       DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-}
@@ -92,29 +92,19 @@ services:
       timeout: 3s
       retries: 5
 
-  frontend:
-    logging: *logging
-    build: ./frontend
-    restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-      # server-side (SSR/RSC) fetches reach the backend by service name; the browser uses /api through caddy
-      API_URL: http://backend:8000
-    depends_on:
-      backend:
-        condition: service_healthy
 
   caddy:
     logging: *logging
     image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
     restart: unless-stopped
     environment:
-      # a domain name for automatic HTTPS, or :80 for plain http on a local machine
+      # the API's domain name for automatic HTTPS, or :80 for plain http on a local machine
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"
+    # X-Origin-Secret that Vercel sends, and the previous one during a rotation (deploy/Caddyfile)
+    secrets: [origin_secret, origin_secret_previous]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -126,8 +116,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      frontend:
-        condition: service_started
 
 networks:
   default:
@@ -144,6 +132,10 @@ secrets:
     file: .secrets/db_owner_password
   db_app_password:
     file: .secrets/db_app_password
+  origin_secret:
+    file: .secrets/origin_secret
+  origin_secret_previous:
+    file: .secrets/origin_secret_previous
 
 volumes:
   postgres-data:

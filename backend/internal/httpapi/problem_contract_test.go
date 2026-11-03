@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Will413028/fullstack-template/backend/api"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
 // Clients translate a problem by its type and codes, and the frontend's type check makes its messages cover the

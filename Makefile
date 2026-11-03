@@ -6,11 +6,11 @@ COMPOSE_DEV = $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 .PHONY: up
 up:
 	$(COMPOSE) up -d
-	@echo "\nStack started: http://localhost (the API under /api)"
+	@echo "\nStack started: the API at http://localhost/api (pages are served by Vercel; Caddy needs X-Origin-Secret)"
 
 .PHONY: dev
 dev:
-	@echo "Dev stack: http://localhost:3000 (the API under /api)"
+	@echo "Dev stack: the API at http://localhost:8000; run 'pnpm dev' in frontend/ for http://localhost:3000"
 	$(COMPOSE_DEV) up --build --watch
 
 .PHONY: down
@@ -39,9 +39,9 @@ logs:
 logs-backend:
 	$(COMPOSE) logs -f backend
 
-.PHONY: logs-frontend
-logs-frontend:
-	$(COMPOSE) logs -f frontend
+.PHONY: logs-caddy
+logs-caddy:
+	$(COMPOSE) logs -f caddy
 
 .PHONY: logs-postgres
 logs-postgres:
@@ -135,7 +135,7 @@ HADOLINT_PLATFORM := $(subst darwin,macos,$(shell uname -s | tr A-Z a-z))-$(subs
 # Every finding fails, infos included (hadolint's default threshold).
 .PHONY: lint-docker
 lint-docker: $(HADOLINT)
-	$(HADOLINT) backend/Dockerfile frontend/Dockerfile
+	$(HADOLINT) backend/Dockerfile
 
 $(HADOLINT):
 	@sum="$(HADOLINT_SHA256_$(HADOLINT_PLATFORM))"; \

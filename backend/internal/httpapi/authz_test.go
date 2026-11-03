@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Will413028/fullstack-template/backend/api"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 )
 
 func TestAdminOperationsChecksTable(t *testing.T) {

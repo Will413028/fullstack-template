@@ -1,12 +1,12 @@
-# Fullstack Template
+# template-go-nextjs
 
-Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Docker Compose deployment behind Caddy on one origin.
+Production-ready fullstack monorepo with a Go backend on Docker Compose behind Caddy and a Next.js frontend on Vercel, one origin for the browser.
 
 ## Verification
 
 - Branch model: daily work goes to `dev`; `main` changes only through a `dev`→`main` PR merged with a merge commit (no squash, no rebase); never push to `main` directly. The pre-push hook and `backend/Makefile` compare against `origin/main` (the released code) on purpose.
 - Backend tests are Go integration tests (testcontainers, PostgreSQL 18), frontend tests use `vitest`; a task is complete only when `make -C backend test` (backend) and `pnpm test` (frontend) pass. CI also runs `make -C backend check` (lint, generated-code, schema and contract checks); run it before pushing backend changes.
-- `make lint-docker` (hadolint, pinned in the root `Makefile`) checks both Dockerfiles; every finding fails, infos included.
+- `make lint-docker` (hadolint, pinned in the root `Makefile`) checks `backend/Dockerfile`; every finding fails, infos included.
 - `git push` runs CI's checks first through the lefthook pre-push hook (all but the compose stack job, except its `make lint-docker`); it needs `actionlint`, `zizmor`, `gitleaks` and `osv-scanner` installed. Do not skip it with `--no-verify`.
 - Suppression comments (`//nolint`, `#nosec`, `-- squawk-ignore`, `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, `eslint-disable`) and the number of tests run (frontend and backend) are locked in `scripts/quality-locks.json`; `scripts/check_locks.py` (CI and pre-push) fails when a count differs. Suppressions only go down and tests only up: update the lock in the same commit. `nolintlint` requires every `//nolint` to name its linter and give a reason; gosec ignores `#nosec`.
 - A commit that edits a checker's configuration (`.golangci.yml`, `.squawk.toml`, `biome.json`, `.dependency-cruiser.cjs`, `knip.config.ts`, `tsconfig.json`, any `osv-scanner.toml`, the lock scripts) or moves a lock the bad way carries a `Quality-Gate: <why>` trailer, and a commit over 1,000 changed lines (files `.gitattributes` marks `linguist-generated` not counted) is split or carries a `Large-Change: <why>` trailer; `scripts/check_commit_policy.py` checks both at commit time (lefthook) and for every pushed commit (CI and pre-push).
@@ -29,8 +29,8 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 ├── backend/                # Go (modular monolith, pgx + sqlc, Atlas), contract in backend/api/openapi.yaml
 ├── frontend/               # Next.js 16 (App Router, TypeScript, Tailwind, shadcn/ui)
 ├── deploy/                 # Caddyfile, PostgreSQL initdb scripts (DB roles)
-├── docker-compose.yml      # Production stack (postgres + migrate + backend + frontend + caddy)
-├── docker-compose.dev.yml  # Dev overrides (compose watch, frontend dev server)
+├── docker-compose.yml      # Production API stack (postgres + migrate + backend + caddy); the frontend deploys to Vercel
+├── docker-compose.dev.yml  # Dev overrides (compose watch, backend on 127.0.0.1:8000, no caddy)
 ├── Makefile                # Docker Compose shortcuts
 ├── scripts/                # Repo tooling (rename, init_env)
 └── .env-example            # Environment variable template
@@ -40,16 +40,16 @@ Production-ready fullstack monorepo with a Go backend, Next.js frontend, and Doc
 
 ```bash
 # Docker Compose (from root)
-make init-env                       # Create .env and the database password files in .secrets/
-make dev                            # Start dev stack (compose watch) on http://localhost:3000
-make up                             # Start production stack (detached) on http://localhost
+make init-env                       # Create .env and the secret files in .secrets/ (database passwords, origin secret)
+make dev                            # Start the backend (compose watch) on http://localhost:8000; then pnpm dev in frontend/
+make up                             # Start the production API stack (detached); Caddy on :80/:443
 make down                           # Stop stack
 make down-v                         # Stop stack and remove volumes
 make build                          # Build Docker images
 make status                         # Show running containers
 make logs                           # Tail all logs
 make logs-backend                   # Tail backend logs
-make logs-frontend                  # Tail frontend logs
+make logs-caddy                     # Tail Caddy logs
 make restart                        # Restart all services
 make migration                      # Apply migrations (rebuilds the backend image, runs migrate)
 make generate-migration MSG=<name>  # Generate a migration from the modules' schema.sql
@@ -57,7 +57,7 @@ make seed ADMIN_ACCOUNT=<name>      # Create the admin user (password read from 
 make recover-admin ADMIN_ACCOUNT=<name>  # New password for an existing admin, enabled, signed out everywhere
 make reset-db ADMIN_ACCOUNT=<name>  # Delete all local data, restart, seed
 make rename NAME=<name>             # Rename a fresh clone (optional MODULE=<go module path>)
-make lint-docker                    # hadolint over both Dockerfiles
+make lint-docker                    # hadolint over backend/Dockerfile
 
 # Backend development (from backend/)
 make run              # Start the API server with backend/.env
@@ -82,13 +82,15 @@ pnpm gen:api          # Regenerate API types from backend/api/openapi.yaml
 - Frontend (Next.js App Router, feature-based, next-intl, generated API client): `frontend/AGENTS.md`.
 - Decisions: `docs/adr/`.
 
-### Docker Compose Deployment
+### Deployment: API on Docker Compose, frontend on Vercel
 
-Two compose files for different environments:
-- **`docker-compose.yml`** — production mode (built images); only Caddy publishes ports (80/443)
-- **`docker-compose.dev.yml`** — dev overrides (`docker compose watch` rebuilds the backend, frontend dev server); Caddy on `127.0.0.1:3000`
+The browser sees one origin: Vercel serves the pages and routes `/api/*` to the API's Caddy with `X-Origin-Secret` (`frontend/vercel.json`); server-side calls also use the site's `/api`. Decision: `docs/adr/2026-11-03-frontend-on-vercel.md`.
 
-Services: postgres → migrate (`app migrate`, Atlas) → backend (:8000, internal) → frontend (:3000, internal) → caddy (`/api/*` to the backend, the rest to Next). Deployment guide: `docs/deploy-vps.md`.
+Two compose files:
+- **`docker-compose.yml`** — production API stack (built images); only Caddy publishes ports (80/443)
+- **`docker-compose.dev.yml`** — dev overrides (`docker compose watch` rebuilds the backend, published on `127.0.0.1:8000`; caddy only with `--profile caddy`); the frontend runs on the host with `pnpm dev`
+
+Services: postgres → migrate (`app migrate`, Atlas) → backend (:8000, internal) → caddy (`/api/*` with a matching origin secret to the backend, everything else 403/404). Deployment guide: `docs/deploy-vps.md`.
 
 ## Design Rules
 

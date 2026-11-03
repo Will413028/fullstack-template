@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: "0 3 * * 1"
   # Other repositories run the same checks by calling this workflow at a pinned commit:
-  #   uses: Will413028/fullstack-template/.github/workflows/security.yml@<sha> # <tag>
+  #   uses: Will413028/template-go-nextjs/.github/workflows/security.yml@<sha> # <tag>
   # A caller's scheduled run gets only the vulnerability scan, as here. Projects made from this template keep their
   # own copy of this file instead of calling it.
   workflow_call:
@@ -38,7 +38,7 @@ jobs:
       - uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
-      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+      - uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
         with:
           version: 1.30.1
           advanced-security: false  # fail the job instead of uploading SARIF (needs GHAS on private repos)
@@ -69,3 +69,20 @@ jobs:
       - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
         with:
           scan-args: ${{ inputs.osv-scan-args || '--recursive ./' }}
+
+  gate:
+    # The only required check on main: it passes when every other job in this workflow succeeded or was skipped.
+    name: gate (security)
+    if: always()
+    needs: [workflows, secrets, vulnerabilities]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Every job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "a needed job ended with: $r"; exit 1 ;; esac
+          done

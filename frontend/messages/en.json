@@ -15,11 +15,11 @@
     "dashboard": "Dashboard"
   },
   "home": {
-    "title": "Fullstack Template",
+    "title": "template-go-nextjs",
     "description": "A production-ready fullstack template with Next.js, Go, and Docker Compose."
   },
   "footer": {
-    "brand": "Fullstack Template",
+    "brand": "template-go-nextjs",
     "home": "Home",
     "copyright": "All rights reserved."
   },

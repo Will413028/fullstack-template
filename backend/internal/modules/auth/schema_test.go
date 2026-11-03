@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/Will413028/fullstack-template/backend/internal/platform/dbtest"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/dbtest"
 )
 
 var pg *dbtest.Server

@@ -8,9 +8,9 @@
 
 | 讀取者 | 權限 | 出處 |
 |---|---|---|
-| App 角色（`DB_APP_USER`，預設 `fullstack_app`） | `public` 每張表的 SELECT、INSERT、UPDATE、DELETE；`serve` 與 `seed-admin` 使用 | `deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go` |
-| Owner 角色（`DB_OWNER_USER`，預設 `fullstack_owner`） | 擁有資料庫與 `public`；只有 `app migrate` 使用 | `10-roles.sh` |
-| Superuser（`POSTGRES_USER`） | 全部；初始化、維護與 `docs/deploy-vps.md` 第 7 節的備份腳本 | `10-roles.sh`、`docker-compose.yml` |
+| App 角色（`DB_APP_USER`，預設 `template_go_nextjs_app`） | `public` 每張表的 SELECT、INSERT、UPDATE、DELETE；`serve` 與 `seed-admin` 使用 | `deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go` |
+| Owner 角色（`DB_OWNER_USER`，預設 `template_go_nextjs_owner`） | 擁有資料庫與 `public`；只有 `app migrate` 使用 | `10-roles.sh` |
+| Superuser（`POSTGRES_USER`） | 全部；初始化、維護與 `docs/deploy-vps.md` 第 8 節的備份腳本 | `10-roles.sh`、`docker-compose.yml` |
 | 主機上能操作 Docker 的人 | 容器日誌與 volume | `docker-compose.yml` |
 
 `PUBLIC` 對資料庫與 schema 沒有任何權限。
@@ -26,9 +26,10 @@
 | Session 中繼資料 | `sessions.id`、`user_id`、`created_at`、`last_used_at`（最多每分鐘寫一次）、`expires_at` | 列出與撤銷 session；idle 與絕對期限 | 同 session 那列。超過 `expires_at` 或閒置超過 `SESSION_IDLE` 的列每小時清掉（`backend/cmd/app/main.go` 的 cleanup）。測試：`TestCleanup` | 本人，只限自己的 session；admin 沒有 session API；DB 角色 |
 | 登入嘗試紀錄 | `sign_in_throttles`：`account_key` = 送出的帳號名轉小寫，不論帳號是否存在；`client_key` = 來源位址（IPv6 截到 /64）或信任裝置的 id，帳號合計那列為空字串；另有 `failures`、`next_allowed_at`、`updated_at` | 依「帳號＋來源」節流，與帳號層級的鎖 | 登入成功或 admin 解鎖時刪掉該帳號的所有列，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | DB 角色；admin 經 `GET /api/users/{id}/sign-in-lock` 只看得到是否鎖定與失敗次數。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
 | Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `deleteItem` 刪除；帳號刪除時一起刪（`ON DELETE CASCADE`） | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
-| Client IP | backend access log 的 `client_ip`；每 IP 限流放在程式記憶體，IPv6 截到 /64（`httpapi/ratelimit.go`） | 追蹤、限流 | 日誌：見「日誌」。記憶體：閒置 1 分鐘的 bucket 會丟掉，重啟就全部消失 | 讀得到日誌的人 |
+| Client IP | backend access log 的 `client_ip`：瀏覽器的請求是訪客位址（Vercel 填的 `X-Real-IP`），SSR 的請求是 Vercel Function 的出口位址；每 IP 限流放在程式記憶體，IPv6 截到 /64（`httpapi/ratelimit.go`） | 追蹤、限流 | 日誌：見「日誌」。記憶體：閒置 1 分鐘的 bucket 會丟掉，重啟就全部消失 | 讀得到日誌的人 |
 | Request id、method、path、status、處理時間 | backend access log；同一個請求的每行日誌都帶 `request_id` | 追蹤 | 見「日誌」 | 讀得到日誌的人 |
-| User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
+| User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`、Vercel 送的 `X-Real-IP` 與 `X-Forwarded-For`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設）；`X-Origin-Secret` 由 `deploy/Caddyfile` 的 filter 刪掉（CI compose job 檢查） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
+| 經 Vercel 的請求 | 前端部署在 Vercel：每個頁面與 `/api/*` 請求都經過它，含來源位址、header（含 session cookie）、URI 與 body（`frontend/vercel.json`）。Vercel 的請求日誌另有保留期限 | 服務頁面、把 `/api/*` 轉給 Caddy | 依 Vercel 的方案與政策 | Vercel；Vercel 專案的成員 |
 | 送給 HIBP 的密碼雜湊前綴 | 只在 `PASSWORD_HIBP_CHECK=true`（預設 false）時：正規化後密碼的 SHA-1 前 5 個 hex 字元，帶 `Add-Padding: true`（`backend/internal/platform/hibp/hibp.go`）。測試：`TestBreached` | 註冊與 `seed-admin` 時的外洩密碼檢查 | backend 不儲存；處理者端的保留依它的政策 | Have I Been Pwned |
 | 信任的裝置 | `trusted_devices`：裝置 cookie token 的 SHA-256、id、user id、建立與到期時間 | 本人曾登入過的瀏覽器不受帳號層級的鎖影響 | 180 天後到期並由每小時的清理刪除；全部登出、停用、救援、刪除帳號時刪除。測試：`TestCleanup`、`TestSignOutEverywhereForgetsDevices` | 原始 token 只有瀏覽器（HttpOnly）；雜湊只有 DB 角色 |
 | 稽核紀錄 | `audit_events`：時間、執行者的 user id（主機上的指令為空）、動作、對象的 user id、request id；不存帳號名 | 追查誰停用、啟用、刪除、解鎖了哪個帳號 | 只能新增與讀取（app 角色沒有 UPDATE、DELETE）。超過 365 天的列在下一次 `app migrate`（每次部署）時刪除：長期沒有部署時會留得更久（表的 comment，`internal/platform/migrate`）；帳號刪除後紀錄仍在，只剩 id | 只有 DB 角色，沒有 API |
@@ -53,10 +54,11 @@
 - 密碼與 session token 不會出現在任何級別的日誌：`TestCredentialsNeverLogged`。
 - 清理：只記刪掉的筆數。
 - 安全事件：註冊、登入成功與失敗（原因，帳號存在時帶 user id，不記送出的帳號名）、登出、被拒絕的 admin 操作，各一行帶 `event` 與 `user_id`（`TestSecurityEventsLogged`）。
-- Caddy：每個請求一行 access log，內容見上表（推論）。
+- Caddy：每個請求一行 access log，內容見上表（推論）；`X-Origin-Secret` 不寫入。
+- Vercel：頁面與轉送的請求記在 Vercel 的 runtime 與請求日誌，保留期限依方案（Vercel 的政策）。
 - PostgreSQL：image 預設值；違反唯一約束這類錯誤訊息可能帶出衝突的值，例如帳號名（推論，PostgreSQL 預設）。
 
-**保留期間。** `docker-compose.yml` 讓每個容器的日誌輪替：每份最多 10 MB、最多 5 份，超過就丟掉最舊的（`x-logging`；CI 的 compose 檢查擋下沒設定的新服務）。實際保留多久取決於流量。`docs/deploy-vps.md` 第 7 節的備份腳本保留 7 天的完整資料庫 dump。
+**保留期間。** `docker-compose.yml` 讓每個容器的日誌輪替：每份最多 10 MB、最多 5 份，超過就丟掉最舊的（`x-logging`；CI 的 compose 檢查擋下沒設定的新服務）。實際保留多久取決於流量。`docs/deploy-vps.md` 第 8 節的備份腳本保留 7 天的完整資料庫 dump。
 
 **操作者的責任。** 處理真實使用者的資料前，操作者要依流量確認輪替設定對應的保留期間、決定誰能在主機上操作 Docker，並在刪除使用者資料時一併處理備份。
 

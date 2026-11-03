@@ -1,6 +1,11 @@
 services:
-  # `make dev` runs `docker compose up --watch`: a change under backend/ rebuilds the image and restarts it
+  # `make dev` runs `docker compose up --watch`: a change under backend/ rebuilds the image and restarts it.
+  # The frontend runs on the host (`pnpm dev` in frontend/), and its dev rewrite sends /api here: next dev cannot add
+  # the X-Origin-Secret header caddy requires, so dev skips caddy (docs/adr/2026-11-03-frontend-on-vercel.md).
+  # Loopback only: ports Docker publishes bypass ufw.
   backend:
+    ports:
+      - "127.0.0.1:8000:8000"
     develop:
       watch:
         - action: rebuild
@@ -8,18 +13,6 @@ services:
           ignore:
             - bin/
 
-  frontend:
-    build:
-      context: ./frontend
-      target: dev
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/messages:/app/messages
-      - ./frontend/public:/app/public
-
-  # The browser goes through caddy in dev too, the same /api routing as production: http://localhost:3000.
-  # Loopback only, and not port 80: Docker Desktop on macOS needs its privileged helper to bind a port below 1024
-  # on a specific address.
+  # Started only with `--profile caddy`, to try the production entry locally.
   caddy:
-    ports: !override
-      - "127.0.0.1:3000:80"
+    profiles: [caddy]

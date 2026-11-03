@@ -1,13 +1,13 @@
-# 部署到 VPS (Docker Compose)
+# 部署：API 在 VPS（Docker Compose），前端在 Vercel
 
-本指南說明如何用 Docker Compose 把專案部署到一台 Linux VPS（以 Ubuntu 22.04+ 為例）。整個 stack 都在 compose 裡，包括負責 HTTPS 的 Caddy：
+本指南說明如何把後端用 Docker Compose 部署到一台 Linux VPS（以 Ubuntu 22.04+ 為例），前端部署到 Vercel。設計理由見 [ADR：前端改由 Vercel 部署](adr/2026-11-03-frontend-on-vercel.md)。
 
 ```
-瀏覽器 ──443──▶ caddy ──/api/*──▶ backend:8000 ──▶ postgres
-                      └─其餘────▶ frontend:3000
+瀏覽器 ──▶ Vercel（yourdomain.com）──/api/*，帶 X-Origin-Secret──▶ caddy（api.yourdomain.com）──▶ backend:8000 ──▶ postgres
+              └─頁面、SSR（SSR 也呼叫 yourdomain.com/api）
 ```
 
-前端與 API 同源（`https://yourdomain.com` 與 `https://yourdomain.com/api`），所以 session cookie 不帶 Domain、不需要 CORS，也沒有 `api.` 子網域。只有 Caddy 發佈 port：Docker 發佈的 port 會繞過 ufw 等主機防火牆（[Docker：Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)），所以 backend、frontend、postgres 都不對外。
+瀏覽器只看到 `https://yourdomain.com`：Vercel 把 `/api/*` 轉給 VPS 上的 Caddy（`frontend/vercel.json`），所以 session cookie 不帶 Domain、不需要 CORS。Caddy 只放行帶對 `X-Origin-Secret` 的請求，並把 Vercel 填的訪客 IP（`X-Real-IP`）交給 backend。只有 Caddy 發佈 port：Docker 發佈的 port 會繞過 ufw 等主機防火牆（[Docker：Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)），所以 backend、postgres 都不對外。
 
 ## Prerequisites
 
@@ -15,8 +15,8 @@ VPS 最低需求：
 - 1 vCPU / 1GB RAM / 20GB disk
 - Ubuntu 22.04 或更新版本
 - SSH 存取權限
-- 域名，A（與 AAAA）記錄指向 VPS：Caddy 用它自動申請 HTTPS 憑證
-- 對外開放 80/tcp、443/tcp、443/udp（HTTP/3）
+- API 用的子網域（例如 `api.yourdomain.com`），A（與 AAAA）記錄指向 VPS：Caddy 用它自動申請 HTTPS 憑證。網站本身的網域指向 Vercel（見第 6 節）
+- 對外開放 80/tcp（申請憑證與轉址）、443/tcp
 
 ---
 
@@ -53,13 +53,13 @@ make init-env
 nano .env
 ```
 
-`make init-env` 從 `.env-example` 建立 `.env`，並在 `.secrets/` 產生三個資料庫密碼檔（superuser、migrate 用的 owner 角色、backend 用的 app 角色）。compose 把它們以 secret 掛進各自的容器，服務經 `*_FILE` 讀取，密碼不會出現在 `.env`、環境變數或 URL 裡。重跑不會覆寫既有的檔案。
+`make init-env` 從 `.env-example` 建立 `.env`，並在 `.secrets/` 產生三個資料庫密碼檔（superuser、migrate 用的 owner 角色、backend 用的 app 角色）、`origin_secret`（Vercel 送給 Caddy 的 `X-Origin-Secret`），以及輪替時才會用到的空檔 `origin_secret_previous`。compose 把它們以 secret 掛進各自的容器，密碼不會出現在 `.env`、環境變數或 URL 裡。重跑不會覆寫既有的檔案。
 
 > [!IMPORTANT]
 > 生產環境務必在 `.env` 設定：
 > - `MODE=prod`：JSON log，不提供 `/api/openapi.yaml` 與 `/api/docs`
 > - `COOKIE_SECURE=true`：cookie 名稱為 `__Host-session` 並帶 `Secure`（需要 HTTPS）
-> - `SITE_ADDRESS=yourdomain.com`：Caddy 以此網域自動申請、續約憑證；`:80` 只適合本機的純 http
+> - `SITE_ADDRESS=api.yourdomain.com`：Caddy 以 API 的網域自動申請、續約憑證；`:80` 只適合本機的純 http
 
 > [!WARNING]
 > `.secrets/` 裡的密碼在 postgres volume 第一次初始化時寫進資料庫角色。之後換掉檔案不會改資料庫裡的密碼；不要刪除 `.secrets/`，並把它和資料庫備份一起保存。
@@ -83,7 +83,8 @@ make recover-admin ADMIN_ACCOUNT=admin
 ```bash
 make status
 make logs
-curl -s -o /dev/null -w '%{http_code}\n' https://yourdomain.com/api/users/me   # 未登入應為 401
+curl -s -o /dev/null -w '%{http_code}\n' https://api.yourdomain.com/api/users/me   # 沒帶密鑰應為 403
+curl -s -o /dev/null -w '%{http_code}\n' https://yourdomain.com/api/users/me       # 經 Vercel、未登入應為 401（第 6 節設定完成後）
 ```
 
 ---
@@ -93,22 +94,38 @@ curl -s -o /dev/null -w '%{http_code}\n' https://yourdomain.com/api/users/me   #
 不需要在主機上另裝 Caddy 或 Nginx。compose 內的 Caddy（設定在 `deploy/Caddyfile`）：
 
 - 以 `SITE_ADDRESS` 自動申請、續約 Let's Encrypt 憑證，憑證存在 `caddy-data` volume；
-- 送出 `Strict-Transport-Security`（HSTS）；
-- 把 `/api/*` 轉給 backend，其餘轉給 Next；
-- 以自己產生的值覆寫 `X-Request-ID`，backend 只信任 Caddy 送來的 `X-Forwarded-For` 與 `X-Request-ID`。
+- 送出 `Strict-Transport-Security`（HSTS；網站網域的 HSTS 由 Vercel 送）；
+- 只服務 `/api/*`，其餘路徑回 404；`X-Origin-Secret` 不等於 `.secrets/origin_secret` 的請求回 403；
+- 放行的請求：以 Vercel 填的 `X-Real-IP` 覆寫 `X-Forwarded-For`、以 `X-Forwarded-Host` 覆寫 `Host`（讓 CSRF 檢查比對的是網站本身的 host）、以自己產生的值覆寫 `X-Request-ID`，並拿掉密鑰 header。
 
-backend 怎麼判斷誰是可信的 proxy：`TRUSTED_PROXIES` 預設只列 Caddy 在 compose network 的固定位址（`172.30.0.2/32`，見 `docker-compose.yml`）。per-IP 限流與 access log 的 `client_ip` 都依它解析。
+backend 怎麼判斷誰是可信的 proxy：`TRUSTED_PROXIES` 預設只列 Caddy 在 compose network 的固定位址（`172.30.0.2/32`，見 `docker-compose.yml`）。per-IP 限流與 access log 的 `client_ip` 都依它解析，所以訪客 IP 由 Caddy 決定，而 Caddy 只在密鑰相符時採信 Vercel 的 `X-Real-IP`。
 
-### 改用 compose 外的 proxy
+### 輪替 origin secret
 
-如果前面還有另一層 proxy（例如主機上的 Nginx，或 CDN），或要用它取代 Caddy，自己要處理：
+外洩、或知道密鑰的人離開時輪替。Caddy 同時接受 `.secrets/origin_secret` 與 `.secrets/origin_secret_previous`（平常是空檔），所以輪替不會中斷服務（Vercel 文件的做法）。兩個檔都是 `0444`：改內容前先 `chmod 644`，改完 `chmod 444`。
 
-- **取代 Caddy**：外部 proxy 必須維持同源路由（`/api/*` 到 backend、其餘到 frontend）、覆寫 `X-Request-ID`、設定 `X-Forwarded-For`；backend 與 frontend 只綁 `127.0.0.1` 發佈；`TRUSTED_PROXIES` 改成 backend 看到的 proxy 來源位址。這個位址取決於 Docker 的網路設定（經發佈的 port 進來時通常是 compose network 的 gateway），設定前先看 backend access log 裡的 `client_ip`，確認它是真實的用戶端 IP，而不是 proxy 的位址。
-- **在 Caddy 前面再加一層**：兩處都要列出外層 proxy 的位址。Caddy 在 global options 的 `servers { trusted_proxies static <CIDR> }` 列出，才會保留外層送來的 `X-Forwarded-For`；`TRUSTED_PROXIES` 也要加上同一個 CIDR（例如 `172.30.0.2/32,<CIDR>`），因為 backend 取 `X-Forwarded-For` 由右往左第一個不可信的位址。少列任一處，外層 proxy 就會被當成用戶端，所有人共用同一個限流 bucket。
+1. 在 VPS 上把 `origin_secret` 的內容搬進 `origin_secret_previous`，在 `origin_secret` 寫入新值（`python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`），然後 `docker compose restart caddy`：新舊兩個值都能通過；
+2. 把新值寫進 Vercel 專案 Production 環境的 `ORIGIN_SECRET`，重新部署；
+3. 新部署上線後，清空 `origin_secret_previous`（`: > .secrets/origin_secret_previous`），再 `docker compose restart caddy`：舊值從此失效。
 
 ---
 
-## 6. 更新版本
+## 6. 前端：Vercel
+
+1. 在 Vercel 建立專案，Root Directory 設為 `frontend`（框架會自動偵測為 Next.js）。Node.js 的大版本由 `frontend/package.json` 的 `engines.node` 決定，它會蓋過專案設定；與 CI 的 `node-version` 一起改。
+2. Function 區域（Settings → Functions）選離 VPS 最近的區域：每次 SSR 都會經 Vercel 呼叫 API。
+3. 環境變數，**只設在 Production**：
+   - `NEXT_PUBLIC_APP_URL=https://yourdomain.com`：網站的網址，SSR 呼叫它的 `/api`。沒設時 SSR 的請求送往不存在的 `.invalid` host，不會帶著 cookie 送到別處；
+   - `API_ORIGIN=https://api.yourdomain.com`：`frontend/vercel.json` 把 `/api/*` 轉到這裡；
+   - `ORIGIN_SECRET=<VPS 上 .secrets/origin_secret 的內容>`。
+4. 網域：把 `yourdomain.com` 加到 Vercel 專案，DNS 照 Vercel 的指示設定。
+5. preview 部署（每個分支，包括 Dependabot 的）不帶 `ORIGIN_SECRET`，所以連不到 API，也無法登入：任何分支的程式都拿不到正式環境的密鑰。開著 Vercel 的 Deployment Protection，讓 preview 只給登入 Vercel 的人看。
+
+驗證：在網站登入後重新整理頁面，仍是登入狀態（SSR 讀得到 cookie）；backend access log 的 `client_ip` 是自己的對外 IP。
+
+---
+
+## 7. 更新版本
 
 ```bash
 git pull
@@ -116,11 +133,11 @@ make build
 make up
 ```
 
-`make up` 會先跑 migrate（套用新的 migration），再重建 backend。backend 收到 SIGTERM 後最多花 30 秒處理完進行中的請求；重建期間 Caddy 最多把請求留住 10 秒（`lb_try_duration`），超過的請求會失敗。單一 backend 不保證零停機。
+`make up` 會先跑 migrate（套用新的 migration），再重建 backend。backend 收到 SIGTERM 後最多花 30 秒處理完進行中的請求；重建期間 Caddy 最多把 API 請求留住 10 秒（`lb_try_duration`），超過的請求會失敗。單一 backend 不保證零停機。前端由 Vercel 在每次部署時建置。
 
 ---
 
-## 7. 資料庫自動備份 (Cron Job)
+## 8. 資料庫自動備份 (Cron Job)
 
 請務必設定資料庫定時備份。備份以容器內的 superuser 執行（`POSTGRES_USER`，只用於初始化與維運）：
 
@@ -162,7 +179,7 @@ docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTG
 
 ---
 
-## 8. 維運常用指令
+## 9. 維運常用指令
 
 ```bash
 make up               # 啟動（背景）
@@ -170,6 +187,7 @@ make down             # 停止（保留資料）
 make down-v           # 停止並刪除 volume（⚠️ 資料庫與 Caddy 憑證都會清空）
 make logs             # 查看所有日誌
 make logs-backend     # 查看後端日誌
+make logs-caddy       # 查看 Caddy 日誌（被擋下的 403 在這裡）
 make build            # 重新建置 image
 make restart          # 重啟服務
 make migration        # 手動套用 migration（make up 已會自動執行）

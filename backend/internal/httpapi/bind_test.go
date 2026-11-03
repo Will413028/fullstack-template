@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 )
 
 func TestParamBindErrorIsValidation(t *testing.T) {

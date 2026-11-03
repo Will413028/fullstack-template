@@ -9,8 +9,8 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
 
 // Authentication (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the session token lives only in an HttpOnly

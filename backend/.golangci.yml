@@ -58,18 +58,18 @@ linters:
           deny:
             - pkg: net/http
               desc: modules do not handle HTTP; handlers live in internal/httpapi
-            - pkg: github.com/Will413028/fullstack-template/backend/internal/httpapi
+            - pkg: github.com/Will413028/template-go-nextjs/backend/internal/httpapi
               desc: modules must not depend on the HTTP layer
-            - pkg: github.com/Will413028/fullstack-template/backend/cmd
+            - pkg: github.com/Will413028/template-go-nextjs/backend/cmd
               desc: modules must not depend on the composition root
         platform-no-upward:
           list-mode: lax
           files:
             - "**/internal/platform/**"
           deny:
-            - pkg: github.com/Will413028/fullstack-template/backend/internal/modules
+            - pkg: github.com/Will413028/template-go-nextjs/backend/internal/modules
               desc: platform is the bottom layer and must not depend on modules
-            - pkg: github.com/Will413028/fullstack-template/backend/internal/httpapi
+            - pkg: github.com/Will413028/template-go-nextjs/backend/internal/httpapi
               desc: platform is the bottom layer and must not depend on the HTTP layer
         standard-library-log:
           list-mode: lax

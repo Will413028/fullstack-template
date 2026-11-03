@@ -3,10 +3,10 @@ import createNextIntlPlugin from "next-intl/plugin";
 import { apiUrl, isDevelopment } from "./src/lib/env";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   // Development only: next dev forwards /api to the backend so the browser
-  // stays on one origin. In production Caddy routes /api (deploy/Caddyfile)
-  // and the build carries no rewrite.
+  // stays on one origin. On Vercel, frontend/vercel.json routes /api to the
+  // API's Caddy with the origin secret, which a rewrite here cannot add, so
+  // the build carries no rewrite.
   async rewrites() {
     if (!isDevelopment()) return [];
     return [{ source: "/api/:path*", destination: `${apiUrl()}/api/:path*` }];

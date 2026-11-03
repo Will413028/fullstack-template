@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 )
 
 // The generated code binds parameters and decodes bodies after the validator has passed them, but its parsers are

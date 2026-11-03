@@ -72,7 +72,7 @@ type MigrateConfig struct {
 func Load(lookup func(string) (string, bool)) (Config, error) {
 	e := &env{lookup: lookup}
 	cfg := Config{
-		AppName:  e.str("APP_NAME", "fullstack-template"),
+		AppName:  e.str("APP_NAME", "template-go-nextjs"),
 		Mode:     e.str("MODE", "prod"),
 		HTTPAddr: e.str("HTTP_ADDR", ":8000"),
 

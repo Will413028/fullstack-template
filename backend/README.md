@@ -1,6 +1,6 @@
 # Backend — Go
 
-Part of the [fullstack template](../README.md). Go modular monolith: stdlib `net/http` with an
+Part of the [template-go-nextjs](../README.md). Go modular monolith: stdlib `net/http` with an
 oapi-codegen strict server, pgx + sqlc, Atlas migrations, opaque session cookies. Needs Go (version
 in `go.mod`) and Docker.
 

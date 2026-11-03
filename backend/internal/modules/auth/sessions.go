@@ -12,10 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth/internal/store"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/authctx"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/httpx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth/internal/store"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
 )
 
 // touchEvery limits how often a session's last_used_at is written: once a minute is enough for a 1-day idle limit

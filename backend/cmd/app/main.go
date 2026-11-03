@@ -17,14 +17,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/auth"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/config"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/db"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/hibp"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/logx"
-	"github.com/Will413028/fullstack-template/backend/internal/platform/migrate"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/config"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/db"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/hibp"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/logx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/migrate"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

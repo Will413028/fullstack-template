@@ -18,11 +18,12 @@
 
 **信任邊界**
 
-1. 瀏覽器 → Caddy：只有 Caddy 發佈 port（`docker-compose.yml`）。`SITE_ADDRESS` 是網域時有 TLS 與 HSTS（`deploy/Caddyfile`）。
-2. Caddy → backend（`/api/*`）與 Caddy → Next（其餘），走 compose 網路。backend 只相信 `TRUSTED_PROXIES`（預設是 Caddy 的固定位址）送來的 `X-Forwarded-For` 與 `X-Request-ID`。
-3. Next server → backend：server 端呼叫直接打 `API_URL`，只轉送請求的 cookie（`frontend/src/features/auth/server.ts`）。Next 不是受信任的 proxy，無法指定 client 位址。
-4. backend → PostgreSQL：用 app 角色，只有 DML 權限（`deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go`）。
-5. backend → Have I Been Pwned range API：只在 `PASSWORD_HIBP_CHECK=true` 時（`backend/internal/platform/hibp/hibp.go`）。
+1. 瀏覽器 → Vercel：頁面與 `/api/*` 同源；Vercel 覆寫 `X-Real-IP` 與 `X-Forwarded-For`，client 帶的值進不來（[ADR 前端改由 Vercel 部署](../adr/2026-11-03-frontend-on-vercel.md)）。
+2. Vercel → Caddy（`frontend/vercel.json`）：經公開網路，Caddy 在 API 的網域上有 TLS 與 HSTS。只有帶對 `X-Origin-Secret`（`.secrets/origin_secret`，只放在 Vercel 的 Production 環境）的請求會被轉給 backend，其餘回 403（`deploy/Caddyfile`）。只有 Caddy 發佈 port（`docker-compose.yml`）。
+3. Caddy → backend，走 compose 網路。Caddy 只在密鑰相符時，以 `X-Real-IP` 覆寫 `X-Forwarded-For`、以 `X-Forwarded-Host` 覆寫 `Host`；backend 只相信 `TRUSTED_PROXIES`（預設是 Caddy 的固定位址）送來的 `X-Forwarded-For` 與 `X-Request-ID`。
+4. Next server（Vercel Function）→ API：server 端呼叫打網站自己的 `/api`（`NEXT_PUBLIC_APP_URL`），經 Vercel edge，只轉送請求的 cookie（`frontend/src/features/auth/server.ts`）。Next 的程式碼不持有密鑰，`X-Real-IP` 由 edge 填寫，所以它無法指定 client 位址。
+5. backend → PostgreSQL：用 app 角色，只有 DML 權限（`deploy/postgres/initdb/10-roles.sh`、`backend/internal/platform/migrate/migrate.go`）。
+6. backend → Have I Been Pwned range API：只在 `PASSWORD_HIBP_CHECK=true` 時（`backend/internal/platform/hibp/hibp.go`）。
 
 **入口**（`backend/api/openapi.yaml` 的 operation；誰能呼叫由 `httpapi/authz.go` 的 `operationAccess` 決定，啟動時與契約比對）
 
@@ -49,17 +50,18 @@
 | Session fixation | 每次登入都發新 token，並刪掉請求帶來的舊 token。測試：`TestCreateSessionIssuesNewToken` | 已緩解 |
 | 登出、停用或過期後重用 token | 每個請求都重讀 session 與使用者；idle 預設 1 天、絕對期限 7 天；停用會刪掉該使用者所有 session。測試：`TestSessionIdleExpiry`、`TestSessionAbsoluteExpiry`、`TestDeleteCurrentSessionRevokes`、`TestDeleteAllSessions`、`TestAdminDisablesUserRevokesSessions`、`TestMeDisabledAccount`、`TestMeAfterUserDeleted` | 已緩解 |
 | 用 header 代替 cookie 送 token | 只讀 cookie（`httpapi/auth.go`）。測試：`TestMeIgnoresBearer` | 已緩解 |
-| Client 偽造位址規避每 IP 限流 | `X-Forwarded-For` 從右往左走，只經過受信任的 proxy（`httpapi/middleware.go`）。測試：`TestClientIP`、`TestRateLimitIgnoresXFFFromUntrustedPeer`、`TestRateLimitPerIPBehindTrustedProxy` | `TRUSTED_PROXIES` 只列 proxy 時已緩解 |
+| Client 偽造位址規避每 IP 限流 | `X-Forwarded-For` 從右往左走，只經過受信任的 proxy（`httpapi/middleware.go`）；Caddy 只在 origin secret 相符時採信 Vercel 填的 `X-Real-IP`，並蓋掉 client 帶的 `X-Forwarded-For`（`deploy/Caddyfile`）。測試：`TestClientIP`、`TestRateLimitIgnoresXFFFromUntrustedPeer`、`TestRateLimitPerIPBehindTrustedProxy`；CI compose job「Caddy hands the backend Vercel's client address…」 | `TRUSTED_PROXIES` 只列 proxy、密鑰沒外洩時已緩解 |
+| 繞過 Vercel 直接打 API 網域 | 沒帶對 `X-Origin-Secret` 回 403；密鑰檔是空的或不存在時一律拒絕（長度檢查、容器起不來）。CI compose job「Caddy passes only requests that carry the origin secret」 | 已緩解；輪替程序見 `docs/deploy-vps.md` |
 | 被停用的帳號登入 | 回應與密碼錯誤相同的 `invalid_credentials`。測試：`TestCreateSessionDisabledAccount` | 已緩解 |
 
 ## Tampering（竄改）
 
 | 威脅 | 程式碼裡的緩解 | 狀態 |
 |---|---|---|
-| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
+| 跨站請求偽造（CSRF） | `http.CrossOriginProtection` 包住整個 mux；cookie 是 `SameSite=Lax`（`httpapi/server.go`、`httpapi/auth.go`）。Caddy 把 `Host` 換成網站的 host，沒有 `Sec-Fetch-Site` 的舊瀏覽器比對 `Origin` 與 `Host` 時才不會誤擋。測試：`TestCrossOriginPostRejected`、`TestCreateItemCrossSite`；CI compose job 的同站與跨站 `POST /api/sessions` | 已緩解。`Sec-Fetch-Site` 與 `Origin` 都沒帶的請求會放行；瀏覽器在會改變狀態的請求上都會帶 |
 | 註冊時自己指定角色 | 請求 schema 拒絕未定義的欄位；service 一律寫入 `user`。測試：`TestValidationCodes`（`additional_property`）、`TestCreateUserSetsSessionCookie`（角色是 `user`） | 已緩解 |
 | 同一帳號名稱同時註冊 | 由唯一索引決定，恰好一個成功，其餘 409。測試：`TestCreateUserConcurrentSameAccount` | 已緩解 |
-| Token 走明文 http | 除非 `COOKIE_SECURE=false`，cookie 帶 `Secure` 與 `__Host-` 前綴；Caddy 送 HSTS。測試：`TestCookieNameFollowsSecure`、`TestConfigDefaults` | `SITE_ADDRESS` 是網域時已緩解；`:80` 只供本機使用 |
+| Token 走明文 http | 除非 `COOKIE_SECURE=false`，cookie 帶 `Secure` 與 `__Host-` 前綴；網站網域的 HSTS 由 Vercel 送，API 網域的由 Caddy 送。測試：`TestCookieNameFollowsSecure`、`TestConfigDefaults` | `SITE_ADDRESS` 是網域時已緩解；`:80` 只供本機使用 |
 | 在日誌裡偽造 request id | 只接受受信任來源、格式為 `[A-Za-z0-9-]{1,64}` 的值；Caddy 覆寫 client 送的值。測試：`TestRequestIDFromUntrustedPeerReplaced`、`TestRequestIDMalformedReplaced` | 已緩解 |
 | SQL injection | 查詢只經過 sqlc 產生的程式碼；手寫 pgx `Query` 會被 lint 擋（`backend/.golangci.yml` forbidigo） | 已緩解 |
 | 登入後被導向外站 | `callbackUrl` 用 URL 解析後必須與本站同源，`/\evil.example`、`/\t/evil.example` 這類看起來像本站路徑的值也會被擋（`frontend/src/features/auth/callback.ts`）。測試：`callback.test.ts` | 已緩解 |
@@ -115,6 +117,7 @@
 |---|---|---|
 | 每 IP 限流的狀態在程式記憶體裡，每個 backend 副本各有一份額度（`httpapi/ratelimit.go`） | 範本只跑一個 backend 副本 | 跑超過一個 backend 副本，或改用 Kamal、Swarm 部署：把限流移到資料庫或 proxy（ADR 基準的 Revocation Triggers） |
 | 所有模組共用一個 app 角色與 `public` schema，app 角色能寫每張表（`migrate.go`） | 單一程序的模組化單體；分層由程式碼檢查（`backend/AGENTS.md` 規則 2、`internal/archtest`） | 某個模組拆成獨立服務，或需要自己的資料庫帳密 |
+| origin secret 是共用的靜態密鑰，只在外洩或人員異動時手動輪替（Caddy 輪替期間同時接受新舊兩個值） | Vercel 沒有能驗證來源的機制，也沒有固定的出口 IP | Vercel 提供 mTLS 或簽章（ADR 前端改由 Vercel 部署） |
 | 外洩密碼檢查查詢失敗時放行，且預設關閉 | 外部服務故障不該擋住註冊；內建清單一律檢查 | 產品要求外洩檢查是硬性規則 |
 | 註冊會透露帳號名稱已被使用 | 用帳號名而不是 email，沒有 email 服務（ADR D6） | 加入 email 驗證或密碼找回 |
 | 沒有改密碼、重設或找回密碼的 operation | 沒有 email 服務（ADR D6） | 同上；新 operation 必須撤銷 session（後端規則 8） |
@@ -125,5 +128,5 @@
 - 新增角色，或改變授予角色的方式。
 - Session 期限、cookie 名稱或屬性、token 格式改變。
 - 新增外部身分提供者、MFA、Bearer token 或任何非瀏覽器的 client。
-- `TRUSTED_PROXIES`、backend 前面的 proxy、backend 副本數改變。
+- `TRUSTED_PROXIES`、backend 前面的 proxy（Caddy、Vercel 的轉送設定）、backend 副本數改變。
 - 上面某個 Open 項目處理完：改狀態並寫出測試。

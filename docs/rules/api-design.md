@@ -181,7 +181,7 @@ Item:
 ## 前端 API 呼叫
 
 - 一律用 `frontend/src/lib/api/client.ts` 的 `api`（openapi-fetch，型別來自生成的 `paths`），以 `unwrap` 取資料或丟出 `ApiError`。
-- 瀏覽器打相對路徑 `/api`；server-side 程式碼打 `API_URL`，只轉發自己需要的 header（不轉發 `X-Forwarded-For`）。
+- 瀏覽器打相對路徑 `/api`；server-side 程式碼打網站自己的 `/api`（`NEXT_PUBLIC_APP_URL`，經 Vercel edge），只轉發自己需要的 header（不轉發 `X-Forwarded-For`、`X-Real-IP`，也不持有 origin secret；[ADR](../adr/2026-11-03-frontend-on-vercel.md)）。
 - API 呼叫放在 `features/<name>/api/`，搭配 TanStack Query hooks（`features/<name>/hooks/`）。**NEVER** 在 component 裡直接 `fetch()`。
 
 ```typescript

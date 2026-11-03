@@ -5,9 +5,10 @@ vi.mock("server-only", () => ({}));
 const mockCookies = vi.fn();
 vi.mock("next/headers", () => ({ cookies: () => mockCookies() }));
 
-// Server-side code has no page origin; the client must take the API_URL branch.
+// Server-side code has no page origin; it calls /api on the site's own URL, so
+// the request goes through Vercel's edge like the browser's.
 vi.stubGlobal("window", undefined);
-vi.stubEnv("API_URL", "http://backend:8000");
+vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
 
 const mockFetch = vi.fn<(request: Request) => Promise<Response>>();
 vi.stubGlobal("fetch", mockFetch);
@@ -39,11 +40,13 @@ describe("getServerUser", () => {
     expect(await getServerUser()).toEqual(user);
     const [request] =
       mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
-    expect(request.url).toBe("http://backend:8000/api/users/me");
+    expect(request.url).toBe("https://app.example.com/api/users/me");
     expect(request.headers.get("cookie")).toBe("session=abc");
-    // Next is a trusted proxy: forwarding X-Forwarded-For would let the client
-    // choose the backend's rate-limit key.
+    // Next holds no origin secret and sets no client address: Vercel's edge
+    // writes X-Real-IP and the origin secret (docs/adr/2026-11-03-frontend-on-vercel.md).
     expect(request.headers.has("x-forwarded-for")).toBe(false);
+    expect(request.headers.has("x-real-ip")).toBe(false);
+    expect(request.headers.has("x-origin-secret")).toBe(false);
   });
 
   it("returns null when the backend rejects the session", async () => {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
-	"github.com/Will413028/fullstack-template/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/api"
 )
 
 // writableWithoutGet lists the paths in spec that can be changed (PATCH, PUT or DELETE) but not read.

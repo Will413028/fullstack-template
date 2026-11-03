@@ -1,25 +1,63 @@
-# The single entry point (docker-compose.yml): /api goes to the backend, everything else to Next, so the browser
-# sees one origin and the session cookie needs no Domain and no CORS.
-# SITE_ADDRESS is a domain name for automatic HTTPS, or :80 for plain http on a local machine.
+# The API's public entry (docker-compose.yml). The pages live on Vercel, which forwards /api/* here
+# (frontend/vercel.json) with X-Origin-Secret set; that proves the hop is Vercel, and Vercel overwrites X-Real-IP
+# with the visitor's address (docs/adr/2026-11-03-frontend-on-vercel.md).
+# SITE_ADDRESS is the API's domain name for automatic HTTPS, or :80 for plain http on a local machine.
+# What a request carrying a valid origin secret gets.
+(to_backend) {
+	reverse_proxy backend:8000 {
+		# Holds requests while the backend restarts (compose rebuild) instead of failing them; a single upstream
+		# needs no health_uri.
+		lb_try_duration 10s
+		# The backend trusts only this proxy (TRUSTED_PROXIES) and takes the client address from
+		# X-Forwarded-For: give it the visitor's address Vercel wrote.
+		header_up X-Forwarded-For {http.request.header.X-Real-IP}
+		# The site's host, so CrossOriginProtection's Origin-vs-Host fallback (browsers without Sec-Fetch-Site)
+		# compares the page's origin with itself. The backend's Host is therefore the site's, not the API's.
+		header_up Host {http.request.header.X-Forwarded-Host}
+		# The backend believes the request id this proxy sends, so never pass on the client's.
+		header_up X-Request-ID {http.request.uuid}
+		header_up -X-Origin-Secret
+	}
+}
+
 {$SITE_ADDRESS::80} {
-	log
-
-	# Ignored by browsers on plain http; applies once SITE_ADDRESS is a domain served over HTTPS.
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
-
-	handle /api/* {
-		reverse_proxy backend:8000 {
-			# Holds requests while the backend restarts (compose rebuild) instead of failing them; a single upstream
-			# needs no health_uri.
-			lb_try_duration 10s
-			# The backend believes the request id Caddy sends (TRUSTED_PROXIES), so never pass on the client's.
-			header_up X-Request-ID {http.request.uuid}
+	# The access log records request headers; the origin secret must not be among them.
+	log {
+		format filter {
+			request>headers>X-Origin-Secret delete
 		}
 	}
 
+	# Kept for anyone opening the API's domain in a browser (a debugging session); Vercel's own requests ignore it.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# The secret files are .secrets/origin_secret and, while a rotation is under way, .secrets/origin_secret_previous
+	# (empty otherwise; docs/deploy-vps.md). The length check keeps an empty file from matching an empty header: a
+	# missing or empty secret rejects everything instead of letting everything in.
+	@vercel {
+		path /api/*
+		header X-Origin-Secret {file./run/secrets/origin_secret}
+		header_regexp X-Origin-Secret ^[A-Za-z0-9_-]{43,}$
+	}
+	@vercel_previous {
+		path /api/*
+		header X-Origin-Secret {file./run/secrets/origin_secret_previous}
+		header_regexp X-Origin-Secret ^[A-Za-z0-9_-]{43,}$
+	}
+
+	handle @vercel {
+		import to_backend
+	}
+
+	handle @vercel_previous {
+		import to_backend
+	}
+
+	handle /api/* {
+		respond 403
+	}
+
 	handle {
-		reverse_proxy frontend:3000 {
-			lb_try_duration 10s
-		}
+		respond 404
 	}
 }

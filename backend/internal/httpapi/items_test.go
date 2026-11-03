@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/api"
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/api"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
 )
 
 func (a *authAPI) createItem(token, body string) *httptest.ResponseRecorder {

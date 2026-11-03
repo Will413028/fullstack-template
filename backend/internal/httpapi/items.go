@@ -5,8 +5,8 @@ import (
 
 	"github.com/oapi-codegen/nullable"
 
-	"github.com/Will413028/fullstack-template/backend/internal/httpapi/gen"
-	"github.com/Will413028/fullstack-template/backend/internal/modules/items"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
 )
 
 // The items operations (/items). The items service scopes every query to the signed-in user.

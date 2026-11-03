@@ -36,6 +36,12 @@ updates:
       default-days: 7
     allow:
       - dependency-type: all
+    # speakeasy-api/jsonpath 0.7.0 pulls a speakeasy-api/openapi pre-release built on go.yaml.in/yaml/v3, which
+    # breaks oapi-codegen 2.8.1 (still on gopkg.in/yaml.v3). Both are oapi-codegen dependencies: let its own release
+    # move them, and drop this ignore once oapi-codegen requires a speakeasy-api/openapi on go.yaml.in. osv-scanner
+    # still reports vulnerabilities in them.
+    ignore:
+      - dependency-name: "github.com/speakeasy-api/*"
     groups:
       backend-tools:
         patterns: ["*"]
@@ -44,15 +50,6 @@ updates:
   - package-ecosystem: docker
     target-branch: dev
     directory: /backend
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-
-  # node in frontend/Dockerfile, pinned by digest
-  - package-ecosystem: docker
-    target-branch: dev
-    directory: /frontend
     schedule:
       interval: weekly
     cooldown:
@@ -89,8 +86,8 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
-    # @types/node follows the Node.js major the frontend runs on (frontend/Dockerfile, CI); its major moves with the
-    # Node.js upgrade, not on its own.
+    # @types/node follows the Node.js major the frontend runs on (frontend/package.json engines, which Vercel reads,
+    # and CI); its major moves with the Node.js upgrade, not on its own.
     ignore:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Will413028/fullstack-template/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
 // EncodeCursor returns the opaque cursor for a page that ends at id: its 16 bytes in unpadded base64url. Clients

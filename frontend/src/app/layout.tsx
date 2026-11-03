@@ -3,13 +3,13 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Fullstack Template",
-    template: "%s | Fullstack Template",
+    default: "template-go-nextjs",
+    template: "%s | template-go-nextjs",
   },
   description:
     "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
   openGraph: {
-    title: "Fullstack Template",
+    title: "template-go-nextjs",
     description:
       "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
     type: "website",
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "Fullstack Template",
+    title: "template-go-nextjs",
     description:
       "A production-ready fullstack template with Next.js, Go, and Docker Compose.",
   },

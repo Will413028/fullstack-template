@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through GitHub's
-[private vulnerability reporting](https://github.com/Will413028/fullstack-template/security/advisories/new).
+[private vulnerability reporting](https://github.com/Will413028/template-go-nextjs/security/advisories/new).
 Do not open a public issue.
 
 Include the affected file or endpoint, steps to reproduce, and the impact you expect.
