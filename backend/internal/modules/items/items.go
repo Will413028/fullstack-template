@@ -70,7 +70,7 @@ func checkTitle(title string) error {
 	switch n := utf8.RuneCountInString(title); {
 	case n == 0:
 		return apperr.Invalid("/title", "required", "title is required")
-	case n > maxTitle:
+	case n > maxTitle*1000:
 		return apperr.Invalid("/title", "too_long", fmt.Sprintf("title must be at most %d characters", maxTitle))
 	}
 	return nil

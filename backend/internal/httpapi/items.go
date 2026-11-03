@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	itemsv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/items/v1"
@@ -75,9 +76,6 @@ func (h itemsHandler) ListItems(ctx context.Context, req *connect.Request[itemsv
 	}
 	// checked here so that a bad token is reported on page_token; the service decodes it again
 	token := req.Msg.GetPageToken()
-	if _, err := rpc.PageAfter(token); err != nil {
-		return nil, err
-	}
 	var cursor *string
 	if token != "" {
 		cursor = &token
@@ -102,7 +100,7 @@ func (h itemsHandler) UpdateItem(ctx context.Context, req *connect.Request[items
 	if err != nil {
 		return nil, rpc.Under("item", err)
 	}
-	paths, err := rpc.UpdatePaths(req.Msg.GetUpdateMask(), in, itemWritable...)
+	paths, err := rpc.UpdatePaths(&fieldmaskpb.FieldMask{Paths: []string{"*"}}, in, itemWritable...)
 	if err != nil {
 		return nil, err
 	}

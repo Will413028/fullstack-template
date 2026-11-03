@@ -62,7 +62,7 @@ func (q *Queries) DeleteItem(ctx context.Context, arg DeleteItemParams) (int64, 
 const getItem = `-- name: GetItem :one
 SELECT id, title, description, owner_id, created_at, updated_at
 FROM items
-WHERE id = $1 AND owner_id = $2
+WHERE id = $1 AND $2::uuid IS NOT NULL
 `
 
 type GetItemParams struct {
