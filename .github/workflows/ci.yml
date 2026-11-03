@@ -139,7 +139,7 @@ jobs:
           test "$(code -H "X-Origin-Secret: $secret" http://localhost/en/login)" = 404
           test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' http://localhost/api/users/me)" = 401
           # caddy's access log records request headers: the secret must not be written there
-          ! docker compose logs caddy | grep -F "$secret"
+          if docker compose logs caddy | grep -qF "$secret"; then echo "caddy logged the origin secret"; exit 1; fi
       - name: Caddy hands the backend Vercel's client address, request id and site host
         run: |
           secret="$(cat .secrets/origin_secret)"
@@ -151,7 +151,7 @@ jobs:
           curl -s -o /dev/null -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Real-IP: 203.0.113.7' -H 'X-Forwarded-For: 198.51.100.9' http://localhost/api/users/me
           docker compose logs backend | grep -F "$id" > /dev/null
           docker compose logs backend | grep 'users/me' | grep -F '203.0.113.7' > /dev/null
-          ! docker compose logs backend | grep -F '198.51.100.9'
+          if docker compose logs backend | grep -qF '198.51.100.9'; then echo "the backend took the client's X-Forwarded-For"; exit 1; fi
           # an old browser without Sec-Fetch-Site: CrossOriginProtection compares Origin with Host, which caddy sets
           # to the site's host, so a same-site sign-in is not rejected as cross-origin
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: app.example.com' -H 'Origin: https://app.example.com' -H 'Content-Type: application/json' -d '{"account":"nobody","password":"wrong-password-123"}' http://localhost/api/sessions)" = 401
