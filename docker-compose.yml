@@ -2,8 +2,9 @@
 # created by `make init-env`), mounted at /run/secrets/<name> and read through <KEY>_FILE.
 # Database roles (deploy/postgres/initdb/10-roles.sh): the superuser only initializes the volume; migrate connects
 # as the owner role; backend connects as the app role, which has DML only.
-# Only caddy publishes ports (deploy/Caddyfile): /api goes to the backend, the rest to Next, one origin for the
-# browser. Ports Docker publishes bypass ufw, so nothing else is published.
+# Only caddy publishes ports (deploy/Caddyfile): it is the API's entry, and Vercel, which serves the pages, forwards
+# /api to it (docs/adr/2026-11-03-frontend-on-vercel.md). Ports Docker publishes bypass ufw, so nothing else is
+# published.
 
 x-db-names: &db-names
   POSTGRES_DB: ${POSTGRES_DB:-template_go_nextjs}
@@ -75,8 +76,7 @@ services:
       SESSION_ABSOLUTE: ${SESSION_ABSOLUTE:-}
       SESSION_IDLE: ${SESSION_IDLE:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-}
-      # caddy's fixed address: only it may set X-Forwarded-For and X-Request-ID. Next is on the same network but is
-      # not a proxy, so its server-side calls cannot choose the client address.
+      # caddy's fixed address: only it may set X-Forwarded-For and X-Request-ID.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.30.0.2/32}
       DB_MAX_CONNS: ${DB_MAX_CONNS:-}
       DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-}
@@ -92,29 +92,20 @@ services:
       timeout: 3s
       retries: 5
 
-  frontend:
-    logging: *logging
-    build: ./frontend
-    restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
-      # server-side (SSR/RSC) fetches reach the backend by service name; the browser uses /api through caddy
-      API_URL: http://backend:8000
-    depends_on:
-      backend:
-        condition: service_healthy
 
   caddy:
     logging: *logging
     image: caddy:2.11.7@sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af
     restart: unless-stopped
     environment:
-      # a domain name for automatic HTTPS, or :80 for plain http on a local machine
+      # the API's domain name for automatic HTTPS, or :80 for plain http on a local machine
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+    # X-Origin-Secret that Vercel sends (deploy/Caddyfile)
+    secrets: [origin_secret]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -126,8 +117,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      frontend:
-        condition: service_started
 
 networks:
   default:
@@ -144,6 +133,8 @@ secrets:
     file: .secrets/db_owner_password
   db_app_password:
     file: .secrets/db_app_password
+  origin_secret:
+    file: .secrets/origin_secret
 
 volumes:
   postgres-data:

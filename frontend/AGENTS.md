@@ -80,9 +80,11 @@ layer), not by adding an exception.
 ## Auth Flow (opaque session cookie)
 
 ```
-Same origin → the browser calls /api on the page's own origin; Caddy (Docker,
-              make dev and make up) or the pnpm dev rewrite (host) forwards it
-              to the backend. No CORS, no API URL in the bundle.
+Same origin → the browser calls /api on the page's own origin; on Vercel
+              vercel.json routes it to the API's Caddy with the origin secret,
+              under pnpm dev the next.config rewrite forwards it to the backend.
+              Server-side calls use /api on NEXT_PUBLIC_APP_URL the same way.
+              No CORS, no API URL in the bundle, no secret in Next's code.
 
 Sign up → POST /api/users (JSON) → 201 with the User; the backend sets the
           session cookie (__Host-session, or session with COOKIE_SECURE=false)
