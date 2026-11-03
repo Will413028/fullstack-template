@@ -30,6 +30,7 @@
 - 部分更新用 `google.protobuf.FieldMask update_mask`（AIP-134，hawkr 規範§七）。不導入 hawkr 的 etag 樂觀鎖：template 現在沒有並發修改的規則，這是新行為，不在本計畫的範圍（見「範圍」的不做）。
 - 錯誤：Connect code 加上 `google.rpc` 的標準 details（`ErrorInfo`、`BadRequest`、`RetryInfo`），`ErrorInfo.reason` 是 `common.v1.ErrorReason` 的值名（hawkr 規範§八）。使用者看到的文字由誰產生見 D3。`request_id` 只放在 `X-Request-ID` header，不放進 body。
 - session 解析（`authenticate`）、CrossOriginProtection、MaxBytes、存取日誌與 panic recovery 都留在 net/http 這一層，在 Connect handler 的外面；它們擋下的請求由 connect-go 的 `ErrorWriter` 寫成 Connect 的錯誤（hawkr 規範§八）。
+- connect-go 用 v1（v1.21.1，預設，可推翻）：v2.0.0 在 2026-10-07 發布，改成傳輸層無關的 `connect.Server`、interceptor 在解碼之前執行、生成的 handler 不再包 `Request`／`Response`；v1 在 `v1` 分支繼續維護，兩版可以在同一個 module 並存。本計畫的前提（解碼先於 interceptor，所以未登入檢查與限流放在 net/http 層）與 hawkr 都是 v1。改用 v2 是另一次遷移，觸發條件：v1 停止維護，或需要 v2 才有的功能。核對：2026-11-03，`gh api repos/connectrpc/connect-go/releases`。
 - 不需要 spike：hawkr 已經在同一套 stack（connect-go、connect-es、connect-query、TanStack Query）上跑過。下列幾個未驗證的點，各自列在第一個用到它的步驟的停止條件裡：protoc 生成的 Go 是否被排除在 coverage 之外、knip 對生成的 TS 的反應、connect-query 2.3 與 TanStack Query 5.105 的相容性、SSR 用 connect-web transport 轉送 cookie。
 
 **驗收基線：** `a83acc9` 在 CI 全綠（run 41586205101：Backend、Frontend、Compose stack、Rename smoke test、Commit policy、gate）。quality lock：`tests.backend: 241`、`tests.frontend: 41`、`suppressions.go: 16`（`scripts/quality-locks.json`）。沒有已知的失敗。
@@ -78,7 +79,7 @@
 
 - [ ] **1. 工具鏈與共用層（walking skeleton）**（被擋於：步驟 0；D1、D2、D3、D5）
   - 範圍（檔案前的標記：新增、修改、刪除）：
-    - 契約：（新增）`api/buf.yaml`（lint STANDARD；breaking `WIRE_JSON` 加 `RPC_NO_DELETE`、`PACKAGE_SERVICE_NO_DELETE` 與 `PACKAGE_NO_DELETE`（D1-B，沒有 `ignore_unstable_packages`；`WIRE_JSON` 本身不擋刪除 RPC、service 或 package：2026-11-03 以 buf 1.50.0 的 fixture 實測，少了 `PACKAGE_NO_DELETE` 時刪掉整個 package 是 exit 0，加上後刪除與改名 package 都 exit 100）；`ErrorReason` 的 `ENUM_VALUE_PREFIX` 例外，同 hawkr 的 `api/buf.yaml`）、`api/app/common/v1/errors.proto`（`ErrorReason`、`FieldViolationReason`）。`api/` 沒有 proto import googleapis，所以 `api/buf.yaml` 不宣告 deps、沒有 `buf.lock`（design-review #49）。
+    - 契約：（新增）`api/buf.yaml`（lint STANDARD；breaking `WIRE_JSON` 加 `RPC_NO_DELETE`、`PACKAGE_SERVICE_NO_DELETE` 與 `PACKAGE_NO_DELETE`（D1-B，沒有 `ignore_unstable_packages`；`WIRE_JSON` 本身不擋刪除 RPC、service 或 package：2026-11-03 以 buf 1.50.0 的 fixture 實測，少了 `PACKAGE_NO_DELETE` 時刪掉整個 package 是 exit 0，加上後刪除與改名 package 都 exit 100；同日在 1.75.0 以 `tools-selftest` 的情境再測一次，結果相同）；`ErrorReason` 的 `ENUM_VALUE_PREFIX` 例外，同 hawkr 的 `api/buf.yaml`）、`api/app/common/v1/errors.proto`（`ErrorReason`、`FieldViolationReason`）。`api/` 沒有 proto import googleapis，所以 `api/buf.yaml` 不宣告 deps、沒有 `buf.lock`（design-review #49）。
     - 測試用的契約：（新增）`backend/internal/httpapi/rpc/testdata/` 底下另一個 buf module（`buf.yaml`、`buf.gen.yaml`、`testing.proto`），Public、App、Admin 三類各一個 service，各有 `Get` 與 `Update` 方法。只生成 Go、只給 `internal/httpapi` 的測試掛載；不在 `api/`，所以不進前端的生成、不受 breaking 檢查，衍生專案也不會把它當成對外契約。`make gen` 與 `gen-check` 一併涵蓋它，跑 `buf lint`，留到步驟 6 都不刪。
     - buf CLI：（修改）root `Makefile` 照 hadolint 的做法加 `BUF_VERSION`、各平台的 `BUF_SHA256_*` 與版本戳記，以 `uname` 判斷平台、不需要 Go；`make bin/buf` 是唯一的下載點與 checksum 的唯一位置，backend 的 Makefile、前端的 CI job 與 lefthook 都呼叫它（Will，2026-11-03，design-review #51）。（修改）`scripts/tool_versions.py` 用現有的 `{file, version_var}` 方式追蹤 `BUF_VERSION`（T23）。
     - Go 依賴：（修改）`backend/tools/go.mod` 加 `protoc-gen-go`、`protoc-gen-connect-go`；（修改）`backend/go.mod` 加 `connectrpc.com/connect`、`google.golang.org/protobuf`、`google.golang.org/genproto/googleapis/rpc`。
@@ -268,12 +269,18 @@
 
 ## 進度
 
+步驟 1 的執行紀錄（2026-11-03）：
+
+- 已跑的 mutation，每條都讓對應的測試失敗、還原後通過：`check-buf-breaking.sh` 直接 `exit 0`（4 個 breaking 情境失敗）、`STANDARD` 改 `BASIC`（lint 情境）、拿掉 `RPC_NO_DELETE`、`PACKAGE_NO_DELETE`、`PACKAGE_SERVICE_NO_DELETE`（各自的刪除情境）；轉換的 interceptor 不記 log（`TestInternalErrorLogged`）；拿掉 admin interceptor（`TestAdminServiceNeedsAdminRole`）；關掉 NO_SIDE_EFFECTS 名稱檢查、類別檢查（`TestNewMuxRejects`）；拿掉入口的未登入檢查（`TestConnectUnauthenticatedBeforeDecoding`）；關掉入口限流（`TestConnectRateLimitBeforeDecoding`）；`writeError` 一律寫 Connect（9 個 REST 測試）；查不到的 procedure 先檢查登入（`TestConnectUnknownProcedureNotFound`）；`connectServices` 一個都不掛（`TestConnectServicesReturnTheirResources` 等）；測試 proto 的 `UpdatePublicThing` 標 `NO_SIDE_EFFECTS`（`NewHandler` 拒絕啟動，7 個測試失敗）；前端 interceptor 對 `INVALID_CREDENTIALS` 也導向、`useHttpGet: false`；`src/generated` 過期時 `gen:api:check` 失敗。
+- 與範圍的差異：測試 proto 另加三個「檢查必須拒絕」的 fixture service（`TestingInternalService`、`TestingSideEffectAppService`、`TestingOrphanAppService`），啟動檢查與 descriptor 檢查的反例用它們，不靠手寫清單；`NewMux` 另外拒絕串流方法（interceptor 只包 unary，admin 檢查會被繞過）；`ENUM_VALUE_PREFIX` 的例外以檔案為單位，`FieldViolationReason` 跟 `ErrorReason` 同檔，所以一起免前綴（兩者的值都是 wire 上的字串）；CI 的 rename job 用 `make bin/buf`，不是整個 `make -C backend tools`（只需要 buf）；`gen-check` 與 `gen:api:check` 比對 index，rename job 先 `git add -A` 再檢查。
+- 留給後面步驟：`@connectrpc/connect-query` 還沒裝，步驟 3＋4 第一個呼叫端出現時再裝（沒有呼叫端時 knip 會報 unused）；相容性以 peer 範圍確認：connect-query 2.3.1 要求 `@tanstack/react-query >=5.62.0`（`npm view @connectrpc/connect-query@2.3.1 peerDependencies`），repo 用 `^5.105.0`。`rpc.PageSize` 照 AIP-158 把超過上限的 `page_size` 降到上限、負數回 `invalid_argument`；REST 現在對 `limit > 100` 回 422，這個行為改變在步驟 2 寫進 `tests-map.md`。
+
 狀態值：未開始／進行中／程式完成待驗收／完成。
 
 | 步驟 | 狀態 | 已跑的驗收 | 未跑的驗收與原因 | commit |
 |---|---|---|---|---|
 | 0 ADR 與計畫定稿 | 完成 | `check-plan.py` 輸出 `ok`；計畫審查 2 輪（32 條）；ADR 獨立草稿 2 份；design-review 2 輪（24 條）；buf 1.50.0 的 package 刪除 fixture；見 `review-ledger.md` | 無 | 本 commit |
-| 1 工具鏈與共用層 | 未開始 | | | |
+| 1 工具鏈與共用層 | 程式完成待驗收 | 本機：`make -C backend` 的 fmt-check、gen-openapi-check、gen-check、buf-lint、lint、deadcode、vuln、sqlc-diff、squawk、migrations-immutable、api-breaking、tools-selftest 全過；`internal/httpapi/rpc` 測試；httpapi 不需 DB 的 Connect 測試（暫時換掉 `TestMain` 跑，跑完還原）；前端 `pnpm lint`、`check:deps`、`check:arch`、`test:report`（50）、`build`、`gen:api:check`；rename 煙霧測試（scratch worktree：沒有殘留舊 module path、gen-check、`go vet`、rpc 測試）；`make coverage` 的 cobertura 步驟排除 `internal/gen`（rpc 的 profile 有 19 行、報告 0 行）；mutation 見下 | `make test` 與 `make drift`（要 postgres 測試容器，機器高負載，Will 2026-11-03：交給 CI）：含 `connect_auth_test.go` 的三個 DB 測試與「`authenticate` 的 DB 錯誤繞過共用寫入函式」這條 mutation 的正向測試；CI 全套 | `323317b`、`807247a`、`387014a` |
 | 2 items | 未開始 | | | |
 | 3＋4 auth 與前端 | 未開始 | | | |
 | 5 刪除 OpenAPI 與文件 | 未開始 | | | |
