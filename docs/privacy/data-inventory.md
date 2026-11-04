@@ -49,7 +49,7 @@
 
 **記了什麼**
 
-- Backend：每個請求一行，含 `method`、`path`（不含 query string）、`status`、`duration_ms`、`client_ip`、`request_id`。`MODE=prod` 時是 JSON，其他是文字，寫到 stdout。API 的路徑是 Connect 的 procedure（`/api/app.<package>.<Service>/<Method>`），不含資源 id：id 在請求訊息裡。讀取（`NO_SIDE_EFFECTS` 的 `Get*`、`List*`）用 GET，請求訊息編進 `?message=`，backend 不記 query string，但 Caddy 與 Vercel 的日誌會記完整的 URI，所以 GET 的 query 裡會有 session 或使用者的 UUID；請求帶憑證的讀取不標 `NO_SIDE_EFFECTS`（[計畫](../plans/2026-11-03-connect-contract.md)的前提；目前沒有這種讀取）。
+- Backend：每個請求一行，含 `method`、`path`（不含 query string）、`status`、`duration_ms`、`client_ip`、`request_id`。`MODE=prod` 時是 JSON，其他是文字，寫到 stdout。API 的路徑是 Connect 的 procedure（`/api/app.<package>.<Service>/<Method>`），不含資源 id：id 在請求訊息裡。讀取（`NO_SIDE_EFFECTS` 的 `Get*`、`List*`）用 GET，請求訊息編進 `?message=`，backend 不記 query string，但 Caddy 與 Vercel 的日誌會記完整的 URI，所以 GET 的 query 裡會有 session 或使用者的 UUID；請求帶憑證的讀取不標 `NO_SIDE_EFFECTS`（[API 設計規範](../rules/api-design.md)；目前沒有這種讀取）。
 - Backend 錯誤：非預期錯誤記 `method`、`procedure` 與錯誤文字（`httpapi/rpc/errors.go` 的 `LogConverted`）。HIBP 查詢失敗會記錄錯誤；網路錯誤時那是 Go 的 `*url.Error`，含請求網址，也就是那 5 個字元的雜湊前綴（推論自 `net/http`）。
 - 密碼與 session token 不會出現在任何級別的日誌：`TestCredentialsNeverLogged`。
 - 清理：只記刪掉的筆數。

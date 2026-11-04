@@ -38,14 +38,19 @@ pre-push:
   commands:
     backend-check:
       root: backend/
-      run: make --no-print-directory check BASE=origin/main && cd .. && python3 scripts/check_locks.py --go-test-report backend/test-report.json
+      run: make --no-print-directory check BASE="$(git rev-parse -q --verify origin/main >/dev/null && echo origin/main || echo HEAD)" && cd .. && python3 scripts/check_locks.py --go-test-report backend/test-report.json
     frontend-check:
       root: frontend/
       run: pnpm audit --prod --audit-level high && pnpm gen:api:check && pnpm lint && pnpm check:deps && pnpm check:arch && pnpm test:report && pnpm build && cd .. && python3 scripts/check_built_pages.py && python3 scripts/check_locks.py --vitest-report frontend/test-report.json
     docker-lint:
       run: make --no-print-directory lint-docker
     policy:
-      run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/tool_versions.py verify && python3 scripts/check_commit_policy.py --range origin/main..HEAD
+      run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/tool_versions.py verify && python3 scripts/check_commit_policy.py --range "$(git rev-parse -q --verify origin/main >/dev/null && echo origin/main..HEAD || echo HEAD)"
+    # >>> template-only
+    # the generator's own tests (CI's generate job also checks a generated project end to end)
+    template:
+      run: python3 -m unittest discover -s template -p 'test_*.py'
+    # <<< template-only
     # osv-scanner gets each tracked lockfile by name: its recursive walk honours a parent repository's .gitignore,
     # so a clone nested in an ignored directory would scan nothing and fail.
     security:

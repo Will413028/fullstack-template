@@ -9,25 +9,34 @@ Production-ready fullstack monorepo for new web projects.
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (Compose v2.24.7+ for `make dev`, which runs `docker compose up --watch`)
-- [Go](https://go.dev/dl/) — version in `backend/go.mod`; for backend development, tests and `make rename`
+- [Go](https://go.dev/dl/) — version in `backend/go.mod`; for backend development and tests
 - [pnpm](https://pnpm.io/) — `npm install -g pnpm`
-- Python 3 — for the repo scripts (`make rename`, `make init-env`)
+- Python 3 — for the repo scripts (`make init-env`, the quality checks)
+<!-- >>> template-only -->
+
+## Starting a New Project
+
+```bash
+make new NAME=my-project DEST=../my-project   # optional: REPO=owner/my-project (default Will413028/<NAME>)
+```
+
+This generates the project into a new directory: Docker images, package names, database and role names, branding,
+repository links and the Go module path (`github.com/<REPO>/backend`) follow the new name; the Connect code is
+regenerated and the backend built. The project starts as a new git repository with one commit and no remote, without
+the template's generator, plans or template-only blocks, and with no link back to the template. Then follow the quick
+start inside it.
+<!-- <<< template-only -->
 
 ## Quick Start
 
 ```bash
-# 1. Clone and rename for your project
-git clone <this-repo> my-project
-cd my-project
-make rename NAME=my-project          # optional: MODULE=example.com/me/my-project/backend
-
-# 2. Setup environment: .env from .env-example, database passwords and the origin secret in .secrets/
+# 1. Setup environment: .env from .env-example, database passwords and the origin secret in .secrets/
 make init-env
 
-# 3. Start the backend (rebuilds on change; API at http://localhost:8000)
+# 2. Start the backend (rebuilds on change; API at http://localhost:8000)
 make dev
 
-# 4. In another terminal: the Next.js dev server, which forwards /api to the backend
+# 3. In another terminal: the Next.js dev server, which forwards /api to the backend
 cd frontend && pnpm install && pnpm dev
 
 # App:      http://localhost:3000
@@ -36,6 +45,19 @@ cd frontend && pnpm install && pnpm dev
 # 4. Create an admin account (in another terminal)
 make seed ADMIN_ACCOUNT=admin
 ```
+
+### First push
+
+A new project has one commit on `main` and no remote. Create the repository on GitHub, then push `main` and start `dev`
+from it (the branch model is in `AGENTS.md`):
+
+```bash
+git remote add origin git@github.com:<owner>/<name>.git
+git push -u origin main
+git push origin main:dev && git switch -c dev --track origin/dev
+```
+
+Before `origin/main` exists the pre-push hook compares against `HEAD`, so the first push checks the commit itself.
 
 ### On GitHub, once per new repository
 
@@ -52,7 +74,7 @@ wait), secret scanning and push protection. The checks in `.github/workflows/` r
 ├── docker-compose.yml      Production API stack (the frontend deploys to Vercel)
 ├── docker-compose.dev.yml  Dev overrides
 ├── Makefile                Docker Compose shortcuts
-├── scripts/                rename and init_env
+├── scripts/                init_env and the quality checks
 ├── .env-example            Environment variable template
 └── docs/                   Design rules, decisions (adr/), deployment guide
 ```
@@ -96,15 +118,6 @@ pnpm lint                 # TypeScript + Biome
 pnpm build                # Production build
 pnpm gen:api              # Regenerate the Connect types from api/ (Protobuf)
 ```
-
-## Starting a New Project
-
-```bash
-make rename NAME=my-client-project
-```
-
-This renames Docker images, package names, database and role names, branding, and the Go module path
-(default `github.com/Will413028/<NAME>/backend`, override with `MODULE=`), then checks that the backend builds.
 
 ## Architecture
 

@@ -21,7 +21,7 @@ import (
 // app.common.v1.ErrorReason when the client needs to tell failures apart, BadRequest for invalid fields, RetryInfo
 // when retrying later helps. The message is for developers; clients translate the code and the reasons.
 
-// ErrorDomain is ErrorInfo's domain: the proto root, which make rename keeps (decision D5).
+// ErrorDomain is ErrorInfo's domain: the proto root, the same in every project made from the template (decision D5).
 const ErrorDomain = "app"
 
 // kindCodes maps each apperr kind to its Connect code.

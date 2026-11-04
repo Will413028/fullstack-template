@@ -7,7 +7,7 @@ clean: true
 managed:
   enabled: true
   override:
-    # make rename rewrites this module path, then regenerates: the path is also inside each file's raw descriptor.
+    # The module path is also inside each generated file's raw descriptor: a new module path needs make gen.
     - file_option: go_package_prefix
       value: github.com/Will413028/template-go-nextjs/backend/internal/gen
 plugins:
