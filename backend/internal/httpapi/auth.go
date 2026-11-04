@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
-	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/google/uuid"
 
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
@@ -14,9 +14,9 @@ import (
 )
 
 // Authentication (docs/adr/2026-10-18-api-and-auth-baseline.md D4): the session token lives only in an HttpOnly
-// cookie. Which operations need a session is declared once, in the contract's security: the validator calls
-// requireSession for those, before it checks parameters and body, so an anonymous request gets 401 rather than a 422
-// about its body.
+// cookie. Which procedures need a session follows the service name (rpc.ClassOf): connectEntry refuses an anonymous
+// App or Admin call before connect-go decodes it, so an anonymous caller gets unauthenticated rather than an error
+// about its fields.
 
 // Cookie names the session cookie and the device cookie (a browser trusted to sign in, auth.Device). Secure is false
 // only for local http development, where the names drop the __Host- prefix (it requires Secure);
@@ -47,7 +47,8 @@ func sessionTokenFrom(ctx context.Context) string {
 	return v
 }
 
-// currentUser returns the signed-in user; the validator guarantees one for operations that declare security.
+// currentUser returns the signed-in user; connectEntry guarantees one for App and Admin
+// procedures.
 func currentUser(ctx context.Context) (auth.User, bool) {
 	u, ok := ctx.Value(currentUserKey{}).(auth.User)
 	return u, ok
@@ -59,11 +60,12 @@ func currentSessionID(ctx context.Context) uuid.UUID {
 	return id
 }
 
-// authenticate resolves the session cookie before validation. A missing or invalid session leaves the request
-// anonymous: operations without security (sign-in, sign-up, sign-out) must work with a stale cookie. An invalid
-// cookie is also cleared on the response: it is HttpOnly, so only the server can remove it, and the frontend treats
-// a present cookie as signed in (wiki tech/login-death-loop-stale-cookie). A handler that sets a new cookie replaces
-// that header. A database error is a 500.
+// authenticate resolves the session cookie before any handler. A missing or invalid session leaves the request
+// anonymous: the Public services (sign-in, sign-up, sign-out) must work with a stale cookie. An invalid cookie is
+// also cleared on the response: it is HttpOnly, so only the server can remove it, and the frontend treats a present
+// cookie as signed in (wiki tech/login-death-loop-stale-cookie). The clearing is on the response from the start, so
+// every answer carries it, a panic's included; a handler that sets the session cookie itself (a sign-in) replaces it
+// (clearStaleCookie). A database error is an internal error.
 func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, next http.Handler) http.Handler {
 	if sessions == nil {
 		return next
@@ -86,7 +88,9 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 			ctx = context.WithValue(ctx, currentSessionKey{}, sessionID)
 			ctx = authctx.With(ctx, authctx.User{ID: u.ID, Role: u.Role})
 		case errors.Is(err, auth.ErrSessionInvalid):
-			w.Header().Set("Set-Cookie", cookie.clear())
+			clear := cookie.clear()
+			w.Header().Add("Set-Cookie", clear)
+			w = &clearStaleCookie{ResponseWriter: w, name: cookie.Name, clear: clear}
 		default:
 			writeError(w, r, logger, err)
 			return
@@ -95,14 +99,50 @@ func authenticate(sessions *auth.Service, cookie Cookie, logger *slog.Logger, ne
 	})
 }
 
-var errNoSession = errors.New("no valid session")
+// clearStaleCookie takes authenticate's clearing back off the response when it starts, if the handler set the session
+// cookie itself: connect-go adds a handler's response headers to the ones already on w, so a sign-in would otherwise
+// send both the clearing and the new session. A response written around it (an outer panic, a Flush through Unwrap)
+// keeps the clearing.
+type clearStaleCookie struct {
+	http.ResponseWriter
+	name, clear string
+	started     bool
+}
 
-// requireSession is the validator's AuthenticationFunc for the sessionCookie scheme.
-func requireSession(ctx context.Context, _ *openapi3filter.AuthenticationInput) error {
-	if _, ok := authctx.From(ctx); !ok {
-		return errNoSession
+func (w *clearStaleCookie) WriteHeader(code int) {
+	w.start()
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *clearStaleCookie) Write(b []byte) (int, error) {
+	w.start()
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController and responseStarted reach the writers underneath.
+func (w *clearStaleCookie) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *clearStaleCookie) start() {
+	if w.started {
+		return
 	}
-	return nil
+	w.started = true
+	values := w.Header().Values("Set-Cookie")
+	own := 0
+	for _, c := range values {
+		if strings.HasPrefix(c, w.name+"=") {
+			own++
+		}
+	}
+	if own < 2 { // only the clearing: the handler did not set the session cookie
+		return
+	}
+	for i, c := range values {
+		if c == w.clear { // the first copy is authenticate's
+			w.Header()["Set-Cookie"] = append(values[:i:i], values[i+1:]...)
+			return
+		}
+	}
 }
 
 // set returns the Set-Cookie value for a new session: SameSite=Lax and Max-Age the session's absolute lifetime.

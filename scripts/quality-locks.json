@@ -1,4 +1,4 @@
 {
-  "suppressions": { "go": 16, "typescript": 0, "sql": 2 },
-  "tests": { "frontend": 41, "backend": 241 }
+  "suppressions": { "go": 14, "typescript": 0, "sql": 2 },
+  "tests": { "frontend": 52, "backend": 259 }
 }

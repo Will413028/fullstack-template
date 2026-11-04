@@ -19,13 +19,13 @@
 
 | 資料 | 存在哪裡 | 用途 | 保留與刪除 | 誰讀得到 |
 |---|---|---|---|---|
-| 帳號名稱 | `users.account`，小寫，3 到 50 字元 | 登入識別 | 直到帳號被刪除（見「當事人的請求」） | 本人（`getCurrentUser`、`getUser`）；admin（`listUsers`、`getUser`、`patchUser` 的回應）；上述 DB 角色 |
+| 帳號名稱 | `users.account`，小寫，3 到 50 字元 | 登入識別 | 直到帳號被刪除（見「當事人的請求」） | 本人（`UserAppService.GetCurrentUser`、`GetUser`）；admin（`UserAdminService.ListUsers`、`GetUser`、`UpdateUser` 的回應）；上述 DB 角色 |
 | 密碼雜湊 | `users.password_hash`：對 NFKC 正規化後的密碼做 argon2id，m=19 MiB、t=2、p=1、16 byte salt、32 byte key（`auth/password.go`） | 驗證登入 | 直到該列被刪；API 從不回傳 | 只有 DB 角色 |
 | 角色、停用狀態、建立與更新時間 | `users.role`、`is_disabled`、`created_at`、`updated_at` | 授權、帳號狀態 | 直到該列被刪 | `updated_at` 只有 DB 角色；其餘本人與 admin 可透過 API 讀 |
 | Session token | 只在 cookie；資料庫存 token 的 SHA-256（`sessions.token_hash`） | 驗證請求 | cookie 的 `Max-Age` 是絕對期限。這些情況會刪掉該列：登出、全部登出、撤銷單一 session、帶著它重新登入、使用者被停用、使用者被刪（`ON DELETE CASCADE`）、每小時清理過期的 session（`auth/sessions.go`） | 原始 token 只有瀏覽器（HttpOnly）；雜湊只有 DB 角色 |
 | Session 中繼資料 | `sessions.id`、`user_id`、`created_at`、`last_used_at`（最多每分鐘寫一次）、`expires_at` | 列出與撤銷 session；idle 與絕對期限 | 同 session 那列。超過 `expires_at` 或閒置超過 `SESSION_IDLE` 的列每小時清掉（`backend/cmd/app/main.go` 的 cleanup）。測試：`TestCleanup` | 本人，只限自己的 session；admin 沒有 session API；DB 角色 |
-| 登入嘗試紀錄 | `sign_in_throttles`：`account_key` = 送出的帳號名轉小寫，不論帳號是否存在；`client_key` = 來源位址（IPv6 截到 /64）或信任裝置的 id，帳號合計那列為空字串；另有 `failures`、`next_allowed_at`、`updated_at` | 依「帳號＋來源」節流，與帳號層級的鎖 | 登入成功或 admin 解鎖時刪掉該帳號的所有列，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | DB 角色；admin 經 `GET /api/users/{id}/sign-in-lock` 只看得到是否鎖定與失敗次數。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
-| Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `deleteItem` 刪除；帳號刪除時一起刪（`ON DELETE CASCADE`） | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
+| 登入嘗試紀錄 | `sign_in_throttles`：`account_key` = 送出的帳號名轉小寫，不論帳號是否存在；`client_key` = 來源位址（IPv6 截到 /64）或信任裝置的 id，帳號合計那列為空字串；另有 `failures`、`next_allowed_at`、`updated_at` | 依「帳號＋來源」節流，與帳號層級的鎖 | 登入成功或 admin 解鎖時刪掉該帳號的所有列，或最後一次嘗試 24 小時後由每小時的清理刪除。測試：`TestCleanup` | DB 角色；admin 經 `UserAdminService.GetSignInLock` 只看得到是否鎖定與失敗次數。注意：打錯的帳號名、或誤把密碼打進帳號欄，會在這裡留最多 24 小時 |
+| Items（範例模組） | `items.title`、`items.description`、`owner_id` | 範例的使用者內容；自由文字可能含個資 | `ItemAppService.DeleteItem` 刪除；帳號刪除時一起刪（`ON DELETE CASCADE`） | 只有擁有者（查詢帶擁有者條件，`backend/AGENTS.md` 規則 6）；DB 角色 |
 | Client IP | backend access log 的 `client_ip`：瀏覽器的請求是訪客位址（Vercel 填的 `X-Real-IP`），SSR 的請求是 Vercel Function 的出口位址；每 IP 限流放在程式記憶體，IPv6 截到 /64（`httpapi/ratelimit.go`） | 追蹤、限流 | 日誌：見「日誌」。記憶體：閒置 1 分鐘的 bucket 會丟掉，重啟就全部消失 | 讀得到日誌的人 |
 | Request id、method、path、status、處理時間 | backend access log；同一個請求的每行日誌都帶 `request_id` | 追蹤 | 見「日誌」 | 讀得到日誌的人 |
 | User agent | backend 不記（`accessLog` 沒有這個欄位）。Caddy 的 `log` 會記請求 header（含 `User-Agent`、Vercel 送的 `X-Real-IP` 與 `X-Forwarded-For`）、含 query string 的完整 URI 與來源位址，並遮蔽 `Cookie` 與 `Authorization`（推論，Caddy 預設）；`X-Origin-Secret` 由 `deploy/Caddyfile` 的 filter 刪掉（CI compose job 檢查） | Proxy access log | 見「日誌」 | 讀得到日誌的人 |
@@ -43,14 +43,14 @@
 | `__Host-device`（`COOKIE_SECURE=false` 時是 `device`） | backend，登入成功且瀏覽器還沒有這個帳號的裝置 cookie 時 | 信任裝置的 token | 180 天；全部登出、停用或刪除帳號後失效 |
 | 語系 cookie | next-intl middleware（`frontend/src/proxy.ts`、`frontend/src/i18n/routing.ts`） | 選擇的語系（推論，next-intl 預設；routing 沒設 cookie 選項） | 函式庫預設 |
 
-前端程式碼沒有使用 `localStorage`、`sessionStorage`、IndexedDB 或 `document.cookie`（搜尋 `frontend/src`）。Next 的 server 端讀請求 cookie，只為了轉送給 `GET /api/users/me`（`frontend/src/features/auth/server.ts`）。
+前端程式碼沒有使用 `localStorage`、`sessionStorage`、IndexedDB 或 `document.cookie`（搜尋 `frontend/src`）。Next 的 server 端讀請求 cookie，只為了轉送給 `UserAppService.GetCurrentUser`（Connect GET，`frontend/src/features/auth/server.ts`）。
 
 ## 日誌
 
 **記了什麼**
 
-- Backend：每個請求一行，含 `method`、`path`（不含 query string）、`status`、`duration_ms`、`client_ip`、`request_id`。`MODE=prod` 時是 JSON，其他是文字，寫到 stdout。路徑裡有資源 id，例如 session 或使用者的 UUID。
-- Backend 錯誤：非預期錯誤記 `method`、`path` 與錯誤文字（`httpapi/problem.go`）。HIBP 查詢失敗會記錄錯誤；網路錯誤時那是 Go 的 `*url.Error`，含請求網址，也就是那 5 個字元的雜湊前綴（推論自 `net/http`）。
+- Backend：每個請求一行，含 `method`、`path`（不含 query string）、`status`、`duration_ms`、`client_ip`、`request_id`。`MODE=prod` 時是 JSON，其他是文字，寫到 stdout。API 的路徑是 Connect 的 procedure（`/api/app.<package>.<Service>/<Method>`），不含資源 id：id 在請求訊息裡。讀取（`NO_SIDE_EFFECTS` 的 `Get*`、`List*`）用 GET，請求訊息編進 `?message=`，backend 不記 query string，但 Caddy 與 Vercel 的日誌會記完整的 URI，所以 GET 的 query 裡會有 session 或使用者的 UUID；請求帶憑證的讀取不標 `NO_SIDE_EFFECTS`（[計畫](../plans/2026-11-03-connect-contract.md)的前提；目前沒有這種讀取）。
+- Backend 錯誤：非預期錯誤記 `method`、`procedure` 與錯誤文字（`httpapi/rpc/errors.go` 的 `LogConverted`）。HIBP 查詢失敗會記錄錯誤；網路錯誤時那是 Go 的 `*url.Error`，含請求網址，也就是那 5 個字元的雜湊前綴（推論自 `net/http`）。
 - 密碼與 session token 不會出現在任何級別的日誌：`TestCredentialsNeverLogged`。
 - 清理：只記刪掉的筆數。
 - 安全事件：註冊、登入成功與失敗（原因，帳號存在時帶 user id，不記送出的帳號名）、登出、被拒絕的 admin 操作，各一行帶 `event` 與 `user_id`（`TestSecurityEventsLogged`）。
@@ -66,10 +66,10 @@
 
 | 請求 | 現在有什麼 | 缺口 |
 |---|---|---|
-| 查閱 | 本人可讀自己的帳號（`getCurrentUser`）與 session（`listSessions`） | 沒有一次匯出 items 或其他模組資料的方式 |
+| 查閱 | 本人可讀自己的帳號（`UserAppService.GetCurrentUser`）與 session（`SessionAppService.ListSessions`） | 沒有一次匯出 items 或其他模組資料的方式 |
 | 更正 | 沒有：沒有改帳號名或密碼的 operation | 使用者需要更正資料時，衍生專案要補 |
-| 刪除 | 本人在設定頁輸入密碼後刪除帳號（重新登入，再 `DELETE /api/users/me`；session 必須是 10 分鐘內登入的）；admin 用 `DELETE /api/users/{id}`。資料庫刪掉帳號、session 與每個模組擁有的列（指向 `users` 的 FK 都是 `CASCADE` 或 `SET NULL`，`TestForeignKeysToUsersAllowDeletion`）。`sign_in_throttles` 以帳號名為鍵，24 小時內過期。測試：`TestDeleteCurrentUser`、`TestAdminDeletesUser` | 備份保留 7 天，期間仍有被刪帳號的資料；日誌依輪替設定過期。衍生專案在 PostgreSQL 以外存放使用者資料（檔案、搜尋索引）時，要在刪除帳號時一併處理 |
-| 限制處理 | admin 停用（`patchUser`） | 範本無 |
+| 刪除 | 本人在設定頁輸入密碼後刪除帳號（重新登入，再呼叫 `UserAppService.DeleteCurrentUser`；session 必須是 10 分鐘內登入的）；admin 用 `UserAdminService.DeleteUser`。資料庫刪掉帳號、session 與每個模組擁有的列（指向 `users` 的 FK 都是 `CASCADE` 或 `SET NULL`，`TestForeignKeysToUsersAllowDeletion`）。`sign_in_throttles` 以帳號名為鍵，24 小時內過期。測試：`TestDeleteCurrentUser`、`TestAdminDeletesUser` | 備份保留 7 天，期間仍有被刪帳號的資料；日誌依輪替設定過期。衍生專案在 PostgreSQL 以外存放使用者資料（檔案、搜尋索引）時，要在刪除帳號時一併處理 |
+| 限制處理 | admin 停用（`UserAdminService.UpdateUser` 的 `disabled`） | 範本無 |
 
 ## 何時更新這份文件
 

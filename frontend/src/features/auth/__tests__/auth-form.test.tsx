@@ -1,11 +1,23 @@
+import { Code } from "@connectrpc/connect";
+import { TransportProvider } from "@connectrpc/connect-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ErrorReason,
+  FieldViolationReason,
+} from "@/generated/app/common/v1/errors_pb";
+import { CreateUserResponseSchema } from "@/generated/app/users/v1/users_pb";
+import {
+  connectError,
+  connectResponse,
+  requestOf,
+} from "@/lib/api/__tests__/connect-wire";
 import messages from "../../../../messages/en.json";
 
-const mockFetch = vi.fn<(request: Request) => Promise<Response>>();
+const mockFetch = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", mockFetch);
 
 const push = vi.fn();
@@ -21,13 +33,7 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 
 const { AuthForm } = await import("../components/auth-form");
-
-function problem(status: number, body: Record<string, unknown>) {
-  return new Response(JSON.stringify({ status, title: "ignored", ...body }), {
-    status,
-    headers: { "Content-Type": "application/problem+json" },
-  });
-}
+const { transport } = await import("@/lib/api/transport");
 
 function renderForm(mode: "login" | "register") {
   const queryClient = new QueryClient({
@@ -35,11 +41,13 @@ function renderForm(mode: "login" | "register") {
   });
 
   const result = render(
-    <QueryClientProvider client={queryClient}>
-      <NextIntlClientProvider locale="en" messages={messages}>
-        <AuthForm mode={mode} />
-      </NextIntlClientProvider>
-    </QueryClientProvider>,
+    <TransportProvider transport={transport}>
+      <QueryClientProvider client={queryClient}>
+        <NextIntlClientProvider locale="en" messages={messages}>
+          <AuthForm mode={mode} />
+        </NextIntlClientProvider>
+      </QueryClientProvider>
+    </TransportProvider>,
   );
 
   const form = result.container.querySelector("form");
@@ -58,9 +66,23 @@ async function fillAndSubmit(
   await user.click(form.getByRole("button", { name: /sign (in|up)/i }));
 }
 
+// The transport's interceptor leaves the page by setting location.href.
+const originalLocation = window.location;
+
 beforeEach(() => {
   mockFetch.mockReset();
   push.mockReset();
+  Object.defineProperty(window, "location", {
+    writable: true,
+    value: { href: "", origin: originalLocation.origin },
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(window, "location", {
+    writable: true,
+    value: originalLocation,
+  });
 });
 
 describe("AuthForm", () => {
@@ -78,58 +100,69 @@ describe("AuthForm", () => {
     await user.click(form.getByRole("button", { name: /sign in/i }));
 
     expect(
-      await screen.findAllByText(messages.problems.fields.required),
+      await screen.findAllByText(messages.errors.fields.REQUIRED),
     ).toHaveLength(2);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("leaves length rules to the API", async () => {
     mockFetch.mockResolvedValueOnce(
-      Response.json({ id: "u1", account: "newuser" }, { status: 201 }),
+      connectResponse(CreateUserResponseSchema, {
+        user: { id: "u1", account: "newuser" },
+      }),
     );
     const form = renderForm("register");
 
     await fillAndSubmit(form, "newuser", "short");
 
-    const [request] =
-      mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
-    expect(new URL(request.url).pathname).toBe("/api/users");
+    const request = requestOf(mockFetch.mock.calls[0]);
+    expect(request.method).toBe("POST");
+    expect(request.url.pathname).toBe(
+      "/api/app.users.v1.UserPublicService/CreateUser",
+    );
+    expect(request.headers.get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(request.body))).toEqual({
+      account: "newuser",
+      password: "short",
+    });
     expect(push).toHaveBeenCalledWith("/overview");
   });
 
   it("shows a field error from the API next to its field, translated", async () => {
     mockFetch.mockResolvedValueOnce(
-      problem(422, {
-        type: "/problems/validation",
-        errors: [
-          {
-            pointer: "/password",
-            code: "password_too_common",
-            detail: "password is on the list of common or breached passwords",
-          },
-        ],
-      }),
+      connectError(
+        Code.InvalidArgument,
+        "password is on the list of common or breached passwords",
+        {
+          violations: [
+            {
+              field: "password",
+              reason: FieldViolationReason.PASSWORD_TOO_COMMON,
+            },
+          ],
+        },
+      ),
     );
     const form = renderForm("register");
 
     await fillAndSubmit(form, "newuser", "passwordpassword");
 
     expect(
-      await screen.findByText(messages.problems.fields.password_too_common),
+      await screen.findByText(messages.errors.fields.PASSWORD_TOO_COMMON),
     ).toBeInTheDocument();
     expect(screen.queryByText(/on the list/)).not.toBeInTheDocument();
     expect(form.getByLabelText(/password/i)).toHaveAttribute(
       "aria-invalid",
       "true",
     );
+    // the field carries the error, so the form adds no general message
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows a wrong password as a translated message, not the detail", async () => {
+  it("sign-in failure stays on the login page and shows the error", async () => {
     mockFetch.mockResolvedValueOnce(
-      problem(401, {
-        type: "/problems/unauthenticated",
-        code: "invalid_credentials",
-        detail: "account or password is incorrect",
+      connectError(Code.Unauthenticated, "account or password is incorrect", {
+        reason: ErrorReason.INVALID_CREDENTIALS,
       }),
     );
     const form = renderForm("login");
@@ -137,9 +170,13 @@ describe("AuthForm", () => {
     await fillAndSubmit(form, "someone", "wrong-password");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      messages.problems.codes.invalid_credentials,
+      messages.errors.reasons.INVALID_CREDENTIALS,
     );
     expect(screen.queryByText(/is incorrect/)).not.toBeInTheDocument();
+    expect(requestOf(mockFetch.mock.calls[0]).url.pathname).toBe(
+      "/api/app.sessions.v1.SessionPublicService/CreateSession",
+    );
+    expect(window.location.href).toBe("");
     expect(push).not.toHaveBeenCalled();
   });
 });

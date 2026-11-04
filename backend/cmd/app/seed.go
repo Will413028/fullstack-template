@@ -8,29 +8,20 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/getkin/kin-openapi/openapi3"
-
-	"github.com/Will413028/template-go-nextjs/backend/api"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
-// The environment variable each CreateUserRequest property comes from, for error messages.
+// The environment variable each account field comes from, for error messages.
 var adminInputVars = map[string]string{"account": "ADMIN_ACCOUNT", "password": "ADMIN_PASSWORD"}
 
-// seedAdmin creates the admin account unless it exists; it is the only way to create one. The input is checked
-// against the contract's CreateUserRequest, the same rules POST /api/users applies, and the password against the
-// list. An existing account is left exactly as it is: seed-admin never promotes or changes a user.
+// seedAdmin creates the admin account unless it exists; it is the only way to create one. The auth service checks
+// the input with the rules UserPublicService.CreateUser applies (decision D2). An existing account is left exactly as
+// it is: seed-admin never promotes or changes a user.
 func seedAdmin(ctx context.Context, svc *auth.Service, account, password string, out io.Writer) error {
-	if err := validateAdminInput(ctx, account, password); err != nil {
-		return err
-	}
 	created, err := svc.EnsureAdmin(ctx, account, password)
-	if e, ok := apperr.As(err); ok && e.Kind == apperr.Validation {
-		return fmt.Errorf("ADMIN_PASSWORD: %s (%s)", e.Detail, e.Code)
-	}
 	if err != nil {
-		return err
+		return adminInputError(err)
 	}
 	if created {
 		_, _ = fmt.Fprintf(out, "admin account %q created\n", strings.ToLower(account))
@@ -43,55 +34,31 @@ func seedAdmin(ctx context.Context, svc *auth.Service, account, password string,
 // recoverAdmin gives an existing admin a new password and enables it (auth.Service.RecoverAdmin): the way back when
 // every admin is disabled, locked out or has lost the password. The input is checked like seedAdmin's.
 func recoverAdmin(ctx context.Context, svc *auth.Service, account, password string, out io.Writer) error {
-	if err := validateAdminInput(ctx, account, password); err != nil {
-		return err
-	}
 	err := svc.RecoverAdmin(ctx, account, password)
-	if e, ok := apperr.As(err); ok && e.Kind == apperr.Validation {
-		return fmt.Errorf("ADMIN_PASSWORD: %s (%s)", e.Detail, e.Code)
-	}
 	if errors.Is(err, auth.ErrNoSuchAdmin) {
 		return fmt.Errorf("no admin account %q: recover-admin changes only an existing admin", strings.ToLower(account))
 	}
 	if err != nil {
-		return err
+		return adminInputError(err)
 	}
 	_, _ = fmt.Fprintf(out, "admin account %q recovered: new password set, enabled, signed out everywhere\n", strings.ToLower(account))
 	return nil
 }
 
-// validateAdminInput checks the input against CreateUserRequest from the embedded contract. Messages name the
-// variable and the rule, never the value.
-func validateAdminInput(ctx context.Context, account, password string) error {
-	loader := openapi3.NewLoader()
-	loader.Context = ctx
-	doc, err := loader.LoadFromData(api.Spec)
-	if err != nil {
-		return fmt.Errorf("load api/openapi.yaml: %w", err)
+// adminInputError names the variable and the rule of every invalid field the service reported, never the value;
+// other errors are returned as they are.
+func adminInputError(err error) error {
+	fields, ok := apperr.Fields(err)
+	if !ok {
+		return err
 	}
-	ref := doc.Components.Schemas["CreateUserRequest"]
-	if ref == nil || ref.Value == nil {
-		return errors.New("api/openapi.yaml has no CreateUserRequest schema")
-	}
-	err = ref.Value.VisitJSON(map[string]any{"account": account, "password": password}, openapi3.MultiErrors())
-	if err == nil {
-		return nil
-	}
-	var problems []string
-	var multi openapi3.MultiError
-	if !errors.As(err, &multi) {
-		multi = openapi3.MultiError{err}
-	}
-	for _, e := range multi {
-		var schemaErr *openapi3.SchemaError
-		if !errors.As(e, &schemaErr) {
-			return err
+	problems := make([]string, 0, len(fields))
+	for _, f := range fields {
+		name, known := adminInputVars[f.Field]
+		if !known {
+			name = f.Field
 		}
-		field := strings.Join(schemaErr.JSONPointer(), "/")
-		if v, ok := adminInputVars[field]; ok {
-			field = v
-		}
-		problems = append(problems, field+": "+schemaErr.Reason)
+		problems = append(problems, fmt.Sprintf("%s: %s (%s)", name, f.Detail, f.Code))
 	}
 	slices.Sort(problems)
 	return errors.New("invalid admin account: " + strings.Join(problems, "; "))

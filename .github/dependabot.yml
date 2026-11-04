@@ -36,12 +36,6 @@ updates:
       default-days: 7
     allow:
       - dependency-type: all
-    # speakeasy-api/jsonpath 0.7.0 pulls a speakeasy-api/openapi pre-release built on go.yaml.in/yaml/v3, which
-    # breaks oapi-codegen 2.8.1 (still on gopkg.in/yaml.v3). Both are oapi-codegen dependencies: let its own release
-    # move them, and drop this ignore once oapi-codegen requires a speakeasy-api/openapi on go.yaml.in. osv-scanner
-    # still reports vulnerabilities in them.
-    ignore:
-      - dependency-name: "github.com/speakeasy-api/*"
     groups:
       backend-tools:
         patterns: ["*"]
@@ -92,5 +86,9 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:
+      # the generated code (protoc-gen-es) and its runtime (@bufbuild/protobuf, @connectrpc/*) must move together:
+      # one PR, regenerated with pnpm gen:api
+      connect:
+        patterns: ["@bufbuild/*", "@connectrpc/*"]
       frontend-minor-patch:
         update-types: [minor, patch]

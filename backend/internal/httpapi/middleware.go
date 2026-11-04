@@ -74,7 +74,7 @@ func (t trust) clientIP(r *http.Request) netip.Addr {
 
 // withRequestInfo resolves the client address and the request id before anything else runs. The request id is
 // the one a trusted proxy sent, when well formed, or a new UUIDv7; it goes into the context (so every log line of
-// the request carries it), the X-Request-ID response header and every problem body.
+// the request carries it), and the X-Request-ID response header.
 func withRequestInfo(t trust, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(headerRequestID)

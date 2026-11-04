@@ -1,4 +1,12 @@
+import { createClient } from "@connectrpc/connect";
 import { expect, it, vi } from "vitest";
+import {
+  GetCurrentUserResponseSchema,
+  UserAppService,
+} from "@/generated/app/users/v1/users_pb";
+import { connectResponse, requestOf } from "./connect-wire";
+
+vi.mock("server-only", () => ({}));
 
 // A server-side call forwards the visitor's session cookie. Without the site's
 // URL it must not fall back to a real host, or the cookie would go there.
@@ -6,17 +14,20 @@ vi.stubGlobal("window", undefined);
 vi.stubEnv("NODE_ENV", "production");
 vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
 
-const mockFetch = vi.fn<(request: Request) => Promise<Response>>();
+const mockFetch = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", mockFetch);
 
-const { api } = await import("../client");
+const { serverTransport } = await import("../server-transport");
 
 it("sends server-side calls to an unresolvable host when the site URL is unset", async () => {
-  mockFetch.mockResolvedValueOnce(Response.json({}));
+  mockFetch.mockResolvedValueOnce(
+    connectResponse(GetCurrentUserResponseSchema, {}),
+  );
 
-  await api.GET("/users/me", { headers: { cookie: "session=abc" } });
+  await createClient(UserAppService, serverTransport).getCurrentUser(
+    {},
+    { headers: { cookie: "session=abc" } },
+  );
 
-  const [request] =
-    mockFetch.mock.calls[0] ?? expect.unreachable("fetch was not called");
-  expect(new URL(request.url).hostname).toMatch(/\.invalid$/);
+  expect(requestOf(mockFetch.mock.calls[0]).url.hostname).toMatch(/\.invalid$/);
 });

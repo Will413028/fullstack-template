@@ -1,0 +1,26 @@
+# The public API's single source (docs/adr/2026-11-03-api-contract-protobuf-connect.md). Each consumer generates from
+# its own buf.gen.yaml: backend/buf.gen.yaml (Go) and frontend/buf.gen.yaml (TypeScript). buf is pinned in the root
+# Makefile (make bin/buf). No proto here imports googleapis, so there are no deps and no buf.lock.
+version: v2
+lint:
+  use:
+    - STANDARD
+  # The only exception: the values of ErrorReason and FieldViolationReason are the strings sent in
+  # google.rpc.ErrorInfo.reason and BadRequest.FieldViolation.reason, so they carry no enum-name prefix (AIP-193's
+  # reason format; googleapis' google/api/error_reason.proto does the same).
+  ignore_only:
+    ENUM_VALUE_PREFIX:
+      - app/common/v1/errors.proto
+breaking:
+  # WIRE_JSON keeps the binary wire and proto3 JSON compatible (Buf's recommendation for Connect); every consumer lives
+  # in this repository and regenerates in the same commit, so source compatibility (FILE) is not needed.
+  # WIRE_JSON allows deleting an RPC, a service or a whole package (measured with buf 1.50.0 and 1.75.0): a client
+  # calling it would get unimplemented. The three *_NO_DELETE rules stop that.
+  # Packages are v1 from the start and nothing is ignored (decision D1-B): main is the released code, so the check runs
+  # against its merge-base (scripts/check-buf-breaking.sh). Breaking a contract that is already on main needs an
+  # ignore here and a Quality-Gate trailer.
+  use:
+    - WIRE_JSON
+    - RPC_NO_DELETE
+    - PACKAGE_SERVICE_NO_DELETE
+    - PACKAGE_NO_DELETE

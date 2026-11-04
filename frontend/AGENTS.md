@@ -11,7 +11,7 @@ Production-ready Next.js frontend with feature-based architecture, i18n, and coo
 - **State:** Tanstack React Query (server) + Zustand (client UI state)
 - **Forms:** React Hook Form + Zod
 - **i18n:** next-intl (en, zh-TW)
-- **API:** types generated from `backend/api/openapi.yaml` (openapi-typescript) + openapi-fetch, same-origin `/api`
+- **API:** Connect clients generated from `../api` (protoc-gen-es into `src/generated/`) with connect-web and connect-query, same-origin `/api`
 - **Auth:** opaque session in an HttpOnly cookie (set by the backend) + server-side session guard
 - **Testing:** Vitest + React Testing Library
 
@@ -24,7 +24,7 @@ pnpm lint             # TypeScript + Biome check
 pnpm format           # Biome format
 pnpm test             # Run Vitest
 pnpm test:watch       # Watch mode
-pnpm gen:api          # Regenerate src/lib/api/schema.d.ts after changing the contract
+pnpm gen:api          # Regenerate src/generated after changing ../api (Connect)
 pnpm check:arch       # Dependency direction and import cycles (dependency-cruiser)
 ```
 
@@ -43,8 +43,8 @@ src/
 │   ├── ui/               # shadcn/ui components
 │   └── layout/           # Header, footer, dashboard-shell
 ├── lib/                  # Utilities
-│   ├── api/              # schema.d.ts (generated), client.ts (openapi-fetch),
-│   │                     #   errors.ts (problem → ApiError and translated messages)
+│   ├── api/              # transport.ts (browser), server-transport.ts (Server Components),
+│   │                     #   connect-errors.ts (Connect code and reasons → translated messages)
 │   └── utils.ts          # cn() Tailwind class merger
 ├── hooks/                # Custom React hooks (useDebounce)
 ├── providers/            # React Query provider
@@ -69,9 +69,9 @@ layer), not by adding an exception.
 
 ## Key Conventions
 
-1. **Feature modules** — domain logic lives in `features/<name>/` with api, hooks, components; types come from the generated `components["schemas"]`, never hand-written
-2. **The contract is the single source** — `backend/api/openapi.yaml` defines shapes, lengths, formats and enums; run `pnpm gen:api` after changing it (CI fails on a stale `schema.d.ts`). Forms check presence only and show the API's field errors
-3. **Errors are RFC 9457 problems** — show messages by `type` and `code` from `messages/*.json` (`problems.*`, via `lib/api/errors.ts`); never show or parse `detail`. A new `type` or `code` in the contract needs a message in every locale, or `pnpm lint` fails
+1. **Feature modules** — domain logic lives in `features/<name>/` with api, hooks, components; types are the generated messages in `src/generated/`, never hand-written
+2. **The contract is the single source** — the Protobuf in `../api` defines the shapes; the backend services own lengths and formats (decision D2). Run `pnpm gen:api` after changing it (CI fails on a stale `src/generated`). Forms check presence only and show the API's field errors
+3. **Errors are Connect errors** — show messages by Connect code, `ErrorInfo.reason` and each `BadRequest` violation's reason from `messages/*.json` (`errors.codes`, `errors.reasons`, `errors.fields`, via `lib/api/connect-errors.ts`); never show or parse the message. A new reason in the contract needs a message in every locale, or `pnpm lint` fails
 4. **Biome, not ESLint** — all linting and formatting via Biome, a11y rules enabled
 5. **i18n keys** — all user-facing text in `messages/{locale}.json`, accessed via `useTranslations()`
 6. **Server Components by default** — only add `"use client"` when needed (hooks, interactivity)
@@ -86,31 +86,33 @@ Same origin → the browser calls /api on the page's own origin; on Vercel
               Server-side calls use /api on NEXT_PUBLIC_APP_URL the same way.
               No CORS, no API URL in the bundle, no secret in Next's code.
 
-Sign up → POST /api/users (JSON) → 201 with the User; the backend sets the
+Sign up → UserPublicService.CreateUser → the User; the backend sets the
           session cookie (__Host-session, or session with COOKIE_SECURE=false)
-Sign in → POST /api/sessions (JSON) → 201 with a Session; the user is .user
+Sign in → SessionPublicService.CreateSession → the Session; the user is .user
 
 API call → the browser sends the cookie on its own (same origin); JS never
            reads it
 
-401 → the client sends the user to /login. There is no refresh: the session is
-      one opaque token, valid until its idle or absolute limit. A 401 from
-      signing in is a wrong password and stays in the form.
+unauthenticated → the client sends the user to /login. There is no refresh:
+      the session is one opaque token, valid until its idle or absolute
+      limit. Signing in with a wrong password (reason INVALID_CREDENTIALS)
+      stays in the form.
 
 Protected route → proxy.ts redirects only when no session cookie is present
                  (UX only; it never sends /login on to /overview, because the
                  cookie may be stale). The (dashboard) layout calls
-                 getServerUser() server-side: a 401 redirects to /login, any
+                 getServerUser() server-side: unauthenticated redirects to /login, any
                  other failure throws to the error boundary (the real gate)
 
-Sign out → DELETE /api/sessions/current → 204; the backend clears the cookie
+Sign out → SessionPublicService.DeleteCurrentSession; the backend clears the
+           cookie
 ```
 
 ## Adding a Feature Module
 
 1. Create `src/features/<name>/` with: `api/`, `hooks/`, `components/`, `index.ts`
-2. API functions call `api` from `@/lib/api/client` and pass the result to `unwrap()` from `@/lib/api/errors`
-3. Hooks use Tanstack Query (`useQuery`, `useMutation`)
+2. API functions call the generated client (`createClient(<Service>, transport)` from `@/lib/api/transport`); Server Components use `@/lib/api/server-transport`
+3. Hooks use connect-query for reads (`useQuery(<Service>.method.<name>)`) and Tanstack Query for mutations
 4. Export public API from `index.ts` (barrel file); server-only code goes in `server.ts`, imported as `@/features/<name>/server`, never re-exported from the barrel (client components import it)
 5. `lib/` holds generic utilities and never imports from `features/`
 6. Add i18n keys to `messages/en.json` and `messages/zh-TW.json`

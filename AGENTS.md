@@ -26,7 +26,7 @@ Production-ready fullstack monorepo with a Go backend on Docker Compose behind C
 ## Monorepo Structure
 
 ```
-├── backend/                # Go (modular monolith, pgx + sqlc, Atlas), contract in backend/api/openapi.yaml
+├── backend/                # Go (modular monolith, pgx + sqlc, Atlas); the contract is api/ (Protobuf)
 ├── frontend/               # Next.js 16 (App Router, TypeScript, Tailwind, shadcn/ui)
 ├── deploy/                 # Caddyfile, PostgreSQL initdb scripts (DB roles)
 ├── docker-compose.yml      # Production API stack (postgres + migrate + backend + caddy); the frontend deploys to Vercel
@@ -63,7 +63,7 @@ make lint-docker                    # hadolint over backend/Dockerfile
 make run              # Start the API server with backend/.env
 make test             # Integration tests
 make check            # Everything CI runs
-make gen              # Regenerate the HTTP server from api/openapi.yaml
+make gen              # Regenerate the Connect code from ../api (Protobuf)
 make sqlc             # Regenerate query code
 
 # Frontend development (from frontend/)
@@ -71,14 +71,14 @@ pnpm dev              # Start Next.js dev server (Turbopack)
 pnpm build            # Production build
 pnpm lint             # TypeScript check + Biome lint
 pnpm format           # Biome format
-pnpm gen:api          # Regenerate API types from backend/api/openapi.yaml
+pnpm gen:api          # Regenerate the Connect types from ../api (Protobuf)
 ```
 
 ## Architecture
 
 ### Backend and frontend
 
-- Backend (Go modular monolith, oapi-codegen strict server, pgx + sqlc, Atlas, opaque sessions): `backend/AGENTS.md`.
+- Backend (Go modular monolith, Connect services from ../api, pgx + sqlc, Atlas, opaque sessions): `backend/AGENTS.md`.
 - Frontend (Next.js App Router, feature-based, next-intl, generated API client): `frontend/AGENTS.md`.
 - Decisions: `docs/adr/`.
 

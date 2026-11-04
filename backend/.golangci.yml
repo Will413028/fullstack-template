@@ -62,6 +62,13 @@ linters:
               desc: modules must not depend on the HTTP layer
             - pkg: github.com/Will413028/template-go-nextjs/backend/cmd
               desc: modules must not depend on the composition root
+            # $ and the trailing / keep the rule off internal/generated, internal/generator and the like (archtest agrees)
+            - pkg: github.com/Will413028/template-go-nextjs/backend/internal/gen$
+              desc: modules do not know the wire contract; handlers in internal/httpapi convert generated messages
+            - pkg: github.com/Will413028/template-go-nextjs/backend/internal/gen/
+              desc: modules do not know the wire contract; handlers in internal/httpapi convert generated messages
+            - pkg: connectrpc.com/connect
+              desc: modules do not handle Connect; handlers live in internal/httpapi
         platform-no-upward:
           list-mode: lax
           files:

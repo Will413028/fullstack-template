@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const connectPkg = "connectrpc.com/connect"
+
 // Package is a Go package with its transitive non-test dependencies.
 type Package struct {
 	ImportPath string
@@ -15,10 +17,9 @@ type Package struct {
 }
 
 // Check returns one violation per forbidden dependency of a package under internal/modules/<m>: another module,
-// net/http, or internal/httpapi.
+// net/http, internal/httpapi, the generated contract code (internal/gen) or Connect.
 func Check(modulePath string, pkgs []Package) []string {
 	modules := modulePath + "/internal/modules/"
-	httpapi := modulePath + "/internal/httpapi"
 	var violations []string
 	for _, p := range pkgs {
 		self, ok := moduleOf(modules, p.ImportPath)
@@ -26,20 +27,31 @@ func Check(modulePath string, pkgs []Package) []string {
 			continue
 		}
 		for _, d := range p.Deps {
-			var rule string
-			if other, ok := moduleOf(modules, d); ok && other != self {
-				rule = "must not depend on module " + other
-			} else if d == "net/http" {
-				rule = "must not depend on net/http; handlers live in internal/httpapi"
-			} else if d == httpapi || strings.HasPrefix(d, httpapi+"/") {
-				rule = "must not depend on internal/httpapi"
-			}
-			if rule != "" {
+			if rule := forbidden(modulePath, self, d); rule != "" {
 				violations = append(violations, fmt.Sprintf("%s -> %s: module %s %s", p.ImportPath, d, self, rule))
 			}
 		}
 	}
 	return violations
+}
+
+// forbidden is the rule a dependency d of module self breaks, "" when it breaks none.
+func forbidden(modulePath, self, d string) string {
+	under := func(pkg string) bool { return d == pkg || strings.HasPrefix(d, pkg+"/") }
+	if other, ok := moduleOf(modulePath+"/internal/modules/", d); ok && other != self {
+		return "must not depend on module " + other
+	}
+	switch {
+	case d == "net/http":
+		return "must not depend on net/http; handlers live in internal/httpapi"
+	case under(modulePath + "/internal/httpapi"):
+		return "must not depend on internal/httpapi"
+	case under(modulePath + "/internal/gen"):
+		return "must not depend on internal/gen; handlers in internal/httpapi convert generated messages"
+	case under(connectPkg):
+		return "must not depend on Connect; handlers live in internal/httpapi"
+	}
+	return ""
 }
 
 // moduleOf returns the module name of an import path under internal/modules/.

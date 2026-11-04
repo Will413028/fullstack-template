@@ -16,7 +16,7 @@ FROM users
 WHERE id = @id;
 
 -- ListUsers returns all users, disabled ones included, newest first, after the cursor id when one is given. Only
--- admins call it (internal/httpapi requireRole).
+-- admins call it (UserAdminService, internal/httpapi/rpc).
 -- name: ListUsers :many
 SELECT id, account, role, is_disabled, created_at
 FROM users

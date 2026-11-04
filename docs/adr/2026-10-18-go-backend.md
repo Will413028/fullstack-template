@@ -91,6 +91,8 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 
 - 2026-10-22（Will 選修訂）：`items.owner_id` 改成 `ON DELETE CASCADE`（刪除帳號）時，Atlas 產生的是一般的 `ADD CONSTRAINT … FOREIGN KEY`，squawk 擋下：它在驗證既有列時持有阻擋寫入的鎖。不鎖表的寫法 `NOT VALID` 加下一支 `VALIDATE CONSTRAINT` 是 Atlas 產生不了的（v1.3.3），原本的規則要求「遇到時先修訂本 ADR」。不選「接受鎖表並在檔案加 squawk 忽略」，因為衍生專案遇到有資料的表時仍無做法可循。修訂後允許手寫這類改寫，條件是 squawk 原本會擋、`make drift` 證明結果與 `schema.sql` 相同。`schema.sql` 仍是 schema 唯一的真相。
 
+- 2026-11-03（Will）：2026-10-19 那則的重新評估做完了：對外契約改用 Protobuf＋Connect，oapi-codegen、kin-openapi 與 `validate.go`、`bind.go` 隨之刪除；ogen 沒有採用（理由見 [對外 API 的契約改用 Protobuf＋Connect](2026-11-03-api-contract-protobuf-connect.md)）。
+
 ## Related
 
 - 來源：repo 擁有者於 2026-10-18 與 coding agent 討論後當場拍板（D6 第二次拍板「照業界基準」）。本 ADR 即原始紀錄，沒有外部來源文件。

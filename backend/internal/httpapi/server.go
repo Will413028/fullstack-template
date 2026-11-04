@@ -11,15 +11,16 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"reflect"
+	"strings"
 	"time"
 
-	"github.com/getkin/kin-openapi/openapi3"
-
-	"github.com/Will413028/template-go-nextjs/backend/api"
-	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1/sessionsv1connect"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
 )
 
 // maxBodyBytes caps every request body.
@@ -57,94 +58,113 @@ type Deps struct {
 	// Ready reports whether dependencies (the database) are available.
 	Ready  func(context.Context) error
 	Logger *slog.Logger
-	// Docs serves the contract at /api/openapi.yaml and Swagger UI at /api/docs (MODE=dev only).
-	Docs bool
 	// TrustedProxies are the peers whose X-Forwarded-For and X-Request-ID are believed (TRUSTED_PROXIES).
 	TrustedProxies []netip.Prefix
 	// Now is the clock for rate limiting and request durations; the composition root passes time.Now.
 	Now func() time.Time
-	// RateLimitPerMin is the per-IP limit on the operations limitOperations names (AUTH_RATE_LIMIT_PER_MIN).
+	// RateLimitPerMin is the per-IP limit on the procedures connectLimited names (AUTH_RATE_LIMIT_PER_MIN).
 	RateLimitPerMin int
-	// Auth serves accounts and sessions. Nil only in tests that call no operation and send no session cookie.
+	// Auth serves the user and session services. Nil only in tests that call none of their methods and send no session
+	// cookie.
 	Auth   *auth.Service
 	Cookie Cookie
-	// Items serves the items operations. Nil only in tests that call none of them.
+	// Items serves ItemAppService. Nil only in tests that call none of its methods.
 	Items *items.Service
+
+	// testServices are Connect services mounted next to connectServices' (tests only).
+	testServices []rpc.Service
+	// testLimited are procedures added to connectLimited (tests only).
+	testLimited []string
 }
 
-// apiServer implements the operations in api/openapi.yaml (gen.StrictServerInterface).
-type apiServer struct {
-	auth   *auth.Service
-	items  *items.Service
-	cookie Cookie
+// connectServices are the Connect services NewHandler mounts.
+func connectServices(deps Deps) []rpc.Service {
+	services := []rpc.Service{itemsService(deps.Items)}
+	services = append(services, userServices(deps.Auth, deps.Cookie)...)
+	services = append(services, sessionServices(deps.Auth, deps.Cookie)...)
+	return append(services, deps.testServices...)
 }
 
-// NewHandler builds the public handler: the API under /api from the embedded contract, and the health checks.
-func NewHandler(ctx context.Context, deps Deps) (http.Handler, error) {
+// connectLimited are the procedures the per-client rate limit applies to at the Connect entry (connectEntry): sign-up
+// and sign-in (docs/adr/2026-10-18-api-and-auth-baseline.md D6); sign-in is also throttled per account in the auth
+// module.
+var connectLimited = []string{
+	usersv1connect.UserPublicServiceCreateUserProcedure,
+	sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
+}
+
+// NewHandler builds the public handler: the API under /api (the Connect services from connectServices) and the
+// health checks.
+func NewHandler(deps Deps) (http.Handler, error) {
 	if deps.RateLimitPerMin < 1 {
 		return nil, errors.New("RateLimitPerMin must be positive")
 	}
 	if deps.Now == nil {
 		return nil, errors.New("Now is required")
 	}
-	spec, err := loadSpec(ctx, api.Spec)
-	if err != nil {
-		return nil, fmt.Errorf("load api/openapi.yaml: %w", err)
-	}
-	routes := http.NewServeMux()
-	// Sign-up and sign-in are limited per client address (docs/adr/2026-10-18-api-and-auth-baseline.md D6); sign-in is
-	// also throttled per account in the auth module.
-	limited, err := operations("CreateUser", "CreateSession")
+	connectMux, err := rpc.NewMux(deps.Logger, auth.RoleAdmin, connectServices(deps))
 	if err != nil {
 		return nil, err
 	}
-	adminOnly, err := adminOperations(spec, operationAccess)
-	if err != nil {
-		return nil, err
+	connectLimit := map[string]bool{}
+	for _, p := range append(append([]string(nil), connectLimited...), deps.testLimited...) {
+		if _, ok := connectMux.Class(p); !ok {
+			return nil, fmt.Errorf("rate limit: %s is not a mounted procedure", p)
+		}
+		connectLimit[p] = true
 	}
 	limiter := newIPLimiter(deps.RateLimitPerMin, deps.Now)
-	middlewares := []gen.StrictMiddlewareFunc{
-		limitOperations(limiter, limited...),
-		requireRole(deps.Logger, auth.RoleAdmin, adminOnly...),
-	}
-	server := &apiServer{auth: deps.Auth, items: deps.Items, cookie: deps.Cookie}
-	strict := gen.NewStrictHandlerWithOptions(server, middlewares, gen.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeBodyDecodeError(w, r, deps.Logger, err)
-		},
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, r, deps.Logger, err)
-		},
-	})
-	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
-		BaseURL:    "/api",
-		BaseRouter: routes,
-		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeParamError(w, r, deps.Logger, err)
-		},
-	})
-	return assemble(deps, spec, routes), nil
+	withSession := func(h http.Handler) http.Handler { return authenticate(deps.Auth, deps.Cookie, deps.Logger, h) }
+	connect := connectEntry(deps.Logger, connectMux, withSession, limiter, connectLimit)
+	return assemble(deps, connect), nil
 }
 
-// operations checks that each name is an operation as strict middleware sees it: the generated method name
-// (CreateUser for operationId createUser), not the contract's operationId. A misspelled name would otherwise make
-// its middleware silently apply to nothing.
-func operations(names ...string) ([]string, error) {
-	iface := reflect.TypeFor[gen.StrictServerInterface]()
-	for _, n := range names {
-		if _, ok := iface.MethodByName(n); !ok {
-			return nil, fmt.Errorf("no operation %q in gen.StrictServerInterface", n)
+var errNoProcedure = apperr.New(apperr.NotFound, "", "no such procedure")
+
+// connectEntry is what the net/http layer checks for a Connect request before connect-go decodes it; connect-go runs
+// interceptors only after decoding, so a check that must come first cannot be an interceptor. In order:
+//   - a path that is not a mounted procedure is not_found, before withSession (authenticate) looks up a session, so
+//     it costs no database query;
+//   - App and Admin procedures need a session (withSession resolved it): unauthenticated otherwise, so an anonymous
+//     caller learns nothing from decoding or field errors;
+//   - the procedures in limited take a token from the client's bucket: resource_exhausted with RetryInfo when it is
+//     empty, so a malformed request uses a token too.
+//
+// The admin role is checked by an interceptor (rpc.NewMux): only a signed-in user reaches it.
+func connectEntry(logger *slog.Logger, m *rpc.Mux, withSession func(http.Handler) http.Handler, limiter *ipLimiter,
+	limited map[string]bool) http.Handler {
+	handler := http.StripPrefix("/api", m)
+	procedureHandler := withSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		procedure := strings.TrimPrefix(r.URL.Path, "/api")
+		class, _ := m.Class(procedure)
+		if _, signedIn := authctx.From(r.Context()); class != rpc.Public && !signedIn {
+			writeError(w, r, logger, auth.ErrSessionInvalid)
+			return
 		}
-	}
-	return names, nil
+		if limited[procedure] {
+			if d := limiter.wait(clientIPFrom(r.Context())); d > 0 {
+				writeError(w, r, logger, &apperr.Error{Kind: apperr.RateLimited, Detail: "too many requests from this address",
+					RetryAfter: d})
+				return
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := m.Class(strings.TrimPrefix(r.URL.Path, "/api")); !ok {
+			writeError(w, r, logger, errNoProcedure)
+			return
+		}
+		procedureHandler.ServeHTTP(w, r)
+	})
 }
 
-// assemble mounts the API routes behind request validation against spec, adds the health checks, and wraps
-// everything in the protections every request gets.
+// assemble mounts the API (connectEntry, which authenticates the procedures), adds the health checks and wraps everything in the protections every
+// request gets. A path that is neither is not_found, in the Connect format like every error.
 //
 // /health is liveness: 200 while the process runs, without checking dependencies. /health/ready is readiness:
-// 503 while a dependency is unavailable. Both sit outside the contract and outside validation.
-func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler {
+// 503 while a dependency is unavailable. Both sit outside the contract.
+func assemble(deps Deps, connect http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -152,32 +172,32 @@ func assemble(deps Deps, spec *openapi3.T, apiRoutes http.Handler) http.Handler 
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Ready(r.Context()); err != nil {
 			deps.Logger.WarnContext(r.Context(), "not ready", "error", err)
-			writeProblem(w, problemUnavailable, "", "")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	apiHandler := authenticate(deps.Auth, deps.Cookie, deps.Logger, validateRequests(spec, deps.Logger, apiRoutes))
-	if deps.Docs {
-		apiHandler = withDocs(apiHandler)
-	}
-	mux.Handle("/api/", apiHandler)
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, problemNotFound, "", "")
+	mux.Handle("/api/", connect)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, deps.Logger, errNoProcedure)
 	})
 	return protect(deps, mux)
 }
 
 // protect applies the protections every request gets, outermost first:
 //   - withRequestInfo resolves the client address and the request id. It is outermost so that every log line,
-//     the panic log included, and every response, problems included, carry the request id.
+//     the panic log included, and every response, errors included, carry the request id.
 //   - accessLog logs the request once it ends, with the status recoverPanics chose.
 //   - securityHeaders, set before any handler writes.
-//   - A panic becomes a logged 500 problem.
-//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with a 403 problem, using
-//     Sec-Fetch-Site and falling back to comparing Origin with Host. Non-browser clients that send neither header
-//     pass. GET, HEAD and OPTIONS are not checked.
-//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which writeError turns into 413.
+//   - A panic becomes a logged internal error.
+//   - CrossOriginProtection rejects cross-origin state-changing requests (CSRF) with permission_denied
+//     (CROSS_ORIGIN_REQUEST), using Sec-Fetch-Site and falling back to comparing Origin with
+//     Host. Non-browser clients that send neither header pass. GET, HEAD and OPTIONS are not checked, which is why
+//     only Get and List methods may be served on GET (rpc.NewMux).
+//   - The body limit: reading past maxBodyBytes returns *http.MaxBytesError, which connect-go turns into
+//     resource_exhausted (without RetryInfo, which tells it from the rate limit).
+//
+// Errors are written by writeError, as Connect errors.
 //
 // A middleware that wraps the ResponseWriter must provide Unwrap: responseStarted walks the chain to find
 // recoverPanics' startWriter.
@@ -187,8 +207,8 @@ func protect(deps Deps, h http.Handler) http.Handler {
 		h.ServeHTTP(w, r)
 	})
 	cop := http.NewCrossOriginProtection()
-	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, problemForbidden, "cross-origin request rejected", codeCrossOrigin)
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, deps.Logger, errCrossOrigin)
 	}))
 	inner := recoverPanics(deps.Logger, cop.Handler(limited))
 	return withRequestInfo(deps.TrustedProxies, accessLog(deps.Logger, deps.Now, securityHeaders(inner)))

@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package app.items.v1;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+// The example CRUD module (backend/internal/modules/items). Every method acts on the caller's own items: another
+// user's item is not_found, exactly like one that does not exist, so ids reveal nothing about other users' data.
+//
+// Limits are checked by the items service (decision D2): title is 1 to 200 characters counted in code points; an
+// invalid field is invalid_argument with a BadRequest whose field is the request path (item.title).
+
+// Item is an item owned by a user.
+message Item {
+  // The item's id, a UUID set by the server. Ignored by CreateItem; identifies the item in UpdateItem.
+  string id = 1;
+  // 1 to 200 characters (code points). Required.
+  string title = 2;
+  // Unset means the item has no description; the empty string is a description.
+  optional string description = 3;
+  // The owner's user id, set by the server: always the caller.
+  string owner_id = 4;
+  // Set by the server.
+  google.protobuf.Timestamp create_time = 5;
+  // Set by the server; changes on every UpdateItem that sets at least one field, even to its current value.
+  google.protobuf.Timestamp update_time = 6;
+}
+
+// ItemAppService needs a signed-in user.
+service ItemAppService {
+  // Creates an item owned by the caller.
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse);
+  // One of the caller's items.
+  rpc GetItem(GetItemRequest) returns (GetItemResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // The caller's items, newest first, a page at a time (AIP-158).
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Changes the fields update_mask lists (AIP-134).
+  rpc UpdateItem(UpdateItemRequest) returns (UpdateItemResponse);
+  // Deletes one of the caller's items.
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+}
+
+message CreateItemRequest {
+  // title and description are read; the fields the server sets are ignored.
+  Item item = 1;
+}
+
+message CreateItemResponse {
+  Item item = 1;
+}
+
+message GetItemRequest {
+  // The item's id.
+  string id = 1;
+}
+
+message GetItemResponse {
+  Item item = 1;
+}
+
+message ListItemsRequest {
+  // At most this many items: 20 when 0, at most 100 (a larger value is read as 100); negative is invalid_argument.
+  int32 page_size = 1;
+  // A previous response's next_page_token; empty for the first page. A token this API did not return is
+  // invalid_argument.
+  string page_token = 2;
+}
+
+message ListItemsResponse {
+  repeated Item items = 1;
+  // The token for the next page; empty on the last page.
+  string next_page_token = 2;
+}
+
+message UpdateItemRequest {
+  // item.id names the item; the fields update_mask lists are set from item.
+  Item item = 1;
+  // The fields to change: title, description, or "*" for both. A listed description that is unset clears it. Without
+  // a mask, the fields that have a value are changed (a non-empty title, a set description). The fields the server
+  // sets (id, owner_id, create_time, update_time) are ignored when listed; any other path is invalid_argument.
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateItemResponse {
+  Item item = 1;
+}
+
+message DeleteItemRequest {
+  // The item's id.
+  string id = 1;
+}
+
+message DeleteItemResponse {}

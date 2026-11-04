@@ -91,12 +91,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          # the protoc plugins build from the dev tools' module, backend/tools/
+          cache-dependency-path: |
+            backend/go.sum
+            backend/tools/go.sum
+      # the rename regenerates the Connect code with the pinned buf (root Makefile, checksum-verified)
+      - run: make bin/buf
       - run: make rename NAME=ci-probe
       - name: No file still names the template's module path
         run: '! git grep -n "github.com/Will413028/template-go-nextjs/backend" -- backend'
       - run: go vet ./...
         working-directory: backend
+      # The generated code carries the module path inside each raw descriptor: regenerating the renamed tree changes
+      # nothing more, and loading the descriptors (the rpc tests) does not panic.
+      - name: The generated Connect code matches the new module path
+        run: |
+          git add -A
+          make -C backend gen-check
+          cd backend && go test ./internal/httpapi/rpc/...
 
   # Builds the production backend image and applies migrations with the Atlas build that ships in it.
   stack:
@@ -132,29 +144,46 @@ jobs:
         run: |
           secret="$(cat .secrets/origin_secret)"
           code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
-          test "$(code http://localhost/api/users/me)" = 403
-          test "$(code -H 'X-Origin-Secret: wrong' http://localhost/api/users/me)" = 403
+          # a Connect read: GET with the request message in the query (NO_SIDE_EFFECTS)
+          me='http://localhost/api/app.users.v1.UserAppService/GetCurrentUser?connect=v1&encoding=json&message=%7B%7D'
+          test "$(code "$me")" = 403
+          test "$(code -H 'X-Origin-Secret: wrong' "$me")" = 403
           # origin_secret_previous is empty outside a rotation: an empty header must not match it
-          test "$(code -H 'X-Origin-Secret;' http://localhost/api/users/me)" = 403
+          test "$(code -H 'X-Origin-Secret;' "$me")" = 403
           test "$(code -H "X-Origin-Secret: $secret" http://localhost/en/login)" = 404
-          test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' http://localhost/api/users/me)" = 401
+          test "$(code -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' "$me")" = 401
           # caddy's access log records request headers: the secret must not be written there
           if docker compose logs caddy | grep -qF "$secret"; then echo "caddy logged the origin secret"; exit 1; fi
       - name: Caddy hands the backend Vercel's client address, request id and site host
         run: |
           secret="$(cat .secrets/origin_secret)"
+          me='http://localhost/api/app.users.v1.UserAppService/GetCurrentUser?connect=v1&encoding=json&message=%7B%7D'
           # the backend believes caddy's request id, so caddy must not pass on the client's, or a client could write
           # any string into the log
-          id="$(curl -s -o /dev/null -D - -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Request-ID: client-chosen' http://localhost/api/users/me | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')"
+          id="$(curl -s -o /dev/null -D - -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Request-ID: client-chosen' "$me" | tr -d '\r' | awk -F': ' 'tolower($1) == "x-request-id" {print $2}')"
           test -n "$id" && test "$id" != client-chosen
           # the client address the backend logs is the X-Real-IP Vercel wrote, not caddy's peer or a client's XFF
-          curl -s -o /dev/null -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Real-IP: 203.0.113.7' -H 'X-Forwarded-For: 198.51.100.9' http://localhost/api/users/me
+          curl -s -o /dev/null -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' -H 'X-Real-IP: 203.0.113.7' -H 'X-Forwarded-For: 198.51.100.9' "$me"
           docker compose logs backend | grep -F "$id" > /dev/null
-          docker compose logs backend | grep 'users/me' | grep -F '203.0.113.7' > /dev/null
+          docker compose logs backend | grep 'GetCurrentUser' | grep -F '203.0.113.7' > /dev/null
           if docker compose logs backend | grep -qF '198.51.100.9'; then echo "the backend took the client's X-Forwarded-For"; exit 1; fi
           # an old browser without Sec-Fetch-Site: CrossOriginProtection compares Origin with Host, which caddy sets
           # to the site's host, so a same-site sign-in is not rejected as cross-origin
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: app.example.com' -H 'Origin: https://app.example.com' -H 'Content-Type: application/json' -d '{"account":"nobody","password":"wrong-password-123"}' http://localhost/api/sessions)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: app.example.com' -H 'Origin: https://app.example.com' -H 'Content-Type: application/json' -d '{"account":"nobody","password":"wrong-password-123"}' http://localhost/api/app.sessions.v1.SessionPublicService/CreateSession)" = 401
+      # The session cookie a sign-up sets through caddy reads the user back with a Connect GET; without it the read is
+      # unauthenticated
+      - name: A Connect GET carries the session cookie
+        run: |
+          secret="$(cat .secrets/origin_secret)"
+          api() { curl -s -H "X-Origin-Secret: $secret" -H 'X-Forwarded-Host: localhost' "$@"; }
+          me='http://localhost/api/app.users.v1.UserAppService/GetCurrentUser?connect=v1&encoding=json&message=%7B%7D'
+          cookie="$(api -o /dev/null -D - -X POST -H 'Content-Type: application/json' \
+            -d '{"account":"ci-probe","password":"ci probe 7f3a9c2e5b81 passphrase"}' \
+            http://localhost/api/app.users.v1.UserPublicService/CreateUser \
+            | tr -d '\r' | awk -F': ' 'tolower($1) == "set-cookie" {split($2, c, ";"); print c[1]; exit}')"
+          test -n "$cookie"
+          api -H "Cookie: $cookie" "$me" | jq -e '.user.account == "ci-probe"' > /dev/null
+          test "$(api -o /dev/null -w '%{http_code}' "$me")" = 401
       - name: The app role cannot change the schema
         run: |
           out="$(docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U template_go_nextjs_app -d template_go_nextjs -c 'CREATE TABLE intruder (id int)' 2>&1)" && exit 1
@@ -184,7 +213,9 @@ jobs:
       - name: Check git hooks were installed
         run: test -x "$(git rev-parse --git-path hooks)/commit-msg"
       - run: pnpm audit --prod --audit-level high
-      # src/lib/api/schema.d.ts must match backend/api/openapi.yaml, the contract's single source
+      # src/generated must match the contract in api/, with the pinned buf (root Makefile, checksum-verified)
+      - run: make bin/buf
+        working-directory: .
       - run: pnpm gen:api:check
       - run: pnpm lint
       - run: pnpm check:deps

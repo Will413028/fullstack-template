@@ -19,10 +19,8 @@ SQLC          := $(call GO_TOOL,sqlc)
 # squawk and diff-cover are pinned in tools/package.json and tools/requirements.txt, which Dependabot reads; the
 # release binaries above and Atlas below are checked weekly by scripts/tool_versions.py (tool-versions workflow).
 SQUAWK        := tools/node_modules/.bin/squawk
-OAPI_CODEGEN  := $(call GO_TOOL,oapi-codegen)
-OAPI_CONFIG   := internal/httpapi/oapi-codegen.yaml
-GEN_OUT       := internal/httpapi/gen/api.gen.go
-OASDIFF       := $(call GO_TOOL,oasdiff)
+# buf is pinned in the root Makefile (make bin/buf), which serves the frontend's generation too.
+BUF           := ../bin/buf
 COBERTURA     := $(call GO_TOOL,gocover-cobertura)
 GOTESTSUM     := $(call GO_TOOL,gotestsum)
 DEADCODE      := $(call GO_TOOL,deadcode)
@@ -95,7 +93,7 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: fmt-check gen-check lint deadcode test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
+check: fmt-check gen-check buf-lint lint deadcode test vuln sqlc-diff drift squawk migrations-immutable api-breaking tools-selftest
 
 # Functions that neither the binary nor any test reaches.
 .PHONY: deadcode
@@ -104,19 +102,30 @@ deadcode:
 
 # The git-diff checks and the detecting tools still fail on a planted violation (scripts/selftest-checks.sh).
 .PHONY: tools-selftest
-tools-selftest: $(SQUAWK)
-	./scripts/selftest-checks.sh
+tools-selftest: $(SQUAWK) $(BUF)
+	./scripts/selftest-checks.sh $(BUF)
+
+# The Connect code: internal/gen from the contract in ../api (buf.gen.yaml), and the test services' code from
+# internal/httpapi/rpc/testdata, a buf module of its own that is not part of the contract. The plugins are
+# tools/go.mod's; each buf.gen.yaml cleans its output directory, so a deleted proto leaves no stale file.
+GEN_DIRS := internal/gen internal/httpapi/rpc/testdata/gen
 
 .PHONY: gen
-gen: ## Regenerate internal/httpapi/gen from api/openapi.yaml
-	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" && cp "$$tmp" $(GEN_OUT)
+gen: $(BUF) ## Regenerate the Connect code from ../api and the test services
+	$(BUF) generate --template buf.gen.yaml
+	cd internal/httpapi/rpc/testdata && $(abspath $(BUF)) generate
 
+# buf writes in place, so the check regenerates and compares the work tree with the index: a changed, deleted or new
+# (untracked) file under GEN_DIRS fails. The index, not HEAD, so a caller can stage a change first (the rename job).
 .PHONY: gen-check
-gen-check: ## Fail when internal/httpapi/gen differs from api/openapi.yaml
-	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	$(OAPI_CODEGEN) -config $(OAPI_CONFIG) api/openapi.yaml > "$$tmp" || exit 1; \
-	cmp -s "$$tmp" $(GEN_OUT) || { echo "$(GEN_OUT) is stale: run make gen"; exit 1; }
+gen-check: gen ## Fail when the generated Connect code differs from ../api and the test services
+	@out="$$(git diff --name-status -- $(GEN_DIRS); git ls-files --others --exclude-standard -- $(GEN_DIRS))"; \
+	if [ -n "$$out" ]; then echo "$$out"; echo "generated Connect code is stale: run make gen and commit it"; exit 1; fi
+
+.PHONY: buf-lint
+buf-lint: $(BUF) ## buf lint over the contract and the test services
+	$(BUF) lint ../api
+	$(BUF) lint internal/httpapi/rpc/testdata
 
 .PHONY: sqlc
 sqlc: ## Regenerate each module's sqlc code from its sqlc.yaml
@@ -150,11 +159,16 @@ migrations-immutable: ## Migrations already on BASE must not change
 	./scripts/check-migrations-immutable.sh $(BASE)
 
 .PHONY: api-breaking
-api-breaking: ## api/openapi.yaml must have no breaking change against BASE
-	./scripts/check-openapi-breaking.sh "$(OASDIFF)" $(BASE)
+api-breaking: $(BUF) ## The contract in ../api must have no breaking change against BASE (rules in ../api/buf.yaml)
+	../scripts/check-buf-breaking.sh $(BUF) $(BASE)
 
 .PHONY: tools
-tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT)
+tools: $(ATLAS) $(ATLAS_COMMUNITY) $(GOLANGCI_LINT) $(BUF)
+
+# The root Makefile is the only download point and checksum list; its stamp replaces the binary after a bump.
+.PHONY: $(BUF)
+$(BUF):
+	@$(MAKE) --no-print-directory -C .. bin/buf
 
 $(GOLANGCI_LINT_STAMP):
 	@mkdir -p bin && rm -f bin/.golangci-lint-* && touch $@

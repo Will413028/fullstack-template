@@ -58,6 +58,8 @@ func TestCheckRejectsViolations(t *testing.T) {
 		{"module reaches net/http", Package{m + "aa", []string{"net/http"}}, "must not depend on net/http"},
 		{"module imports httpapi", Package{m + "aa", []string{mod + "/internal/httpapi"}}, "must not depend on internal/httpapi"},
 		{"module imports httpapi subpackage", Package{m + "aa", []string{mod + "/internal/httpapi/gen"}}, "must not depend on internal/httpapi"},
+		{"module reaches generated contract code", Package{m + "aa", []string{mod + "/internal/gen/app/items/v1"}}, "must not depend on internal/gen"},
+		{"module reaches Connect", Package{m + "aa", []string{"connectrpc.com/connect"}}, "must not depend on Connect"},
 	}
 	for _, c := range cases {
 		got := Check(mod, []Package{c.pkg})
@@ -66,7 +68,7 @@ func TestCheckRejectsViolations(t *testing.T) {
 		}
 	}
 	allowed := []Package{
-		{m + "aa", []string{m + "aa/store", mod + "/internal/platform/authctx", mod + "/internal/httpapiutil", "context", "net/url"}},
+		{m + "aa", []string{m + "aa/store", mod + "/internal/platform/authctx", mod + "/internal/httpapiutil", mod + "/internal/generated", "context", "net/url"}},
 		{m + "aa/store", []string{"github.com/jackc/pgx/v5"}},
 		{m + "aabb", []string{m + "aabb/store"}},
 		{mod + "/internal/httpapi", []string{m + "aa", m + "bb", "net/http"}},

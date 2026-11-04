@@ -57,7 +57,7 @@ func TestReady(t *testing.T) {
 
 func TestReadyDBDown(t *testing.T) {
 	h := newTestHandler(t, func(context.Context) error { return errors.New("db down") })
-	assertProblem(t, get(t, h, "/health/ready"), http.StatusServiceUnavailable, "/problems/unavailable")
+	assertStatusBody(t, get(t, h, "/health/ready"), http.StatusServiceUnavailable, "unavailable")
 }
 
 func TestShutdownFinishesInFlightRequest(t *testing.T) {
@@ -156,8 +156,11 @@ func TestBodyTooLarge(t *testing.T) {
 	if code := post(t, h, make([]byte, maxBodyBytes), sameOrigin); code != http.StatusOK {
 		t.Fatalf("body at the limit: code = %d, want 200", code)
 	}
-	assertProblem(t, postRec(t, h, make([]byte, maxBodyBytes+1), sameOrigin), http.StatusRequestEntityTooLarge,
-		"/problems/payload-too-large")
+	rec := postRec(t, h, make([]byte, maxBodyBytes+1), sameOrigin)
+	rec.Header().Set(headerRequestID, "test") // withRequestInfo's, which this test leaves out
+	if e := decodeWireError(t, rec, http.StatusTooManyRequests, "resource_exhausted"); len(e.Details) > 0 {
+		t.Errorf("details = %+v, want none (RetryInfo marks the rate limit)", e.Details)
+	}
 }
 
 func TestCrossOriginPostRejected(t *testing.T) {
@@ -175,8 +178,8 @@ func TestCrossOriginPostRejected(t *testing.T) {
 	} {
 		rec := postRec(t, h, []byte("{}"), tc.headers)
 		if tc.want == http.StatusForbidden {
-			if p := assertProblem(t, rec, http.StatusForbidden, "/problems/forbidden"); p.Code == nil || *p.Code != codeCrossOrigin {
-				t.Errorf("%s: code = %v, want %s", tc.name, p.Code, codeCrossOrigin)
+			if e := decodeWireError(t, rec, http.StatusForbidden, "permission_denied"); e.reason(t) != "CROSS_ORIGIN_REQUEST" {
+				t.Errorf("%s: reason = %q, want CROSS_ORIGIN_REQUEST", tc.name, e.reason(t))
 			}
 			continue
 		}
@@ -221,6 +224,6 @@ func TestSlowHeaderClosed(t *testing.T) {
 func TestUnknownPathNotFound(t *testing.T) {
 	h := newTestHandler(t, ok)
 	for _, path := range []string{"/nope", "/health/", "/api/nope", "/api/"} {
-		assertProblem(t, get(t, h, path), http.StatusNotFound, "/problems/not-found")
+		decodeWireError(t, get(t, h, path), http.StatusNotFound, "not_found")
 	}
 }

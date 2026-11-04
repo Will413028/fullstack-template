@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -16,11 +15,19 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/gen"
+	adminusersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/admin/users/v1"
+	sessionsv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/sessions/v1/sessionsv1connect"
+	usersv1 "github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1"
+	"github.com/Will413028/template-go-nextjs/backend/internal/gen/app/users/v1/usersv1connect"
+	"github.com/Will413028/template-go-nextjs/backend/internal/httpapi/rpc"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth"
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/items"
 	platformdb "github.com/Will413028/template-go-nextjs/backend/internal/platform/db"
@@ -74,7 +81,8 @@ type breachFunc func(context.Context, string) (bool, error)
 
 func (f breachFunc) Breached(ctx context.Context, p string) (bool, error) { return f(ctx, p) }
 
-// authAPI is the real handler, with the auth and items services, over a migrated test database.
+// authAPI is the real handler, with the auth and items services, over a migrated test database. Its generated
+// clients are in auth_client_test.go and items_test.go.
 type authAPI struct {
 	t      *testing.T
 	h      http.Handler
@@ -96,12 +104,12 @@ func (c *queryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.T
 
 func (c *queryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
 
-// countQueries returns how many queries the request sent sends.
-func (a *authAPI) countQueries(send func() *httptest.ResponseRecorder) int64 {
+// countQueries returns how many queries the call send makes sends.
+func (a *authAPI) countQueries(send func() error) int64 {
 	a.t.Helper()
 	before := a.queries.n.Load()
-	if rec := send(); rec.Code != http.StatusOK {
-		a.t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	if err := send(); err != nil {
+		a.t.Fatal(err)
 	}
 	return a.queries.n.Load() - before
 }
@@ -138,181 +146,35 @@ func newAuthAPI(t *testing.T, opts ...authOption) *authAPI {
 	return a
 }
 
-// do sends a same-origin request, with the session cookie when token is not empty. Every 201 it gets back is
-// checked by followLocation.
-func (a *authAPI) do(method, path, token, contentType, body string, headers ...string) *httptest.ResponseRecorder {
-	a.t.Helper()
-	req := httptest.NewRequestWithContext(a.t.Context(), method, "http://app.test"+path, strings.NewReader(body))
-	if body == "" {
-		req = httptest.NewRequestWithContext(a.t.Context(), method, "http://app.test"+path, http.NoBody)
-	}
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	}
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	if token != "" {
-		req.AddCookie(&http.Cookie{Name: cookieName, Value: token}) //nolint:gosec // a request cookie has no attributes
-	}
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	rec := httptest.NewRecorder()
-	a.h.ServeHTTP(rec, req)
-	a.followLocation(rec, token)
-	return rec
-}
-
-// followLocation checks a 201 (docs/adr/2026-10-18-api-and-auth-baseline.md D9): it has a Location, and GET on it
-// with the creator's cookie (the session the response sets, else the one the request carried) is a 200. Errorf, not
-// Fatalf: do runs in goroutines too.
-func (a *authAPI) followLocation(rec *httptest.ResponseRecorder, token string) {
-	a.t.Helper()
-	if rec.Code != http.StatusCreated {
+// assertMe checks whether token is a valid session: GetCurrentUser succeeds, or is unauthenticated (SESSION_INVALID).
+func assertMe(t *testing.T, a *authAPI, token string, valid bool) {
+	t.Helper()
+	_, err := a.me(token)
+	if valid {
+		if err != nil {
+			t.Fatalf("GetCurrentUser = %v, want the user", err)
+		}
 		return
 	}
-	loc := rec.Header().Get("Location")
-	if loc == "" {
-		a.t.Errorf("201 without Location: %s", rec.Body)
-		return
-	}
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == cookieName && c.MaxAge > 0 {
-			token = c.Value
-		}
-	}
-	if got := a.do(http.MethodGet, loc, token, "", ""); got.Code != http.StatusOK {
-		a.t.Errorf("GET %s, the Location of a 201, = %d, want 200: %s", loc, got.Code, got.Body)
-	}
-}
-
-func credentials(account, password string) string {
-	b, _ := json.Marshal(map[string]string{"account": account, "password": password})
-	return string(b)
-}
-
-func (a *authAPI) signUp(account, password string) *httptest.ResponseRecorder {
-	a.t.Helper()
-	return a.do(http.MethodPost, "/api/users", "", "application/json", credentials(account, password))
-}
-
-func (a *authAPI) signIn(account, password, token string) *httptest.ResponseRecorder {
-	a.t.Helper()
-	return a.do(http.MethodPost, "/api/sessions", token, "application/json", credentials(account, password))
-}
-
-func (a *authAPI) me(token string) *httptest.ResponseRecorder {
-	a.t.Helper()
-	return a.do(http.MethodGet, "/api/users/me", token, "", "")
-}
-
-// sessionCookie returns the one session cookie rec sets (a sign-in may also set the device cookie).
-func sessionCookie(t *testing.T, rec *httptest.ResponseRecorder) *http.Cookie {
-	t.Helper()
-	var found []*http.Cookie
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == cookieName {
-			found = append(found, c)
-		}
-	}
-	if len(found) != 1 {
-		t.Fatalf("Set-Cookie = %v, want exactly one %s", rec.Header().Values("Set-Cookie"), cookieName)
-	}
-	return found[0]
-}
-
-// mustSignUp creates an account and returns its user and session token.
-func (a *authAPI) mustSignUp(account string) (gen.User, string) {
-	a.t.Helper()
-	rec := a.signUp(account, goodPassword)
-	if rec.Code != http.StatusCreated {
-		a.t.Fatalf("sign up %s = %d %s", account, rec.Code, rec.Body)
-	}
-	return decodeUser(a.t, rec), sessionCookie(a.t, rec).Value
-}
-
-func (a *authAPI) mustSignIn(account, password string) string {
-	a.t.Helper()
-	rec := a.signIn(account, password, "")
-	if rec.Code != http.StatusCreated {
-		a.t.Fatalf("sign in %s = %d %s", account, rec.Code, rec.Body)
-	}
-	return sessionCookie(a.t, rec).Value
-}
-
-// mustAdmin creates an admin the way seed-admin does and signs it in.
-func (a *authAPI) mustAdmin() string {
-	a.t.Helper()
-	if _, err := a.svc.EnsureAdmin(a.t.Context(), "root", goodPassword); err != nil {
-		a.t.Fatal(err)
-	}
-	return a.mustSignIn("root", goodPassword)
-}
-
-func decodeUser(t *testing.T, rec *httptest.ResponseRecorder) gen.User {
-	t.Helper()
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q", ct)
-	}
-	var u gen.User
-	if err := json.Unmarshal(rec.Body.Bytes(), &u); err != nil {
-		t.Fatalf("body is not a User: %v (%q)", err, rec.Body)
-	}
-	return u
-}
-
-func assertMe(t *testing.T, a *authAPI, token string, want int) {
-	t.Helper()
-	rec := a.me(token)
-	if rec.Code != want {
-		t.Fatalf("GET /api/users/me = %d, want %d (body %q)", rec.Code, want, rec.Body)
-	}
-	if want == http.StatusUnauthorized {
-		assertProblem(t, rec, http.StatusUnauthorized, "/problems/unauthenticated")
-	}
-}
-
-func assertCode(t *testing.T, p gen.ValidationProblem, code string) {
-	t.Helper()
-	if p.Code == nil || string(*p.Code) != code {
-		t.Errorf("problem code = %v, want %s", p.Code, code)
-	}
-}
-
-func assertFieldError(t *testing.T, p gen.ValidationProblem, pointer, code string) {
-	t.Helper()
-	if len(p.Errors) != 1 || p.Errors[0].Pointer != pointer || string(p.Errors[0].Code) != code {
-		t.Errorf("errors = %+v, want one %s at %s", p.Errors, code, pointer)
-	}
-}
-
-func TestOperationsRejectsUnknownName(t *testing.T) {
-	if _, err := operations("CreateUser", "createUser"); err == nil {
-		t.Fatal("the contract's operationId was accepted; strict middleware sees the generated method name")
-	}
+	assertConnectError(t, err, connect.CodeUnauthenticated, "SESSION_INVALID")
 }
 
 func TestCreateUserSetsSessionCookie(t *testing.T) {
 	a := newAuthAPI(t)
-	rec := a.signUp("Alice", goodPassword)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("code = %d, want 201 (body %q)", rec.Code, rec.Body)
+	resp, err := a.signUp("Alice", goodPassword)
+	if err != nil {
+		t.Fatal(err)
 	}
-	u := decodeUser(t, rec)
-	if u.Account != "alice" || u.Role != gen.UserRoleUser || u.IsDisabled {
-		t.Errorf("user = %+v, want a lowercase, enabled user", u)
+	u := resp.Msg.GetUser()
+	if u.GetAccount() != "alice" || u.GetRole() != usersv1.Role_ROLE_USER || u.Disabled == nil || u.GetDisabled() {
+		t.Errorf("user = %v, want a lowercase, enabled user", u)
 	}
-	var raw struct {
-		CreatedAt string `json:"created_at"`
+	if id, err := uuid.Parse(u.GetId()); err != nil || id.Version() != 7 || !u.GetCreateTime().IsValid() {
+		t.Errorf("user = %v, want a UUIDv7 id and a create_time", u)
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil || !strings.HasSuffix(raw.CreatedAt, "Z") {
-		t.Errorf("created_at = %q, want RFC 3339 in UTC", raw.CreatedAt)
-	}
-	if loc := rec.Header().Get("Location"); loc != "/api/users/"+u.Id.String() {
-		t.Errorf("Location = %q", loc)
-	}
-	c := sessionCookie(t, rec)
+	c := a.sessionCookie(resp.Header())
 	if !c.HttpOnly || !c.Secure || c.Path != "/" || c.SameSite != http.SameSiteLaxMode || c.Domain != "" {
-		t.Errorf("cookie %q lacks HttpOnly, Secure, Path=/ or SameSite=Lax, or has a Domain", rec.Header().Get("Set-Cookie"))
+		t.Errorf("cookie %q lacks HttpOnly, Secure, Path=/ or SameSite=Lax, or has a Domain", resp.Header().Values("Set-Cookie"))
 	}
 	if c.MaxAge != 7*24*3600 {
 		t.Errorf("Max-Age = %d, want the 7-day absolute lifetime", c.MaxAge)
@@ -320,55 +182,96 @@ func TestCreateUserSetsSessionCookie(t *testing.T) {
 	if len(c.Value) != 43 {
 		t.Errorf("token %q is not 32 bytes of base64url", c.Value)
 	}
-	assertMe(t, a, c.Value, http.StatusOK)
+	// the new user reads back with the session the response set (followLocation checked this for the 201's Location)
+	if got, err := a.getUser(c.Value, u.GetId()); err != nil || !proto.Equal(got, u) {
+		t.Errorf("GetUser with the new session = %v, %v; want %v", got, err, u)
+	}
 }
 
 func TestCreateUserDuplicate(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	p := assertProblem(t, a.signUp("ALICE", goodPassword), http.StatusConflict, "/problems/conflict")
-	assertCode(t, p, auth.CodeAccountTaken)
+	_, err := a.signUp("ALICE", goodPassword)
+	assertConnectError(t, err, connect.CodeAlreadyExists, "ACCOUNT_TAKEN")
 }
 
-// Concurrent sign-ups for one account: the unique index decides, so exactly one gets the account and the rest a 409.
+// Concurrent sign-ups for one account: the unique index decides, so exactly one gets the account and the rest
+// already_exists.
 func TestCreateUserConcurrentSameAccount(t *testing.T) {
 	a := newAuthAPI(t)
 	const n = 20
-	codes := make(chan int, n)
+	outcomes := make(chan string, n)
 	var wg sync.WaitGroup
 	for range n {
-		wg.Go(func() { codes <- a.signUp("alice", goodPassword).Code })
+		wg.Go(func() {
+			_, err := a.signUp("alice", goodPassword)
+			outcomes <- outcome(err)
+		})
 	}
 	wg.Wait()
-	close(codes)
-	got := map[int]int{}
-	for c := range codes {
-		got[c]++
+	close(outcomes)
+	got := map[string]int{}
+	for o := range outcomes {
+		got[o]++
 	}
-	if got[http.StatusCreated] != 1 || got[http.StatusConflict] != n-1 {
-		t.Errorf("status counts = %v, want one 201 and %d 409", got, n-1)
+	if got["ok"] != 1 || got[connect.CodeAlreadyExists.String()] != n-1 {
+		t.Errorf("outcomes = %v, want one ok and %d already_exists", got, n-1)
 	}
 }
 
-func TestCreateUserPasswordTooShort(t *testing.T) {
+// The account and password limits of a sign-up (decision D2: the auth service checks them, the same for seed-admin):
+// account 3 to 50 of [A-Za-z0-9_.-], password 15 to 128 code points. Every invalid field is reported in one response.
+func TestCreateUserLimits(t *testing.T) {
 	a := newAuthAPI(t)
-	p := assertProblem(t, a.signUp("alice", "fourteen chars"), http.StatusUnprocessableEntity, "/problems/validation")
-	assertFieldError(t, p, "/password", "too_short")
+	for _, tc := range []struct {
+		account, password string
+		want              []string
+	}{
+		{"alice", "fourteen chars", []string{"password TOO_SHORT"}},
+		{"alice", strings.Repeat("p", 129), []string{"password TOO_LONG"}},
+		{"alice", "", []string{"password REQUIRED"}},
+		{"ab", goodPassword, []string{"account TOO_SHORT"}},
+		{strings.Repeat("a", 51), goodPassword, []string{"account TOO_LONG"}},
+		{"al ice", goodPassword, []string{"account PATTERN"}},
+		// was too_short (the contract's minLength); proto3 cannot tell empty from unset, so both are REQUIRED
+		{"", goodPassword, []string{"account REQUIRED"}},
+		{"ab", "short", []string{"account TOO_SHORT", "password TOO_SHORT"}},
+		{"", "", []string{"account REQUIRED", "password REQUIRED"}},
+	} {
+		_, err := a.signUp(tc.account, tc.password)
+		assertViolations(t, err, tc.want...)
+	}
+	// the longest account, and the longest password counted in code points (384 bytes)
+	if _, err := a.signUp(strings.Repeat("a", 50), strings.Repeat("字", 128)); err != nil {
+		t.Errorf("50-character account, 128-character password: %v", err)
+	}
+	if _, err := a.signUp("bob", "fifteen chars!!"); err != nil {
+		t.Errorf("15-character password: %v", err)
+	}
+	// Intended change (plan step 2): a field the request does not have is dropped (connect-go's DiscardUnknown), no
+	// longer 422 additional_property; it cannot choose the role either.
+	rec := connectPost(t, a.h, usersv1connect.UserPublicServiceCreateUserProcedure,
+		`{"account":"eve","password":"`+goodPassword+`","role":"ROLE_ADMIN","isAdmin":true}`, nil)
+	var created usersv1.CreateUserResponse
+	if err := protojson.Unmarshal(rec.Body.Bytes(), &created); err != nil || rec.Code != http.StatusOK ||
+		created.GetUser().GetRole() != usersv1.Role_ROLE_USER {
+		t.Errorf("sign-up with unknown fields = %d %s, want a user with role user", rec.Code, rec.Body)
+	}
 }
 
 // NIST SP 800-63B-4 forbids composition rules: a long all-lowercase password is fine.
 func TestCreateUserNoCompositionRule(t *testing.T) {
 	a := newAuthAPI(t)
-	if rec := a.signUp("alice", "onlylowercaseletters"); rec.Code != http.StatusCreated {
-		t.Fatalf("code = %d, want 201 (body %q)", rec.Code, rec.Body)
+	if _, err := a.signUp("alice", "onlylowercaseletters"); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestCreateUserCommonPassword(t *testing.T) {
 	a := newAuthAPI(t)
 	// on the embedded list (SecLists Pwdb), 15 characters
-	p := assertProblem(t, a.signUp("alice", "demon1q2w3e4r5t"), http.StatusUnprocessableEntity, "/problems/validation")
-	assertFieldError(t, p, "/password", auth.CodePasswordTooCommon)
+	_, err := a.signUp("alice", "demon1q2w3e4r5t")
+	assertFieldViolation(t, err, "password", "PASSWORD_TOO_COMMON")
 }
 
 func TestCreateUserBreachedPassword(t *testing.T) {
@@ -379,77 +282,89 @@ func TestCreateUserBreachedPassword(t *testing.T) {
 		c.Breach = breachFunc(func(_ context.Context, p string) (bool, error) { checked = p; return breached, failing })
 	})
 	// The check sees the normalized password (NFKC folds the full-width letters).
-	p := assertProblem(t, a.signUp("alice", "ｂｒｅａｃｈｅｄ ｐａｓｓｐｈｒａｓｅ"), http.StatusUnprocessableEntity, "/problems/validation")
-	assertFieldError(t, p, "/password", auth.CodePasswordTooCommon)
+	_, err := a.signUp("alice", "ｂｒｅａｃｈｅｄ ｐａｓｓｐｈｒａｓｅ")
+	assertFieldViolation(t, err, "password", "PASSWORD_TOO_COMMON")
 	if checked != "breached passphrase" {
 		t.Errorf("breach check got %q, want the NFKC form", checked)
 	}
 	// An unreachable breach service does not block sign-ups.
 	failing = errors.New("timeout")
-	if rec := a.signUp("alice", goodPassword); rec.Code != http.StatusCreated {
-		t.Fatalf("with the breach check failing: code = %d, want 201", rec.Code)
+	if _, err := a.signUp("alice", goodPassword); err != nil {
+		t.Fatalf("with the breach check failing: %v", err)
 	}
 }
 
 func TestCreateSession(t *testing.T) {
 	a := newAuthAPI(t)
 	created, _ := a.mustSignUp("alice")
-	rec := a.signIn("alice", goodPassword, "")
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("code = %d, want 201 (body %q)", rec.Code, rec.Body)
+	resp, err := a.signIn("alice", goodPassword, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if sess := decodeSession(t, rec); sess.User.Id != created.Id {
-		t.Errorf("signed in as %v, want %v", sess.User.Id, created.Id)
+	if got := resp.Msg.GetSession().GetUser().GetId(); got != created.GetId() {
+		t.Errorf("signed in as %s, want %s", got, created.GetId())
 	}
-	assertMe(t, a, sessionCookie(t, rec).Value, http.StatusOK)
+	assertMe(t, a, a.sessionCookie(resp.Header()).Value, true)
+}
+
+// The limits of a sign-in are only presence and the longest account and password that can exist: a rule tightened
+// later must not lock out an account created before it. Every invalid field is reported in one response.
+func TestCreateSessionLimits(t *testing.T) {
+	a := newAuthAPI(t)
+	for _, tc := range []struct {
+		account, password string
+		want              []string
+	}{
+		{"alice", strings.Repeat("p", 129), []string{"password TOO_LONG"}},
+		{strings.Repeat("a", 51), goodPassword, []string{"account TOO_LONG"}},
+		{"", "", []string{"account REQUIRED", "password REQUIRED"}},
+		{strings.Repeat("a", 51), strings.Repeat("p", 129), []string{"account TOO_LONG", "password TOO_LONG"}},
+	} {
+		_, err := a.signIn(tc.account, tc.password, "")
+		assertViolations(t, err, tc.want...)
+	}
+	// within the limits, short or long, the credentials decide
+	for _, c := range [][2]string{{"ab", "x"}, {strings.Repeat("a", 50), strings.Repeat("字", 128)}} {
+		_, err := a.signIn(c[0], c[1], "")
+		assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
+	}
 }
 
 func TestCreateSessionWrongPassword(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	p := assertProblem(t, a.signIn("alice", "not the password", ""), http.StatusUnauthorized, "/problems/unauthenticated")
-	assertCode(t, p, auth.CodeInvalidCredentials)
+	_, err := a.signIn("alice", "not the password", "")
+	assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
 }
 
 // An unknown account costs one password verification, like a wrong password, and gets the same response.
 func TestCreateSessionUnknownAccountRunsHash(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	wrong := assertProblem(t, a.signIn("alice", "not the password", ""), http.StatusUnauthorized, "/problems/unauthenticated")
+	_, wrong := a.signIn("alice", "not the password", "")
 	a.hasher.verifies.Store(0)
-	unknown := assertProblem(t, a.signIn("bob", "not the password", ""), http.StatusUnauthorized, "/problems/unauthenticated")
+	_, unknown := a.signIn("bob", "not the password", "")
 	if n := a.hasher.verifies.Load(); n != 1 {
 		t.Errorf("verifications for an unknown account = %d, want 1", n)
 	}
-	wrong.RequestId, unknown.RequestId = nil, nil
-	if w, u := mustJSON(t, wrong), mustJSON(t, unknown); w != u {
-		t.Errorf("unknown account answered %s, wrong password %s; want the same", u, w)
-	}
-}
-
-func mustJSON(t *testing.T, v any) string {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
+	assertConnectError(t, unknown, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
+	assertSameError(t, unknown, wrong)
 }
 
 // Signing in always issues a new token (no session fixation) and ends the session the request carried.
 func TestCreateSessionIssuesNewToken(t *testing.T) {
 	a := newAuthAPI(t)
 	_, old := a.mustSignUp("alice")
-	rec := a.signIn("alice", goodPassword, old)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("code = %d (body %q)", rec.Code, rec.Body)
+	resp, err := a.signIn("alice", goodPassword, old)
+	if err != nil {
+		t.Fatal(err)
 	}
-	fresh := sessionCookie(t, rec).Value
+	fresh := a.sessionCookie(resp.Header()).Value
 	if fresh == old {
 		t.Fatal("sign-in kept the token the request carried")
 	}
-	assertMe(t, a, fresh, http.StatusOK)
-	assertMe(t, a, old, http.StatusUnauthorized)
+	assertMe(t, a, fresh, true)
+	assertMe(t, a, old, false)
 }
 
 func TestCreateSessionMixedCaseAccount(t *testing.T) {
@@ -461,12 +376,12 @@ func TestCreateSessionMixedCaseAccount(t *testing.T) {
 // The same password typed with full-width or half-width characters is the same password (NFKC, NIST SP 800-63B-4).
 func TestPasswordNormalized(t *testing.T) {
 	a := newAuthAPI(t)
-	if rec := a.signUp("alice", "ｃｏｒｒｅｃｔ－ｈｏｒｓｅ－ｂａｔｔｅｒｙ"); rec.Code != http.StatusCreated {
-		t.Fatalf("sign up = %d (body %q)", rec.Code, rec.Body)
+	if _, err := a.signUp("alice", "ｃｏｒｒｅｃｔ－ｈｏｒｓｅ－ｂａｔｔｅｒｙ"); err != nil {
+		t.Fatalf("sign up: %v", err)
 	}
 	a.mustSignIn("alice", "correct-horse-battery")
-	if rec := a.signUp("bob", "correct-horse-battery-staple"); rec.Code != http.StatusCreated {
-		t.Fatalf("sign up = %d (body %q)", rec.Code, rec.Body)
+	if _, err := a.signUp("bob", "correct-horse-battery-staple"); err != nil {
+		t.Fatalf("sign up: %v", err)
 	}
 	a.mustSignIn("bob", "ｃｏｒｒｅｃｔ－ｈｏｒｓｅ－ｂａｔｔｅｒｙ－ｓｔａｐｌｅ")
 }
@@ -474,71 +389,93 @@ func TestPasswordNormalized(t *testing.T) {
 func TestCreateSessionDisabledAccount(t *testing.T) {
 	a := newAuthAPI(t)
 	u, _ := a.mustSignUp("alice")
-	if _, err := a.svc.SetDisabled(t.Context(), u.Id, true); err != nil {
+	if _, err := a.svc.SetDisabled(t.Context(), uuid.MustParse(u.GetId()), true); err != nil {
 		t.Fatal(err)
 	}
 	// the same answer as a wrong password: a disabled account is not told apart
-	p := assertProblem(t, a.signIn("alice", goodPassword, ""), http.StatusUnauthorized, "/problems/unauthenticated")
-	assertCode(t, p, auth.CodeInvalidCredentials)
+	_, err := a.signIn("alice", goodPassword, "")
+	assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
 }
 
 func TestMe(t *testing.T) {
 	a := newAuthAPI(t)
 	created, token := a.mustSignUp("alice")
-	rec := a.me(token)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d (body %q)", rec.Code, rec.Body)
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+	u, err := a.me(token)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if id, _ := raw["id"].(string); id != created.Id.String() || uuid.MustParse(id).Version() != 7 {
-		t.Errorf("id = %v, want the UUIDv7 string %s", raw["id"], created.Id)
+	if id, err := uuid.Parse(u.GetId()); err != nil || id.Version() != 7 || !proto.Equal(u, created) {
+		t.Errorf("user = %v, want %v with a UUIDv7 id", u, created)
 	}
-	if raw["role"] != "user" || raw["account"] != "alice" {
-		t.Errorf("body = %v, want account alice with role user", raw)
+	if u.GetRole() != usersv1.Role_ROLE_USER || u.GetAccount() != "alice" {
+		t.Errorf("user = %v, want account alice with role user", u)
 	}
 }
 
 func TestMeWithoutCookie(t *testing.T) {
-	assertMe(t, newAuthAPI(t), "", http.StatusUnauthorized)
+	assertMe(t, newAuthAPI(t), "", false)
 }
 
 func TestMeWithUnknownToken(t *testing.T) {
-	assertMe(t, newAuthAPI(t), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", http.StatusUnauthorized)
+	assertMe(t, newAuthAPI(t), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false)
 }
 
-// Only the cookie authenticates; a token in Authorization is ignored.
 // The cookie is HttpOnly, so only the server can remove a dead one; the frontend takes a present cookie for a
-// session.
+// session. Every response to a request with a dead cookie clears it, unless the response signs in: then it carries
+// only the new session (clearStaleCookie).
 func TestInvalidSessionCookieCleared(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
-	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
-	rec := a.me(token)
-	assertProblem(t, rec, http.StatusUnauthorized, "/problems/unauthenticated")
-	if c := sessionCookie(t, rec); c.MaxAge >= 0 {
-		t.Errorf("Set-Cookie = %q, want the cookie cleared", rec.Header().Get("Set-Cookie"))
+	if _, err := a.signOut(token); err != nil {
+		t.Fatal(err)
 	}
-	// signing in with the dead cookie gets only the new one
+	_, err := a.me(token)
+	assertConnectError(t, err, connect.CodeUnauthenticated, "SESSION_INVALID")
+	if c := a.sessionCookie(asConnectError(t, err).Meta()); c.MaxAge >= 0 {
+		t.Errorf("Set-Cookie = %q, want the cookie cleared", asConnectError(t, err).Meta().Values("Set-Cookie"))
+	}
+	// a Public call that does not sign in clears it too, on its error
 	a.mustSignUp("bob")
-	rec = a.signIn("bob", goodPassword, token)
-	if c := sessionCookie(t, rec); c.MaxAge <= 0 || c.Value == "" {
-		t.Errorf("Set-Cookie = %v, want only the new session", rec.Header().Values("Set-Cookie"))
+	_, err = a.signIn("bob", "not the password", token)
+	assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
+	if c := a.sessionCookie(asConnectError(t, err).Meta()); c.MaxAge >= 0 {
+		t.Errorf("failed sign-in: Set-Cookie = %q, want the cookie cleared", asConnectError(t, err).Meta().Values("Set-Cookie"))
+	}
+	// signing in or up with the dead cookie gets only the new one
+	resp, err := a.signIn("bob", goodPassword, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := a.sessionCookie(resp.Header()); c.MaxAge <= 0 || c.Value == "" {
+		t.Errorf("sign-in: Set-Cookie = %q, want only the new session", resp.Header().Values("Set-Cookie"))
+	}
+	signUp, err := a.publicUsers(token).CreateUser(t.Context(), connect.NewRequest(&usersv1.CreateUserRequest{
+		Account: "dave", Password: goodPassword,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := a.sessionCookie(signUp.Header()); c.MaxAge <= 0 || c.Value == "" {
+		t.Errorf("sign-up: Set-Cookie = %q, want only the new session", signUp.Header().Values("Set-Cookie"))
 	}
 	// a valid session is left alone
 	_, live := a.mustSignUp("carol")
-	if rec := a.me(live); rec.Header().Get("Set-Cookie") != "" {
-		t.Errorf("valid session got Set-Cookie %q", rec.Header().Get("Set-Cookie"))
+	me, err := a.users(live).GetCurrentUser(t.Context(), connect.NewRequest(&usersv1.GetCurrentUserRequest{}))
+	if err != nil {
+		t.Fatalf("valid session: %v", err)
+	}
+	if set := me.Header().Values("Set-Cookie"); len(set) > 0 {
+		t.Errorf("valid session got Set-Cookie %q", set)
 	}
 }
 
+// Only the cookie authenticates; a token in Authorization is ignored.
 func TestMeIgnoresBearer(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
-	rec := a.do(http.MethodGet, "/api/users/me", "", "", "", "Authorization", "Bearer "+token)
-	assertProblem(t, rec, http.StatusUnauthorized, "/problems/unauthenticated")
+	_, err := a.users("", withHeader("Authorization", "Bearer "+token)).
+		GetCurrentUser(t.Context(), connect.NewRequest(&usersv1.GetCurrentUserRequest{}))
+	assertConnectError(t, err, connect.CodeUnauthenticated, "SESSION_INVALID")
 }
 
 func TestMeDisabledAccount(t *testing.T) {
@@ -548,7 +485,7 @@ func TestMeDisabledAccount(t *testing.T) {
 	if _, err := a.pool.Exec(t.Context(), `UPDATE users SET is_disabled = true`); err != nil {
 		t.Fatal(err)
 	}
-	assertMe(t, a, token, http.StatusUnauthorized)
+	assertMe(t, a, token, false)
 }
 
 func TestMeAfterUserDeleted(t *testing.T) {
@@ -557,18 +494,18 @@ func TestMeAfterUserDeleted(t *testing.T) {
 	if _, err := a.pool.Exec(t.Context(), `DELETE FROM users`); err != nil {
 		t.Fatal(err)
 	}
-	assertMe(t, a, token, http.StatusUnauthorized)
+	assertMe(t, a, token, false)
 }
 
 func TestSessionIdleExpiry(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
 	a.clock.Advance(24*time.Hour - time.Second)
-	assertMe(t, a, token, http.StatusOK) // using it resets the idle limit
+	assertMe(t, a, token, true) // using it resets the idle limit
 	a.clock.Advance(24*time.Hour - time.Second)
-	assertMe(t, a, token, http.StatusOK)
+	assertMe(t, a, token, true)
 	a.clock.Advance(24 * time.Hour)
-	assertMe(t, a, token, http.StatusUnauthorized)
+	assertMe(t, a, token, false)
 }
 
 func TestSessionAbsoluteExpiry(t *testing.T) {
@@ -576,33 +513,47 @@ func TestSessionAbsoluteExpiry(t *testing.T) {
 	_, token := a.mustSignUp("alice")
 	for range 13 {
 		a.clock.Advance(12 * time.Hour)
-		assertMe(t, a, token, http.StatusOK)
+		assertMe(t, a, token, true)
 	}
 	a.clock.Advance(12 * time.Hour) // 7 days after sign-up, used every 12 hours
-	assertMe(t, a, token, http.StatusUnauthorized)
+	assertMe(t, a, token, false)
 }
 
+// Signing out succeeds and clears the cookie whatever session the request carries: a valid one, one that has ended or
+// expired, an unknown one, or none. DeleteCurrentSession is a Public method for this: a stale cookie must be able to
+// sign out.
 func TestDeleteCurrentSessionClearsCookie(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
-	for _, tok := range []string{token, ""} { // without a session it still succeeds
-		rec := a.do(http.MethodDelete, "/api/sessions/current", tok, "", "")
-		if rec.Code != http.StatusNoContent {
-			t.Fatalf("code = %d, want 204 (body %q)", rec.Code, rec.Body)
+	_, idle := a.mustSignUp("bob")
+	assertSignsOut := func(what, tok string) {
+		t.Helper()
+		resp, err := a.signOut(tok)
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
 		}
-		if c := sessionCookie(t, rec); c.MaxAge >= 0 || !strings.Contains(rec.Header().Get("Set-Cookie"), "Max-Age=0") {
-			t.Errorf("Set-Cookie = %q, want Max-Age=0", rec.Header().Get("Set-Cookie"))
+		set := resp.Header().Values("Set-Cookie")
+		if c := a.sessionCookie(resp.Header()); c.MaxAge >= 0 || !strings.Contains(strings.Join(set, "\n"), "Max-Age=0") {
+			t.Errorf("%s: Set-Cookie = %q, want Max-Age=0", what, set)
 		}
 	}
+	assertSignsOut("valid session", token)
+	assertSignsOut("ended session", token)
+	assertSignsOut("no session", "")
+	assertSignsOut("unknown token", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	a.clock.Advance(25 * time.Hour) // over the 1-day idle limit
+	assertSignsOut("expired session", idle)
 }
 
 func TestDeleteCurrentSessionRevokes(t *testing.T) {
 	a := newAuthAPI(t)
 	_, token := a.mustSignUp("alice")
 	other := a.mustSignIn("alice", goodPassword)
-	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
-	assertMe(t, a, token, http.StatusUnauthorized)
-	assertMe(t, a, other, http.StatusOK)
+	if _, err := a.signOut(token); err != nil {
+		t.Fatal(err)
+	}
+	assertMe(t, a, token, false)
+	assertMe(t, a, other, true)
 }
 
 func TestDeleteAllSessions(t *testing.T) {
@@ -610,22 +561,24 @@ func TestDeleteAllSessions(t *testing.T) {
 	_, first := a.mustSignUp("alice")
 	second := a.mustSignIn("alice", goodPassword)
 	_, bob := a.mustSignUp("bob")
-	rec := a.do(http.MethodDelete, "/api/sessions", second, "", "")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("code = %d, want 204 (body %q)", rec.Code, rec.Body)
+	resp, err := a.sessions(second).DeleteAllSessions(t.Context(), connect.NewRequest(&sessionsv1.DeleteAllSessionsRequest{}))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if c := sessionCookie(t, rec); c.MaxAge >= 0 {
-		t.Errorf("cookie not cleared: %q", rec.Header().Get("Set-Cookie"))
+	if c := a.sessionCookie(resp.Header()); c.MaxAge >= 0 {
+		t.Errorf("cookie not cleared: %q", resp.Header().Values("Set-Cookie"))
 	}
-	assertMe(t, a, first, http.StatusUnauthorized)
-	assertMe(t, a, second, http.StatusUnauthorized)
-	assertMe(t, a, bob, http.StatusOK)
-	assertProblem(t, a.do(http.MethodDelete, "/api/sessions", "", "", ""), http.StatusUnauthorized, "/problems/unauthenticated")
+	assertMe(t, a, first, false)
+	assertMe(t, a, second, false)
+	assertMe(t, a, bob, true)
+	_, err = a.sessions("").DeleteAllSessions(t.Context(), connect.NewRequest(&sessionsv1.DeleteAllSessionsRequest{}))
+	assertConnectError(t, err, connect.CodeUnauthenticated, "SESSION_INVALID")
 }
 
-func (a *authAPI) patchUser(token string, id uuid.UUID, body string) *httptest.ResponseRecorder {
+// disable sets user id's disabled through UserAdminService.UpdateUser, with the mask.
+func (a *authAPI) disable(token, id string, disabled bool) (*usersv1.User, error) {
 	a.t.Helper()
-	return a.do(http.MethodPatch, "/api/users/"+id.String(), token, "application/merge-patch+json", body)
+	return a.updateUser(token, &usersv1.User{Id: id, Disabled: proto.Bool(disabled)}, "disabled")
 }
 
 // Disabling ends the user's sessions for good: enabling the account again does not bring them back.
@@ -633,44 +586,47 @@ func TestAdminDisablesUserRevokesSessions(t *testing.T) {
 	a := newAuthAPI(t)
 	admin := a.mustAdmin()
 	u, token := a.mustSignUp("alice")
-	rec := a.patchUser(admin, u.Id, `{"is_disabled":true}`)
-	if rec.Code != http.StatusOK || !decodeUser(t, rec).IsDisabled {
-		t.Fatalf("disable = %d %s", rec.Code, rec.Body)
+	if got, err := a.disable(admin, u.GetId(), true); err != nil || !got.GetDisabled() {
+		t.Fatalf("disable = %v, %v", got, err)
 	}
-	assertMe(t, a, token, http.StatusUnauthorized)
-	rec = a.patchUser(admin, u.Id, `{"is_disabled":false}`)
-	if rec.Code != http.StatusOK || decodeUser(t, rec).IsDisabled {
-		t.Fatalf("enable = %d %s", rec.Code, rec.Body)
+	assertMe(t, a, token, false)
+	if got, err := a.disable(admin, u.GetId(), false); err != nil || got.Disabled == nil || got.GetDisabled() {
+		t.Fatalf("enable = %v, %v", got, err)
 	}
-	assertMe(t, a, token, http.StatusUnauthorized)
+	assertMe(t, a, token, false)
 	a.mustSignIn("alice", goodPassword)
-	// an empty merge patch changes nothing
-	if rec := a.patchUser(admin, u.Id, `{}`); rec.Code != http.StatusOK || decodeUser(t, rec).IsDisabled {
-		t.Fatalf("empty patch = %d %s", rec.Code, rec.Body)
+	// no mask and no disabled changes nothing (was the empty merge patch)
+	if got, err := a.updateUser(admin, &usersv1.User{Id: u.GetId()}); err != nil || got.GetDisabled() || got.GetAccount() != "alice" {
+		t.Fatalf("empty update = %v, %v", got, err)
 	}
-	assertProblem(t, a.patchUser(admin, uuid.Must(uuid.NewV7()), `{"is_disabled":true}`), http.StatusNotFound, "/problems/not-found")
+	_, err := a.disable(admin, uuid.Must(uuid.NewV7()).String(), true)
+	assertConnectError(t, err, connect.CodeNotFound, "")
+	_, err = a.disable(admin, "42", true)
+	assertFieldViolation(t, err, "user.id", "INVALID")
+	_, err = a.updateUser(admin, &usersv1.User{Id: u.GetId()}, "is_disabled")
+	assertFieldViolation(t, err, "update_mask", "INVALID")
 }
 
 // The only enabled admin cannot be disabled, by themselves or anyone; with a second admin, either may be disabled.
 func TestLastAdminCannotBeDisabled(t *testing.T) {
 	a := newAuthAPI(t)
 	root := a.mustAdmin()
-	rootUser := a.currentSession(root).User
-	p := assertProblem(t, a.patchUser(root, rootUser.Id, `{"is_disabled":true}`), http.StatusConflict, "/problems/conflict")
-	assertCode(t, p, auth.CodeLastAdmin)
+	rootID := a.currentSession(root).GetUser().GetId()
+	_, err := a.disable(root, rootID, true)
+	assertConnectError(t, err, connect.CodeFailedPrecondition, "LAST_ADMIN")
 	if _, err := a.svc.EnsureAdmin(t.Context(), "second", goodPassword); err != nil {
 		t.Fatal(err)
 	}
-	if rec := a.patchUser(root, rootUser.Id, `{"is_disabled":true}`); rec.Code != http.StatusOK {
-		t.Fatalf("disable self with another admin = %d %s", rec.Code, rec.Body)
+	if _, err := a.disable(root, rootID, true); err != nil {
+		t.Fatalf("disable self with another admin: %v", err)
 	}
 	second := a.mustSignIn("second", goodPassword)
-	secondUser := a.currentSession(second).User
-	assertProblem(t, a.patchUser(second, secondUser.Id, `{"is_disabled":true}`), http.StatusConflict, "/problems/conflict")
+	_, err = a.disable(second, a.currentSession(second).GetUser().GetId(), true)
+	assertConnectError(t, err, connect.CodeFailedPrecondition, "LAST_ADMIN")
 }
 
 // Two admins disabling each other at the same moment: the admin rows are locked first, so exactly one succeeds. The
-// other gets 409, or 401 when its session was already revoked by the winner.
+// other gets failed_precondition, or unauthenticated when its session was already revoked by the winner.
 func TestConcurrentAdminDisableLeavesOne(t *testing.T) {
 	a := newAuthAPI(t)
 	root := a.mustAdmin()
@@ -678,20 +634,23 @@ func TestConcurrentAdminDisableLeavesOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := a.mustSignIn("second", goodPassword)
-	targets := map[string]uuid.UUID{root: a.currentSession(second).User.Id, second: a.currentSession(root).User.Id}
-	codes := make(chan int, 2)
+	targets := map[string]string{root: a.currentSession(second).GetUser().GetId(), second: a.currentSession(root).GetUser().GetId()}
+	outcomes := make(chan string, 2)
 	var wg sync.WaitGroup
 	for token, target := range targets {
-		wg.Go(func() { codes <- a.patchUser(token, target, `{"is_disabled":true}`).Code })
+		wg.Go(func() {
+			_, err := a.disable(token, target, true)
+			outcomes <- outcome(err)
+		})
 	}
 	wg.Wait()
-	close(codes)
-	got := map[int]int{}
-	for c := range codes {
-		got[c]++
+	close(outcomes)
+	got := map[string]int{}
+	for o := range outcomes {
+		got[o]++
 	}
-	if got[http.StatusOK] != 1 || got[http.StatusConflict]+got[http.StatusUnauthorized] != 1 {
-		t.Errorf("status counts = %v, want one 200 and one 409 or 401", got)
+	if got["ok"] != 1 || got[connect.CodeFailedPrecondition.String()]+got[connect.CodeUnauthenticated.String()] != 1 {
+		t.Errorf("outcomes = %v, want one ok and one failed_precondition or unauthenticated", got)
 	}
 	var enabled int
 	if err := a.pool.QueryRow(t.Context(), `SELECT count(*) FROM users WHERE role = 'admin' AND NOT is_disabled`).Scan(&enabled); err != nil || enabled != 1 {
@@ -703,47 +662,61 @@ func TestNonAdminCannotPatchUser(t *testing.T) {
 	a := newAuthAPI(t)
 	victim, victimToken := a.mustSignUp("alice")
 	_, token := a.mustSignUp("mallory")
-	p := assertProblem(t, a.patchUser(token, victim.Id, `{"is_disabled":true}`), http.StatusForbidden, "/problems/forbidden")
-	assertCode(t, p, "insufficient_role")
-	assertMe(t, a, victimToken, http.StatusOK)
+	_, err := a.disable(token, victim.GetId(), true)
+	assertConnectError(t, err, connect.CodePermissionDenied, "INSUFFICIENT_ROLE")
+	assertMe(t, a, victimToken, true)
 }
 
-// Security is checked before the body: an anonymous caller gets 401, not a 422 describing the body it should send.
+// Authentication comes before the body (the plan's first invariant): an anonymous caller of any App or Admin method
+// gets unauthenticated for a body connect-go cannot decode, or a content type it does not accept, rather than an
+// error describing the request it should send. A Public method answers the same body with invalid_argument. No
+// database: the check runs before any handler.
 func TestUnauthenticatedBeforeValidation(t *testing.T) {
-	a := newAuthAPI(t)
-	rec := a.patchUser("", uuid.Must(uuid.NewV7()), `{"is_disabled":"yes"}`)
-	assertProblem(t, rec, http.StatusUnauthorized, "/problems/unauthenticated")
+	h := newConnectAPI(t, Deps{})
+	for _, s := range connectServices(Deps{}) {
+		if class, _ := rpc.ClassOf(s.Desc.FullName()); class == rpc.Public {
+			continue
+		}
+		methods := s.Desc.Methods()
+		for i := range methods.Len() {
+			procedure := rpc.Procedure(methods.Get(i))
+			t.Run(procedure, func(t *testing.T) {
+				decodeWireError(t, connectPost(t, h, procedure, `{not json`, nil), http.StatusUnauthorized, "unauthenticated")
+				rec := connectPost(t, h, procedure, `{}`, map[string]string{"Content-Type": "text/plain"})
+				decodeWireError(t, rec, http.StatusUnauthorized, "unauthenticated")
+			})
+		}
+	}
+	decodeWireError(t, connectPost(t, h, sessionsv1connect.SessionPublicServiceCreateSessionProcedure, `{not json`, nil),
+		http.StatusBadRequest, "invalid_argument")
 }
 
 // Throttling counts attempts per account name whether or not the account exists, and answers both the same way.
 func TestLoginThrottlePerAccount(t *testing.T) {
 	a := newAuthAPI(t)
 	a.mustSignUp("alice")
-	throttled := map[string]gen.ValidationProblem{}
+	throttled := map[string]error{}
 	for _, account := range []string{"alice", "nobody"} {
 		for i := range 5 {
-			if rec := a.signIn(account, "not the password", ""); rec.Code != http.StatusUnauthorized {
-				t.Fatalf("%s attempt %d = %d, want 401", account, i+1, rec.Code)
+			if _, err := a.signIn(account, "not the password", ""); connect.CodeOf(err) != connect.CodeUnauthenticated {
+				t.Fatalf("%s attempt %d = %v, want unauthenticated", account, i+1, err)
 			}
 		}
-		rec := a.signIn(account, "not the password", "")
-		p := assertProblem(t, rec, http.StatusTooManyRequests, "/problems/rate-limited")
-		assertCode(t, p, auth.CodeLoginThrottled)
-		if ra := rec.Header().Get("Retry-After"); ra != "60" {
-			t.Errorf("%s Retry-After = %q, want 60", account, ra)
-		}
-		p.RequestId = nil
-		throttled[account] = p
+		_, err := a.signIn(account, "not the password", "")
+		assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
+		assertRetryInfo(t, err, time.Minute)
+		throttled[account] = err
 	}
-	if e, n := mustJSON(t, throttled["alice"]), mustJSON(t, throttled["nobody"]); e != n {
-		t.Errorf("existing account throttled with %s, unknown with %s; want the same", e, n)
-	}
+	assertSameError(t, throttled["nobody"], throttled["alice"])
 	// While waiting even the right password is refused; afterwards it signs in and the count starts over.
-	assertProblem(t, a.signIn("alice", goodPassword, ""), http.StatusTooManyRequests, "/problems/rate-limited")
+	_, err := a.signIn("alice", goodPassword, "")
+	assertConnectError(t, err, connect.CodeResourceExhausted, "LOGIN_THROTTLED")
 	a.clock.Advance(time.Minute)
 	a.mustSignIn("alice", goodPassword)
 	for range 4 {
-		a.signIn("alice", "not the password", "")
+		if _, err := a.signIn("alice", "not the password", ""); err == nil {
+			t.Fatal("wrong password signed in")
+		}
 	}
 	a.mustSignIn("alice", goodPassword)
 }
@@ -753,23 +726,22 @@ func TestLoginThrottleConcurrent(t *testing.T) {
 	a := newAuthAPI(t)
 	a.hasher.delay = 50 * time.Millisecond
 	a.mustSignUp("alice")
-	var unauthorized, limited atomic.Int32
+	outcomes := make(chan string, 20)
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			switch code := a.signIn("alice", "not the password", "").Code; code {
-			case http.StatusUnauthorized:
-				unauthorized.Add(1)
-			case http.StatusTooManyRequests:
-				limited.Add(1)
-			default:
-				t.Errorf("code = %d", code)
-			}
+			_, err := a.signIn("alice", "not the password", "")
+			outcomes <- outcome(err)
 		})
 	}
 	wg.Wait()
-	if unauthorized.Load() != 5 || limited.Load() != 15 {
-		t.Fatalf("%d checked and %d throttled, want 5 and 15", unauthorized.Load(), limited.Load())
+	close(outcomes)
+	got := map[string]int{}
+	for o := range outcomes {
+		got[o]++
+	}
+	if got[connect.CodeUnauthenticated.String()] != 5 || got[connect.CodeResourceExhausted.String()] != 15 {
+		t.Fatalf("outcomes = %v, want 5 unauthenticated and 15 resource_exhausted", got)
 	}
 	// what throttling protects: only 5 guesses were checked against the password
 	if n := a.hasher.verifies.Load(); n != 5 {
@@ -777,37 +749,70 @@ func TestLoginThrottleConcurrent(t *testing.T) {
 	}
 }
 
-// Sign-up and sign-in share one per-address allowance (AUTH_RATE_LIMIT_PER_MIN).
+// limitedCall returns a caller of procedure (sign-up or sign-in) whose calls with goodPassword succeed while the limit
+// allows: sign-up creates account, sign-in signs in as alice whatever account says.
+func (a *authAPI) limitedCall(procedure string) func(account, password string, opts ...requestOpt) error {
+	if procedure == usersv1connect.UserPublicServiceCreateUserProcedure {
+		return func(account, password string, opts ...requestOpt) error {
+			_, err := a.signUp(account, password, opts...)
+			return err
+		}
+	}
+	return func(_, password string, opts ...requestOpt) error {
+		_, err := a.signIn("alice", password, "", opts...)
+		return err
+	}
+}
+
+// Sign-up and sign-in share one per-address allowance (AUTH_RATE_LIMIT_PER_MIN), taken at the Connect entry before
+// the request is decoded. Intended change (plan step 3＋4): a malformed or invalid request uses a token too, and over
+// the limit it is resource_exhausted like any other. Procedures outside the limit, and other addresses, are not
+// affected. The procedures are listed here, not read from connectLimited, so dropping one from it fails this test.
 func TestRateLimitAuthOperations(t *testing.T) {
-	for _, op := range []string{"createUser", "createSession"} {
-		t.Run(op, func(t *testing.T) {
-			a := newAuthAPI(t, func(_ *auth.Config, d *Deps) { d.RateLimitPerMin = 2 })
-			if _, _, err := a.svc.CreateUser(t.Context(), "alice", goodPassword); err != nil {
+	for _, procedure := range []string{
+		usersv1connect.UserPublicServiceCreateUserProcedure, sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
+	} {
+		t.Run(procedure, func(t *testing.T) {
+			a := newAuthAPI(t, func(_ *auth.Config, d *Deps) { d.RateLimitPerMin = 5 })
+			_, alice, err := a.svc.CreateUser(t.Context(), "alice", goodPassword)
+			if err != nil {
 				t.Fatal(err)
 			}
-			send := a.limitedOperation(op)
-			for i := range 2 {
-				if code := send(i).Code; code != http.StatusCreated {
-					t.Fatalf("request %d = %d, want 201", i+1, code)
+			call := a.limitedCall(procedure)
+			for i := range 3 {
+				if err := call(fmt.Sprintf("user%d", i), goodPassword); err != nil {
+					t.Fatalf("request %d: %v", i+1, err)
 				}
 			}
-			rec := send(2)
-			assertProblem(t, rec, http.StatusTooManyRequests, "/problems/rate-limited")
-			// one token every 30s, and the test clock has not moved since the first request
-			if got := rec.Header().Get("Retry-After"); got != "30" {
-				t.Errorf("Retry-After = %q, want 30", got)
-			}
+			decodeWireError(t, connectPost(t, a.h, procedure, `{not json`, nil), http.StatusBadRequest, "invalid_argument")
+			assertConnectError(t, call("user3", ""), connect.CodeInvalidArgument, "")
+
+			err = call("user4", goodPassword)
+			assertConnectError(t, err, connect.CodeResourceExhausted, "")
+			// one token every 12s, and the test clock has not moved since the first request
+			assertRetryInfo(t, err, 12*time.Second)
+			decodeWireError(t, connectPost(t, a.h, procedure, `{not json`, nil), http.StatusTooManyRequests, "resource_exhausted")
+			assertRateLimitScope(t, a, alice.Token, call)
 		})
 	}
 }
 
-// limitedOperation returns a sender for op whose i-th call succeeds while the limit allows it: sign-up with a new
-// account each time, or sign-in as alice.
-func (a *authAPI) limitedOperation(op string) func(i int) *httptest.ResponseRecorder {
-	if op == "createUser" {
-		return func(i int) *httptest.ResponseRecorder { return a.signUp(fmt.Sprintf("user%d", i), goodPassword) }
+// assertRateLimitScope checks, for an address over the limit, that sign-up and sign-in share its allowance, that
+// another address has its own, and that other procedures are not limited.
+func assertRateLimitScope(t *testing.T, a *authAPI, token string, call func(account, password string, opts ...requestOpt) error) {
+	t.Helper()
+	for _, procedure := range []string{
+		usersv1connect.UserPublicServiceCreateUserProcedure, sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
+	} {
+		decodeWireError(t, connectPost(t, a.h, procedure, `{}`, nil), http.StatusTooManyRequests, "resource_exhausted")
 	}
-	return func(int) *httptest.ResponseRecorder { return a.signIn("alice", goodPassword, "") }
+	if err := call("user5", goodPassword, fromPeer("198.51.100.9:40000")); err != nil {
+		t.Errorf("another address: %v", err)
+	}
+	if _, err := a.signOut(""); err != nil {
+		t.Errorf("DeleteCurrentSession: %v", err)
+	}
+	assertMe(t, a, token, true)
 }
 
 // lockedBuffer is a log destination that requests running at once can share.
@@ -843,25 +848,31 @@ func TestCredentialsNeverLogged(t *testing.T) {
 		c.Breach = breachFunc(func(context.Context, string) (bool, error) { return false, errors.New("range API down") })
 	})
 
-	signUp := a.signUp("canary", canary)
-	if signUp.Code != http.StatusCreated {
-		t.Fatalf("sign up = %d %s", signUp.Code, signUp.Body)
+	signUp, err := a.signUp("canary", canary)
+	if err != nil {
+		t.Fatalf("sign up: %v", err)
 	}
-	a.signIn("canary", canary+" wrong", "")
+	_, err = a.signIn("canary", canary+" wrong", "")
+	assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
 	token := a.mustSignIn("canary", canary)
-	a.me(token)
-	a.signUp("x", canary)
-	a.do(http.MethodPost, "/api/sessions", "", "application/json", `{"account":"canary","password":"`+canary)
-	a.me(strayCookie)
-	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
+	assertMe(t, a, token, true)
+	_, err = a.signUp("x", canary)
+	assertConnectError(t, err, connect.CodeInvalidArgument, "")
+	decodeWireError(t, connectPost(t, a.h, sessionsv1connect.SessionPublicServiceCreateSessionProcedure,
+		`{"account":"canary","password":"`+canary, nil), http.StatusBadRequest, "invalid_argument")
+	assertMe(t, a, strayCookie, false)
+	if _, err := a.signOut(token); err != nil {
+		t.Fatal(err)
+	}
 
 	out := logs.String()
-	if !strings.Contains(out, "breached-password check failed") || !strings.Contains(out, `"path":"/api/sessions"`) {
+	if !strings.Contains(out, "breached-password check failed") ||
+		!strings.Contains(out, `"path":"/api`+sessionsv1connect.SessionPublicServiceCreateSessionProcedure+`"`) {
 		t.Fatalf("the log did not capture the requests: %s", out)
 	}
 	for _, leak := range []struct{ what, value string }{
 		{"password", secretPart},
-		{"sign-up session", sessionCookie(t, signUp).Value},
+		{"sign-up session", a.sessionCookie(signUp.Header()).Value},
 		{"sign-in session", token},
 		{"unknown cookie", strayCookie},
 	} {
@@ -871,18 +882,23 @@ func TestCredentialsNeverLogged(t *testing.T) {
 	}
 }
 
-// Sign-up, sign-in (both outcomes), sign-out and a refused admin operation each log a security event with the user
-// id when it is known (OWASP Logging Cheat Sheet, ASVS 5.0 16.3), so an incident can be traced to an account.
+// Sign-up, sign-in (both outcomes), sign-out and a refused admin method each log a security event with the user id
+// when it is known (OWASP Logging Cheat Sheet, ASVS 5.0 16.3), so an incident can be traced to an account.
 func TestSecurityEventsLogged(t *testing.T) {
 	var logs lockedBuffer
 	logger := slog.New(logx.WithContext(slog.NewJSONHandler(&logs, nil)))
 	a := newAuthAPI(t, func(c *auth.Config, d *Deps) { c.Logger, d.Logger = logger, logger })
 	alice, _ := a.mustSignUp("alice")
-	a.signIn("alice", "not the password", "")
-	a.signIn("nobody", "not the password", "")
+	for _, account := range []string{"alice", "nobody"} {
+		_, err := a.signIn(account, "not the password", "")
+		assertConnectError(t, err, connect.CodeUnauthenticated, "INVALID_CREDENTIALS")
+	}
 	token := a.mustSignIn("alice", goodPassword)
-	a.do(http.MethodGet, "/api/users", token, "", "")
-	a.do(http.MethodDelete, "/api/sessions/current", token, "", "")
+	_, err := a.admin(token).ListUsers(t.Context(), connect.NewRequest(&adminusersv1.ListUsersRequest{}))
+	assertConnectError(t, err, connect.CodePermissionDenied, "INSUFFICIENT_ROLE")
+	if _, err := a.signOut(token); err != nil {
+		t.Fatal(err)
+	}
 
 	type event struct{ name, userID, reason string }
 	var got []event
@@ -900,7 +916,7 @@ func TestSecurityEventsLogged(t *testing.T) {
 			got = append(got, event{name, userID, reason})
 		}
 	}
-	id := alice.Id.String()
+	id := alice.GetId()
 	want := []event{
 		{"auth.sign_up", id, ""},
 		{"auth.sign_in_failed", id, "invalid_credentials"},

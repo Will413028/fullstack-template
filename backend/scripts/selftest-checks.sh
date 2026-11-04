@@ -2,29 +2,33 @@
 # Shows that the checks make check relies on still fail when they should. Each case builds what it needs in a temporary
 # directory, so nothing here is tracked (a vulnerable fixture module in the repository would fail osv-scanner).
 #
-#   selftest-checks.sh
+#   selftest-checks.sh <buf command>
 #
-# oasdiff and govulncheck are built from tools/go.mod, the versions make check runs. A case that must fail passes only
-# when the output names the expected reason, so a tool that did not start cannot count as a detection.
+# govulncheck is built from tools/go.mod and buf is the root Makefile's pin, the versions make check runs. A case that
+# must fail passes only when the output names the expected reason, so a tool that did not start cannot count as a
+# detection.
 #
 # - check-migrations-immutable.sh: a modified existing migration fails, also with GIT_DIR exported as in a git hook;
 #   a base without migrations passes; an unknown base ref fails instead of passing as "nothing to compare".
-# - check-openapi-breaking.sh: removing a response property fails.
+# - buf lint with api/buf.yaml: a service without the Service suffix fails (a STANDARD rule that BASIC lacks).
+# - check-buf-breaking.sh with api/buf.yaml, against a v1 package: deleting a field, an RPC, a service or a whole
+#   package fails, also with GIT_DIR; a base without api/buf.yaml passes.
 # - govulncheck: a module that calls a known-vulnerable function fails.
 # - deadcode.sh: a function nothing calls fails.
 # - squawk.sh: dropping a constraint the previous release may rely on fails (ban-drop-constraint), with the squawk
 #   tools/package.json pins.
 set -euo pipefail
+buf_arg=${1:?usage: selftest-checks.sh <buf command>}
+buf=$(cd "$(dirname "$buf_arg")" && pwd)/$(basename "$buf_arg")
 cd "$(dirname "$0")/.."
 unset GIT_DIR GIT_WORK_TREE
 
 scripts=$PWD/scripts
+root=$(cd .. && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 failures=0
-go build -modfile=tools/go.mod -o "$tmp/bin/" github.com/oasdiff/oasdiff golang.org/x/vuln/cmd/govulncheck \
-  golang.org/x/tools/cmd/deadcode
-oasdiff=$tmp/bin/oasdiff
+go build -modfile=tools/go.mod -o "$tmp/bin/" golang.org/x/vuln/cmd/govulncheck golang.org/x/tools/cmd/deadcode
 govulncheck=$tmp/bin/govulncheck
 deadcode=$tmp/bin/deadcode
 
@@ -42,37 +46,79 @@ expect() { # expect pass <description> <command...> | expect fail <description> 
   fi
 }
 
-# A repository shaped like this one: the scripts and data live under backend/.
+# A repository shaped like this one: the migrations live under backend/, the contract and its scripts at the root.
 repo=$tmp/repo
-mkdir -p "$repo/backend/scripts" "$repo/backend/migrations" "$repo/backend/api"
-cp "$scripts/check-migrations-immutable.sh" "$scripts/check-openapi-breaking.sh" "$repo/backend/scripts/"
+mkdir -p "$repo/backend/scripts" "$repo/backend/migrations" "$repo/scripts" "$repo/api/app/selftest/v1" \
+  "$repo/api/app/gone/v1"
+cp "$scripts/check-migrations-immutable.sh" "$repo/backend/scripts/"
+cp "$root/scripts/check-buf-breaking.sh" "$repo/scripts/"
 git -C "$repo" init -q -b main
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m empty
 in_backend() { (cd "$repo/backend" && "$@"); }
 with_git_dir() { (cd "$repo/backend" && GIT_DIR="$repo/.git" "$@"); }
+# buf goes in as a relative path from backend/, the way backend/Makefile passes ../bin/buf.
+mkdir -p "$repo/bin"
+ln -s "$buf" "$repo/bin/buf"
+breaking() { (cd "$repo/backend" && ../scripts/check-buf-breaking.sh ../bin/buf HEAD); }
+breaking_git_dir() { (cd "$repo/backend" && GIT_DIR="$repo/.git" "$repo/scripts/check-buf-breaking.sh" "$buf" HEAD); }
 
 expect pass "migrations: a base without migrations passes" in_backend scripts/check-migrations-immutable.sh HEAD
+expect pass "buf breaking: a base without api/buf.yaml passes" breaking
 
 printf 'CREATE TABLE t (id int);\n' >"$repo/backend/migrations/1_init.sql"
 printf 'h1:dir\n1_init.sql h1:file\n' >"$repo/backend/migrations/atlas.sum"
-cat >"$repo/backend/api/openapi.yaml" <<'EOF'
-openapi: 3.0.3
-info: {title: t, version: "1"}
-paths:
-  /t:
-    get:
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [id, name]
-                properties:
-                  id: {type: string}
-                  name: {type: string}
+# The real api/buf.yaml with a released v1 package: a field, two RPCs, and a second package for the cases to delete.
+cp "$root/api/buf.yaml" "$repo/api/"
+proto=$repo/api/app/selftest/v1/selftest.proto
+cat >"$proto" <<'EOF'
+syntax = "proto3";
+
+package app.selftest.v1;
+
+message Thing {
+  string id = 1;
+  string name = 2;
+}
+
+message GetThingRequest {
+  string id = 1;
+}
+
+message GetThingResponse {
+  Thing thing = 1;
+}
+
+message DeleteThingRequest {
+  string id = 1;
+}
+
+message DeleteThingResponse {}
+
+service ThingAppService {
+  rpc GetThing(GetThingRequest) returns (GetThingResponse);
+  rpc DeleteThing(DeleteThingRequest) returns (DeleteThingResponse);
+}
+
+message ListThingsRequest {}
+
+message ListThingsResponse {
+  repeated Thing things = 1;
+}
+
+service ThingAdminService {
+  rpc ListThings(ListThingsRequest) returns (ListThingsResponse);
+}
 EOF
+cat >"$repo/api/app/gone/v1/gone.proto" <<'EOF'
+syntax = "proto3";
+
+package app.gone.v1;
+
+message Note {
+  string id = 1;
+}
+EOF
+cp "$proto" "$tmp/selftest.proto"
 git -C "$repo" add -A
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m base
 
@@ -83,10 +129,25 @@ expect fail "migrations: a modified migration fails" "^1_init.sql$" in_backend s
 expect fail "migrations: a modified migration fails with GIT_DIR" "^1_init.sql$" with_git_dir scripts/check-migrations-immutable.sh HEAD
 expect fail "migrations: an unknown base ref fails" "no-such-ref" in_backend scripts/check-migrations-immutable.sh no-such-ref
 
-expect pass "openapi: an unchanged contract passes" in_backend scripts/check-openapi-breaking.sh "$oasdiff" HEAD
-sed -i.bak -e 's/required: \[id, name\]/required: [id]/' -e '/name: {type: string}/d' "$repo/backend/api/openapi.yaml"
-expect fail "openapi: removing a response property fails" "response-property-removed|removed the .*property" in_backend scripts/check-openapi-breaking.sh "$oasdiff" HEAD
-expect fail "openapi: removing a response property fails with GIT_DIR" "response-property-removed|removed the .*property" with_git_dir scripts/check-openapi-breaking.sh "$oasdiff" HEAD
+expect pass "buf lint: the fixture contract passes" "$buf" lint "$repo/api"
+expect pass "buf breaking: an unchanged contract passes" breaking
+sed -i.bak -e '/string name = 2;/d' "$proto"
+expect fail "buf breaking: deleting a field fails" 'field "2" with name "name" on message "Thing" was deleted' breaking
+expect fail "buf breaking: deleting a field fails with GIT_DIR" 'field "2" with name "name" on message "Thing" was deleted' breaking_git_dir
+cp "$tmp/selftest.proto" "$proto"
+sed -i.bak -e '/rpc DeleteThing/d' "$proto"
+expect fail "buf breaking: deleting an RPC fails" 'RPC "DeleteThing" on service "ThingAppService" was deleted' breaking
+cp "$tmp/selftest.proto" "$proto"
+sed -i.bak -e '/^service ThingAdminService/,/^}/d' "$proto"
+expect fail "buf breaking: deleting a service fails" 'service "ThingAdminService" was deleted' breaking
+cp "$tmp/selftest.proto" "$proto"
+mv "$repo/api/app/gone" "$tmp/gone"
+expect fail "buf breaking: deleting a package fails" 'package "app.gone.v1" was deleted' breaking
+mv "$tmp/gone" "$repo/api/app/gone"
+sed -i.bak -e 's/service ThingAppService/service ThingApp/' "$proto"
+expect fail "buf lint: a service without the Service suffix fails" 'should be suffixed with "Service"' "$buf" lint "$repo/api"
+cp "$tmp/selftest.proto" "$proto"
+rm -f "$proto.bak"
 
 # golang.org/x/text before v0.3.7: language.Parse has GO-2021-0113.
 vuln=$tmp/vuln

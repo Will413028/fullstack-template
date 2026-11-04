@@ -149,3 +149,25 @@ $(HADOLINT): $(HADOLINT_STAMP)
 	curl -sSfL -o $@.tmp "https://github.com/hadolint/hadolint/releases/download/v$(HADOLINT_VERSION)/hadolint-$(HADOLINT_PLATFORM)" && \
 	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
 	chmod 0755 $@.tmp && mv $@.tmp $@
+
+# buf (lint, breaking and generation for the contract in api/) is installed from its release binary like hadolint;
+# the checksums are the release's sha256.txt. This is the only download: backend/Makefile, the frontend's gen:api
+# scripts, CI and lefthook all run `make bin/buf` and then bin/buf, so one version and one checksum list serve them.
+BUF_VERSION := 1.75.0
+BUF := bin/buf
+BUF_SHA256_Darwin-arm64  := f71b009ebd8530b12fd85b060c6c245e15d6e5110ccc8da48d8b6fa71e59330b
+BUF_SHA256_Linux-x86_64  := fad1e38d6909bbb583a4da81d8c02a01046e2cd663bde7e337dd24277393764b
+BUF_SHA256_Linux-aarch64 := 00eb190aa82df17f393e05b04889cc60a0b13b3259d336e21a87d5f23ab4fd26
+BUF_PLATFORM := $(shell uname -s)-$(shell uname -m)
+BUF_STAMP := bin/.buf-$(BUF_VERSION)
+
+$(BUF_STAMP):
+	@mkdir -p bin && rm -f bin/.buf-* && touch $@
+
+$(BUF): $(BUF_STAMP)
+	@sum="$(BUF_SHA256_$(BUF_PLATFORM))"; \
+	if [ -z "$$sum" ]; then echo "no buf checksum for $(BUF_PLATFORM)"; exit 1; fi; \
+	mkdir -p bin && \
+	curl -sSfL -o $@.tmp "https://github.com/bufbuild/buf/releases/download/v$(BUF_VERSION)/buf-$(BUF_PLATFORM)" && \
+	echo "$$sum  $@.tmp" | shasum -a 256 -c - && \
+	chmod 0755 $@.tmp && mv $@.tmp $@

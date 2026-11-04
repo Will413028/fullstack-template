@@ -15,7 +15,7 @@ import (
 	"github.com/Will413028/template-go-nextjs/backend/internal/modules/auth/internal/store"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/authctx"
-	"github.com/Will413028/template-go-nextjs/backend/internal/platform/httpx"
+	"github.com/Will413028/template-go-nextjs/backend/internal/platform/keyset"
 )
 
 // touchEvery limits how often a session's last_used_at is written: once a minute is enough for a 1-day idle limit
@@ -91,6 +91,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (User, uuid.UU
 // Its responses do not reveal whether the account exists. A sign-in from a client without a trusted device for the
 // account trusts it from now on (Session.Device).
 func (s *Service) SignIn(ctx context.Context, account, password, previousToken string, client Client) (User, Session, error) {
+	if err := checkSignIn(account, password); err != nil {
+		return User{}, Session{}, err // not an attempt: no throttle count, no sign-in log
+	}
 	u, sess, err := s.signIn(ctx, account, password, previousToken, client)
 	if err == nil {
 		s.logger.InfoContext(ctx, "signed in", "event", "auth.sign_in", "user_id", u.ID)
@@ -260,25 +263,21 @@ func (s *Service) SignOutAll(ctx context.Context, userID uuid.UUID) error {
 
 var errSessionNotFound = apperr.New(apperr.NotFound, "", "session not found")
 
-// Sessions returns up to limit of the caller's live sessions after cursor (nil for the first page).
-func (s *Service) Sessions(ctx context.Context, limit int, cursor *string) (SessionPage, error) {
+// Sessions returns up to limit of the caller's live sessions after the row with id after (nil for the first page).
+func (s *Service) Sessions(ctx context.Context, limit int, after *uuid.UUID) (SessionPage, error) {
 	c, err := caller(ctx)
-	if err != nil {
-		return SessionPage{}, err
-	}
-	after, err := httpx.After(cursor)
 	if err != nil {
 		return SessionPage{}, err
 	}
 	now := s.now()
 	rows, err := s.q().ListUserSessions(ctx, store.ListUserSessionsParams{
-		UserID: c.ID, Now: now, IdleBefore: now.Add(-s.cfg.SessionIdle), After: after, RowLimit: httpx.PageRows(limit),
+		UserID: c.ID, Now: now, IdleBefore: now.Add(-s.cfg.SessionIdle), After: after, RowLimit: keyset.Rows(limit),
 	})
 	if err != nil {
 		return SessionPage{}, fmt.Errorf("auth: list sessions: %w", err)
 	}
-	rows, next := httpx.TrimPage(rows, limit, func(r store.ListUserSessionsRow) uuid.UUID { return r.ID })
-	page := SessionPage{Sessions: make([]SessionInfo, 0, len(rows)), NextCursor: next}
+	rows, next := keyset.Trim(rows, limit, func(r store.ListUserSessionsRow) uuid.UUID { return r.ID })
+	page := SessionPage{Sessions: make([]SessionInfo, 0, len(rows)), Next: next}
 	for _, row := range rows {
 		page.Sessions = append(page.Sessions, SessionInfo(row))
 	}

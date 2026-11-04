@@ -64,11 +64,12 @@ func TestSeedAdminCreatesAdmin(t *testing.T) {
 	}
 }
 
-// The input goes through the contract's CreateUserRequest, like POST /api/users; there is no built-in default password.
+// The input goes through the auth service's checks, the ones UserPublicService.CreateUser runs (decision D2); there is
+// no built-in default password.
 func TestSeedAdminRejectsShortPassword(t *testing.T) {
 	svc, pool := newSeedService(t)
 	err := seedAdmin(t.Context(), svc, "root", "fourteen chars", &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "ADMIN_PASSWORD: minimum string length is 15") {
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_PASSWORD: password must be at least 15 characters (too_short)") {
 		t.Fatalf("err = %v, want the password length rule", err)
 	}
 	if strings.Contains(err.Error(), "fourteen chars") {
@@ -78,8 +79,13 @@ func TestSeedAdminRejectsShortPassword(t *testing.T) {
 		t.Errorf("%d users created", n)
 	}
 	err = seedAdmin(t.Context(), svc, "r!", adminPassword, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "ADMIN_ACCOUNT") {
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_ACCOUNT: account must be at least 3 characters (too_short)") {
 		t.Fatalf("err = %v, want the account rules", err)
+	}
+	// every invalid field is listed, not only the first
+	err = seedAdmin(t.Context(), svc, "r!", "short", &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_ACCOUNT") || !strings.Contains(err.Error(), "ADMIN_PASSWORD") {
+		t.Fatalf("err = %v, want both variables", err)
 	}
 	err = seedAdmin(t.Context(), svc, "root", "demon1q2w3e4r5t", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), auth.CodePasswordTooCommon) {
@@ -154,5 +160,20 @@ func TestRecoverAdmin(t *testing.T) {
 	}
 	if n := countUsers(t, pool); n != 2 {
 		t.Errorf("users = %d, want 2 (recover never creates one)", n)
+	}
+}
+
+// recover-admin checks the new password with the same rules before it changes anything.
+func TestRecoverAdminRejectsShortPassword(t *testing.T) {
+	svc, _ := newSeedService(t)
+	if err := seedAdmin(t.Context(), svc, "root", adminPassword, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	err := recoverAdmin(t.Context(), svc, "root", "fourteen chars", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_PASSWORD: password must be at least 15 characters (too_short)") {
+		t.Fatalf("err = %v, want the password length rule", err)
+	}
+	if _, _, err := svc.SignIn(t.Context(), "root", adminPassword, "", auth.Client{Address: "192.0.2.1"}); err != nil {
+		t.Errorf("the old password no longer signs in: %v", err)
 	}
 }

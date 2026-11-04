@@ -57,7 +57,7 @@ nano .env
 
 > [!IMPORTANT]
 > 生產環境務必在 `.env` 設定：
-> - `MODE=prod`：JSON log，不提供 `/api/openapi.yaml` 與 `/api/docs`
+> - `MODE=prod`：JSON log
 > - `COOKIE_SECURE=true`：cookie 名稱為 `__Host-session` 並帶 `Secure`（需要 HTTPS）
 > - `SITE_ADDRESS=api.yourdomain.com`：Caddy 以 API 的網域自動申請、續約憑證；`:80` 只適合本機的純 http
 
@@ -83,8 +83,11 @@ make recover-admin ADMIN_ACCOUNT=admin
 ```bash
 make status
 make logs
-curl -s -o /dev/null -w '%{http_code}\n' https://api.yourdomain.com/api/users/me   # 沒帶密鑰應為 403
-curl -s -o /dev/null -w '%{http_code}\n' https://yourdomain.com/api/users/me       # 經 Vercel、未登入應為 401（第 6 節設定完成後）
+# Connect 的 RPC：POST /api/<package>.<Service>/<Method>，body 是 JSON 的請求訊息
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{}' \
+  https://api.yourdomain.com/api/app.users.v1.UserAppService/GetCurrentUser   # 沒帶密鑰應為 403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{}' \
+  https://yourdomain.com/api/app.users.v1.UserAppService/GetCurrentUser       # 經 Vercel、未登入應為 401（unauthenticated；第 6 節設定完成後）
 ```
 
 ---
