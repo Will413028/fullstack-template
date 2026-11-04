@@ -225,6 +225,9 @@ jobs:
       - run: python3 scripts/check_locks.py --vitest-report frontend/test-report.json
         working-directory: .
       - run: pnpm build
+      # every script of the built pages carries the CSP nonce, 404s included (vitest renders no pages)
+      - run: python3 scripts/check_built_pages.py
+        working-directory: .
 
   gate:
     # The only required check on main: it passes when every other job in this workflow succeeded or was skipped.
