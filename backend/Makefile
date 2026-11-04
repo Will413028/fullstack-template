@@ -116,7 +116,7 @@ gen: $(BUF) ## Regenerate the Connect code from ../api and the test services
 	cd internal/httpapi/rpc/testdata && $(abspath $(BUF)) generate
 
 # buf writes in place, so the check regenerates and compares the work tree with the index: a changed, deleted or new
-# (untracked) file under GEN_DIRS fails. The index, not HEAD, so a caller can stage a change first (the rename job).
+# (untracked) file under GEN_DIRS fails. The index, not HEAD, so a caller can stage a change first.
 .PHONY: gen-check
 gen-check: gen ## Fail when the generated Connect code differs from ../api and the test services
 	@out="$$(git diff --name-status -- $(GEN_DIRS); git ls-files --others --exclude-standard -- $(GEN_DIRS))"; \

@@ -96,16 +96,22 @@ recover-admin:
 	printf '%s' "$$pw" | $(COMPOSE) exec -T -e ADMIN_ACCOUNT="$(ADMIN_ACCOUNT)" -e ADMIN_PASSWORD_FILE=/dev/stdin \
 		backend /usr/local/bin/app recover-admin
 
-# --- Rename ---
+# >>> template-only
+# --- New project ---
 
-# Renames images, packages, database names, branding and the Go module path (default
-# github.com/Will413028/<NAME>/backend; MODULE= overrides it), then checks that the backend builds.
-.PHONY: rename
-rename:
+# Generates a new project into DEST (missing or empty): names, database and role names, repository link and Go module
+# path (github.com/<REPO>/backend; REPO defaults to Will413028/<NAME>); the backend is regenerated and built; a new git
+# repository with one commit and no remote.
+.PHONY: new
+new:
 ifndef NAME
-	$(error NAME is required. Usage: make rename NAME=my-project [MODULE=example.com/me/my-project/backend])
+	$(error NAME and DEST are required. Usage: make new NAME=my-project DEST=../my-project [REPO=owner/my-project])
 endif
-	@python3 scripts/rename.py "$(NAME)" $(if $(MODULE),--module "$(MODULE)")
+ifndef DEST
+	$(error NAME and DEST are required. Usage: make new NAME=my-project DEST=../my-project [REPO=owner/my-project])
+endif
+	@python3 template/new_project.py "$(NAME)" "$(DEST)" $(if $(REPO),--repo "$(REPO)")
+# <<< template-only
 
 .PHONY: init-env
 init-env:

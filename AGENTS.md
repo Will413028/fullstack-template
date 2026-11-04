@@ -1,6 +1,10 @@
 # template-go-nextjs
 
 Production-ready fullstack monorepo with a Go backend on Docker Compose behind Caddy and a Next.js frontend on Vercel, one origin for the browser.
+<!-- >>> template-only -->
+
+This repository is a template: `make new NAME=x DEST=<dir>` generates a project from it (`template/new_project.py`), dropping `template/`, `docs/plans/` and every block between template-only markers (the comment lines that open and close this paragraph); a file under `template/derived/` replaces its counterpart. A line that only makes sense in the template goes inside such a block; the generator refuses an output that still names the template or refers to a dropped path, and CI's generate job checks a generated project.
+<!-- <<< template-only -->
 
 ## Verification
 
@@ -32,7 +36,7 @@ Production-ready fullstack monorepo with a Go backend on Docker Compose behind C
 ├── docker-compose.yml      # Production API stack (postgres + migrate + backend + caddy); the frontend deploys to Vercel
 ├── docker-compose.dev.yml  # Dev overrides (compose watch, backend on 127.0.0.1:8000, no caddy)
 ├── Makefile                # Docker Compose shortcuts
-├── scripts/                # Repo tooling (rename, init_env)
+├── scripts/                # Repo tooling (init_env, quality checks)
 └── .env-example            # Environment variable template
 ```
 
@@ -56,7 +60,9 @@ make generate-migration MSG=<name>  # Generate a migration from the modules' sch
 make seed ADMIN_ACCOUNT=<name>      # Create the admin user (password read from the terminal)
 make recover-admin ADMIN_ACCOUNT=<name>  # New password for an existing admin, enabled, signed out everywhere
 make reset-db ADMIN_ACCOUNT=<name>  # Delete all local data, restart, seed
-make rename NAME=<name>             # Rename a fresh clone (optional MODULE=<go module path>)
+# >>> template-only
+make new NAME=<name> DEST=<dir>     # Generate a project into a new directory (optional REPO=owner/name)
+# <<< template-only
 make lint-docker                    # hadolint over backend/Dockerfile
 
 # Backend development (from backend/)

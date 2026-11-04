@@ -93,6 +93,10 @@ API 形狀、認證與部署拓樸另見 [API 與認證基準](2026-10-18-api-an
 
 - 2026-11-03（Will）：2026-10-19 那則的重新評估做完了：對外契約改用 Protobuf＋Connect，oapi-codegen、kin-openapi 與 `validate.go`、`bind.go` 隨之刪除；ogen 沒有採用（理由見 [對外 API 的契約改用 Protobuf＋Connect](2026-11-03-api-contract-protobuf-connect.md)）。
 
+<!-- >>> template-only -->
+- 2026-11-04（Will 照建議，沿用 template-nextjs 的同一個決定）：D4 的「clone 後在原處 `make rename`」改成「`make new NAME= DEST= [REPO=]` 產生到新目錄」（`template/new_project.py`）。原地改名有四個根因：依序替換互相干擾、範本專用的腳本與 CI job 留在衍生專案、先改檔才檢查、靠手動維護的檔案白名單。產生器只匯出 HEAD，一次替換完所有名稱，排除範本專用的檔案與區塊，檢查沒有殘留後重新產生 Connect 程式碼並 `go build`，最後才 `git init` 並移到目的地。module path 改成跟著 repo 走（`github.com/<REPO>/backend`），`MODULE=` 隨之移除。D4「改寫 import、不用中性路徑」的理由照舊。衍生專案之後收不到範本的修正；要收的話改用 Copier 這類佔位符範本。
+<!-- <<< template-only -->
+
 ## Related
 
 - 來源：repo 擁有者於 2026-10-18 與 coding agent 討論後當場拍板（D6 第二次拍板「照業界基準」）。本 ADR 即原始紀錄，沒有外部來源文件。

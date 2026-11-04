@@ -46,6 +46,11 @@ pre-push:
       run: make --no-print-directory lint-docker
     policy:
       run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/tool_versions.py verify && python3 scripts/check_commit_policy.py --range origin/main..HEAD
+    # >>> template-only
+    # the generator's own tests (CI's generate job also checks a generated project end to end)
+    template:
+      run: python3 -m unittest discover -s template -p 'test_*.py'
+    # <<< template-only
     # osv-scanner gets each tracked lockfile by name: its recursive walk honours a parent repository's .gitignore,
     # so a clone nested in an ignored directory would scan nothing and fail.
     security:

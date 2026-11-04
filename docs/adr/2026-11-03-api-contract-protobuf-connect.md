@@ -68,7 +68,9 @@ tags: [template-go-nextjs, decision, api, protobuf, connect]
 
 ## Followup
 
+<!-- >>> template-only -->
 - 執行步驟與進度在 [`docs/plans/2026-11-03-connect-contract.md`](../plans/2026-11-03-connect-contract.md)。
+<!-- <<< template-only -->
 - 計畫的步驟 3＋4 推送後，在瀏覽器實際走一次註冊、登入、重新整理、登出、刪除帳號（CI 沒有 E2E）。
 
 ## Invariants
@@ -91,6 +93,8 @@ tags: [template-go-nextjs, decision, api, protobuf, connect]
 ## Related
 
 - 本 ADR 即原始紀錄：與 coding agent 在 2026-11-03 的對話中拍板（Will 回覆「照建議」；D1 與 GET 另外選擇）。起草時另有兩份獨立草稿，它們的論點（ogen 選項、`v1` 與分支模型、GET 的 CSRF 豁免）已在上文回答；之後的 design-review（同日）改動了 breaking 規則、限流位置與 supersedes 範圍。
+<!-- >>> template-only -->
 - 執行計畫與盤點：`docs/plans/2026-11-03-connect-contract.md`、`docs/plans/2026-11-03-connect-contract/inventory.md`。
+<!-- <<< template-only -->
 - 取代：[API 與認證基準](2026-10-18-api-and-auth-baseline.md) 的 D2、D3、D9，以及 D6 的「長度與格式只寫在契約」；它的 D1、D4、D5、D7、D8 與 D6 的其他部分照舊。重新評估的觸發：[Go 後端](2026-10-18-go-backend.md) 2026-10-19 Review Note。
 - 參考實作：hawkr repo 的 `backend/docs/adr/2026-09-26-external-contract-protobuf-connect.md`、`backend/docs/adr/2026-09-25-api-error-model.md`、`backend/docs/開發規範/API 設計規範（Connect）.md`（hawkr 是私人 repo，取回方式：`git -C <hawkr> show fe7641a1:<path>`；三份文件最後一次修改在 `1868d8de`）。

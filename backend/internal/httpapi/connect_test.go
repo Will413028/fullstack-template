@@ -29,7 +29,7 @@ import (
 )
 
 // The Connect entry through NewHandler, with the test services of internal/httpapi/rpc/testdata (one per caller
-// class). Production services join connectServices step by step (docs/plans/2026-11-03-connect-contract.md).
+// class), separate from the production services in connectServices.
 
 // testThings implements the test services. UpdateXThing acts on the thing's name: "boom" fails with an unexpected
 // error, "panic" panics, "taken" fails with an expected one (account_taken); any other name is echoed back.

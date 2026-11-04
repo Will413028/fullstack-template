@@ -1,6 +1,6 @@
 # API Design Rules（Connect）
 
-本專案的對外 API 是 Protobuf＋Connect：根目錄 `api/` 的 proto 是 API 形狀的唯一來源，Connect handler 在 `backend/internal/httpapi`（共用的部分在 `internal/httpapi/rpc`），業務邏輯與輸入限制在 `backend/internal/modules/<m>` 的 service。決策來源：[ADR api-contract-protobuf-connect](../adr/2026-11-03-api-contract-protobuf-connect.md)（D1–D5，下稱 ADR connect）、[ADR api-and-auth](../adr/2026-10-18-api-and-auth-baseline.md)、[ADR go-backend](../adr/2026-10-18-go-backend.md)。條文改寫自 hawkr 的〈API 設計規範（Connect）〉，只留本範本用得到的部分：本範本沒有串流、檔案回應、gateway，也沒有 etag 樂觀鎖（延後到第一個會被多人同時修改的資源，見 `docs/plans/2026-11-03-connect-contract.md` 的範圍）。
+本專案的對外 API 是 Protobuf＋Connect：根目錄 `api/` 的 proto 是 API 形狀的唯一來源，Connect handler 在 `backend/internal/httpapi`（共用的部分在 `internal/httpapi/rpc`），業務邏輯與輸入限制在 `backend/internal/modules/<m>` 的 service。決策來源：[ADR api-contract-protobuf-connect](../adr/2026-11-03-api-contract-protobuf-connect.md)（D1–D5，下稱 ADR connect）、[ADR api-and-auth](../adr/2026-10-18-api-and-auth-baseline.md)、[ADR go-backend](../adr/2026-10-18-go-backend.md)。條文改寫自 hawkr 的〈API 設計規範（Connect）〉，只留本範本用得到的部分：本範本沒有串流、檔案回應、gateway，也沒有 etag 樂觀鎖（延後到第一個會被多人同時修改的資源）。
 
 範例：`api/app/items/v1/items.proto`（使用者擁有的 CRUD）、`api/app/admin/users/v1/users.proto`（後台）。
 
@@ -10,7 +10,7 @@
   - 前台（公開或登入者）：`api/app/<模組>/v1/<模組>.proto`，package `app.<模組>.v1`。
   - 後台（admin）：`api/app/admin/<模組>/v1/<模組>.proto`，package `app.admin.<模組>.v1`（ADR connect Decision）。
   - 跨模組共用：`app.common.v1`，目前只有錯誤原因（`api/app/common/v1/errors.proto`）。
-- package 的根固定是 `app`，`make rename` 不改它（ADR connect D5）。
+- package 的根固定是 `app`，從範本產生的專案都一樣（ADR connect D5）。
 - 版本一開始就是 `v1`，不用 `v1alpha1`；`main` 就是已發布的程式（ADR connect D1-B）。見第十節。
 - lint 是 buf 的 STANDARD；唯一的例外是 `errors.proto` 不檢查 `ENUM_VALUE_PREFIX`，因為值名就是 wire 上的 reason 字串（`api/buf.yaml`）。
 - proto 不寫 `go_package` 等語言選項，由 `backend/buf.gen.yaml` 的 managed mode 加上 module path 的前綴（ADR connect Decision）。
