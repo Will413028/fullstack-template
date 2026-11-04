@@ -65,7 +65,8 @@ def main() -> int:
         "NEXT_PUBLIC_APP_URL": os.environ.get("NEXT_PUBLIC_APP_URL", base),
     }
     server = subprocess.Popen(
-        ["pnpm", "exec", "next", "start", "-H", "127.0.0.1", "-p", str(port)],
+        # next itself, not through pnpm, so terminate() reaches the server and leaves no process holding the port
+        ["node_modules/.bin/next", "start", "-H", "127.0.0.1", "-p", str(port)],
         cwd=FRONTEND,
         env=env,
         stdout=subprocess.DEVNULL,
@@ -77,7 +78,8 @@ def main() -> int:
             try:
                 fetch(base + "/en")
                 break
-            except (urllib.error.URLError, ConnectionError):
+            # URLError, a refused connection and a read timeout during the cold start are all OSError
+            except OSError:
                 if server.poll() is not None or time.monotonic() > deadline:
                     print("next start did not answer within 60 s", file=sys.stderr)
                     return 1
@@ -85,7 +87,11 @@ def main() -> int:
         problems = check(base)
     finally:
         server.terminate()
-        server.wait(timeout=10)
+        try:
+            server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait()
     for p in problems:
         print(f"FAIL {p}", file=sys.stderr)
     return 1 if problems else 0
