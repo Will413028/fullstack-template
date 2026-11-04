@@ -46,6 +46,19 @@ cd frontend && pnpm install && pnpm dev
 make seed ADMIN_ACCOUNT=admin
 ```
 
+### First push
+
+A new project has one commit on `main` and no remote. Create the repository on GitHub, then push `main` and start `dev`
+from it (the branch model is in `AGENTS.md`):
+
+```bash
+git remote add origin git@github.com:<owner>/<name>.git
+git push -u origin main
+git push origin main:dev && git switch -c dev --track origin/dev
+```
+
+Before `origin/main` exists the pre-push hook compares against `HEAD`, so the first push checks the commit itself.
+
 ### On GitHub, once per new repository
 
 Repository settings do not come with a copy of the template. Under Settings → Code security, turn on Dependabot alerts,

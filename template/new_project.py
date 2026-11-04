@@ -47,7 +47,8 @@ MAKE_TARGET = "make new NAME="
 # PostgreSQL truncates identifiers at 63 bytes; the longest one made from the name is the role <name>_owner.
 MAX_NAME = 63 - len("_owner")
 NAME_PATTERN = re.compile(r"[a-z](?:[a-z0-9-]*[a-z0-9])?")
-REPO_PATTERN = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
+# the name part starts with a letter, digit or underscore: not ., .. or .git (it becomes the Go module path)
+REPO_PATTERN = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9_-][A-Za-z0-9._-]*")
 # What the output must not hold, derived from the tables above: a template name in any case; the generator and its make
 # target; a marker.
 FORBIDDEN = re.compile(
@@ -63,6 +64,9 @@ PATH_REF = re.compile(
                for prefix in EXCLUDED)
     + ")"
 )
+# Any relative path (./ or ../ followed by at least one segment): resolved against the referring file, it may land in an
+# excluded directory without naming it (docs/x.md's ../plans/y.md is docs/plans/y.md).
+RELATIVE_REF = re.compile(r"(?<![\w./@-])(?:\.\.?/)+[\w.-]+(?:/[\w.-]+)*")
 # What git archive leaves out; template/ is exported for its derived files and dropped after they are moved.
 EXPORTED_EXCLUDED = tuple(prefix for prefix in EXCLUDED if not DERIVED.startswith(prefix))
 # git archive drops export-ignore paths and rewrites export-subst files; the output must be the committed files
@@ -115,6 +119,10 @@ def excluded_refs(rel: str, text: str) -> list[str]:
         name = name.rstrip("/")
         resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), lead + name) if lead else name)
         if any(f"{resolved}/".startswith(prefix) for prefix in EXCLUDED):
+            found.append(match.group(0))
+    for match in RELATIVE_REF.finditer(text):
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(rel), match.group(0)))
+        if match.group(0) not in found and any(f"{resolved}/".startswith(prefix) for prefix in EXCLUDED):
             found.append(match.group(0))
     return found
 
@@ -207,7 +215,7 @@ def run_tool(cwd: pathlib.Path, *args: str) -> None:
         raise GenerateError(f"{' '.join(args)} failed in {cwd}:\n{output}")
 
 
-def finish_backend(top: pathlib.Path, out: pathlib.Path) -> None:
+def finish_backend(out: pathlib.Path) -> None:
     """Regenerate the Connect code for the new module path, format and build the backend in out."""
     for tool in ("go", "gofmt", "make"):
         if shutil.which(tool) is None:
@@ -238,7 +246,7 @@ def generate(top: pathlib.Path, dest: pathlib.Path, name: str, repo: str) -> str
     try:
         out = work / "project"
         sha = materialize(top, out, name, repo)
-        finish_backend(top, out)
+        finish_backend(out)
         run_git(out, "init", "-q", "-b", "main")
         run_git(out, "add", "-A")
         message = (
@@ -268,7 +276,7 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     print(f"Created {args.dest} from {OLD_NAME}@{sha[:12]} (one commit on main, no remote).")
-    print(f"Next: cd {args.dest} && make init-env && make dev; see README.md for the first push")
+    print(f"Next: cd {args.dest} && make init-env && make dev; README.md's first push sets up main and dev")
     return 0
 
 

@@ -101,7 +101,7 @@ class GenerateTest(unittest.TestCase):
 
     def test_the_backend_is_finished_on_the_replaced_tree_before_the_commit(self):
         seen = {}
-        self.finish_backend.side_effect = lambda top, out: seen.update(
+        self.finish_backend.side_effect = lambda out: seen.update(
             go_mod=(out / "backend/go.mod").read_text(encoding="utf-8"), git=(out / ".git").exists())
         self.generate()
         self.assertEqual(seen, {"go_mod": "module github.com/acme/my-app/backend\n", "git": False})
@@ -218,7 +218,10 @@ class GenerateTest(unittest.TestCase):
                  ("notes.md", "see template/README.md\n", "template"),
                  ("docs/notes.md", "[plan](../docs/plans/x.md)\n", "../docs/plans"),
                  ("notes.md", "run ./template/x\n", "./template"),
-                 ("notes.md", "run make new NAME=x\n", "make new NAME="))
+                 ("notes.md", "run make new NAME=x\n", "make new NAME="),
+                 # a relative link that names only the last part of an excluded directory
+                 ("docs/privacy/notes.md", "[plan](../plans/x.md)\n", "../plans/x.md"),
+                 ("backend/sub/notes.md", "see ../../template/x\n", "../../template/x"))
         for number, (rel, text, ref) in enumerate(cases):
             with self.subTest(rel=rel, text=text):
                 self.assert_refused_and_untouched(f"{rel}: .*{ref}", files={**BASE_FILES, rel: text},
@@ -318,6 +321,12 @@ class GenerateTest(unittest.TestCase):
 
     def test_the_longest_name_still_fits_postgres(self):
         new_project.check_arguments("a" * 57, "acme/x")  # a57_owner is 63 bytes, PostgreSQL's limit
+
+    def test_refuses_a_repository_that_is_not_a_path_segment(self):
+        # it becomes the Go module path github.com/<repo>/backend: refused before anything is exported
+        for repo in ("acme/..", "acme/.", "acme/.git", "acme/.hidden"):
+            with self.subTest(repo=repo), self.assertRaisesRegex(new_project.GenerateError, "invalid repository"):
+                new_project.check_arguments("my-app", repo)
 
     def test_refuses_bad_names_and_repositories(self):
         for name, repo in (("My-App", "acme/x"), ("my_app", "acme/x"), ("1app", "acme/x"), (NAME, "acme/x"),

@@ -134,7 +134,6 @@ jobs:
       - name: Backend in the generated project
         working-directory: ${{ runner.temp }}/ci-probe
         run: |
-          make bin/buf
           make -C backend gen-check
           cd backend && go vet ./... && go test ./internal/httpapi/rpc/...
       - name: Frontend and repo scripts in the generated project
