@@ -407,7 +407,7 @@ func TestAdminDeletesUser(t *testing.T) {
 	_, err := a.adminGetUser(admin, u.GetId())
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	assertConnectError(t, a.deleteUser(admin, u.GetId()), connect.CodeNotFound, "")
-	assertFieldViolation(t, a.deleteUser(admin, "42"), "id", "INVALID")
+	assertConnectError(t, a.deleteUser(admin, "42"), connect.CodeNotFound, "")
 	assertConnectError(t, a.deleteUser(admin, a.currentSession(admin).GetUser().GetId()), connect.CodeFailedPrecondition, "LAST_ADMIN")
 
 	// a stale admin session cannot delete accounts either

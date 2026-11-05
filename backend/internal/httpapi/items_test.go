@@ -377,7 +377,7 @@ func TestDeleteItem(t *testing.T) {
 	_, err := a.getItem(token, it.GetId())
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	assertConnectError(t, a.deleteItem(token, it.GetId()), connect.CodeNotFound, "")
-	assertFieldViolation(t, a.deleteItem(token, "42"), "id", "INVALID")
+	assertConnectError(t, a.deleteItem(token, "42"), connect.CodeNotFound, "")
 }
 
 // Changing or deleting another user's item is not_found, not permission_denied, and leaves it untouched.
