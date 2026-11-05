@@ -45,7 +45,7 @@ pre-push:
     docker-lint:
       run: make --no-print-directory lint-docker
     policy:
-      run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/tool_versions.py verify && python3 scripts/check_commit_policy.py --range "$(git rev-parse -q --verify origin/main >/dev/null && echo origin/main..HEAD || echo HEAD)"
+      run: python3 -m unittest discover -s scripts -p 'test_*.py' && python3 scripts/tool_versions.py verify && python3 scripts/check_doc_refs.py && python3 scripts/check_commit_policy.py --range "$(git rev-parse -q --verify origin/main >/dev/null && echo origin/main..HEAD || echo HEAD)"
     # >>> template-only
     # the generator's own tests (CI's generate job also checks a generated project end to end)
     template:

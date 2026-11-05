@@ -176,6 +176,20 @@ def export(top: pathlib.Path, sha: str, into: pathlib.Path, *pathspecs: str) -> 
         raise GenerateError(f"the template holds an entry the export refuses: {error}") from error
 
 
+def doc_ref_problems(out: pathlib.Path) -> list[str]:
+    """What the output's own scripts/check_doc_refs.py finds: a decision or step label whose document the output does
+    not hold, typically one of the plans, which are not exported."""
+    checker = out / "scripts/check_doc_refs.py"
+    if not checker.is_file():
+        return ["scripts/check_doc_refs.py is missing"]
+    result = subprocess.run(
+        [sys.executable, "-I", str(checker), str(out)], capture_output=True, text=True, check=False, env=_git_env()
+    )
+    if result.returncode and not result.stderr.strip():
+        return [f"scripts/check_doc_refs.py failed (exit {result.returncode})"]
+    return result.stderr.splitlines() if result.returncode else []
+
+
 def materialize(top: pathlib.Path, out: pathlib.Path, name: str, repo: str) -> str:
     """Write the checked output tree of top's HEAD to out (which must not exist). Returns the template commit."""
     sha = run_git(top, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
@@ -221,6 +235,7 @@ def materialize(top: pathlib.Path, out: pathlib.Path, name: str, repo: str) -> s
         new = pattern.sub(lambda m: table[m.group(0)], text).encode("utf-8")
         if new != data:
             file.write_bytes(new)
+    problems += doc_ref_problems(out)
     if problems:
         raise GenerateError("the output is not clean; nothing was written:\n  " + "\n  ".join(problems))
     return sha

@@ -57,6 +57,9 @@ BASE_FILES = {
     "template/new_project.py": "# the generator\n",
     "docs/plans/plan.md": f"{NAME} plan\n",
     ".github/workflows/ci.yml": "jobs:\n  app: {}\n  # >>> template-only\n  generate: {}\n  # <<< template-only\n",
+    # the output checks its own document references with the checker it ships
+    "scripts/check_doc_refs.py": (SCRIPT.parents[1] / "scripts/check_doc_refs.py").read_text(encoding="utf-8"),
+    ".doc-refs-ignore": (SCRIPT.parents[1] / ".doc-refs-ignore").read_text(encoding="utf-8"),
 }
 
 
@@ -91,6 +94,18 @@ class GenerateTest(unittest.TestCase):
 
     def read(self, dest: pathlib.Path, rel: str) -> str:
         return (dest / rel).read_text(encoding="utf-8")
+
+    def test_a_label_without_its_document_stops_the_output(self):
+        # D3 is the plan's decision, and the plan is not exported: the output may not point at it
+        files = {**BASE_FILES, "docs/plans/plan.md": "- **D3 Layers**: modules\n", "backend/app.go": "// layered (D3)\n"}
+        with self.assertRaisesRegex(new_project.GenerateError, r"backend/app.go:1: 'D3' names no document"):
+            self.generate(files)
+
+    def test_a_label_with_a_document_the_output_keeps_passes(self):
+        adr = "docs/adr/2026-01-01-app-layers.md"
+        files = {**BASE_FILES, adr: "- **D3 Layers**: modules\n", "backend/app.go": "// layered (ADR app-layers D3)\n"}
+        _, dest, _ = self.generate(files)
+        self.assertEqual(self.read(dest, "backend/app.go"), "// layered (ADR app-layers D3)\n")
 
     def test_a_git_hooks_environment_does_not_reach_another_repository(self):
         # a git hook exports GIT_DIR (and in a linked worktree more); generate() and its git calls must ignore it

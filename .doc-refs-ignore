@@ -1,0 +1,8 @@
+# Path prefixes scripts/check_doc_refs.py skips (one per line): files that quote labels on purpose.
+scripts/check_doc_refs.py
+scripts/test_check_doc_refs.py
+# >>> template-only
+# The generator and the plans are not part of a generated project.
+template/
+docs/plans/
+# <<< template-only

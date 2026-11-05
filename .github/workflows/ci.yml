@@ -69,6 +69,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      # every decision or step label names a document the project holds, and that document defines it
+      - run: python3 scripts/check_doc_refs.py
       # the Atlas build the image applies migrations with is the one the tests use (backend/Makefile, Dockerfile)
       - run: python3 scripts/tool_versions.py verify
       - name: Check the commits being added
