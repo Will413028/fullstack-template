@@ -159,7 +159,7 @@ type CreateUserRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 3 to 50 characters: letters, digits, _ . and -. Stored lowercase.
 	Account string `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
-	// 15 to 128 characters (code points), not on the list of common or breached passwords (PASSWORD_TOO_COMMON).
+	// 15 to 128 characters (code points): at least 15 after NFKC normalization, at most 128 as sent. Not on the list of common or breached passwords (PASSWORD_TOO_COMMON).
 	Password      string `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

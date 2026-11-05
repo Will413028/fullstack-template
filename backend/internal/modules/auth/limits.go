@@ -11,7 +11,7 @@ import (
 
 // Limits on account names and passwords (docs/adr/2026-11-03-api-contract-protobuf-connect.md D2: limits
 // live in the module, so sign-up over HTTP, seed-admin and recover-admin apply the same ones). Lengths count code
-// points. users.account's CHECK in schema.sql holds the same account length.
+// points; the password minimum counts them after NFKC (normalizePassword), the form that is hashed. users.account's CHECK in schema.sql holds the same account length.
 const (
 	minAccount  = 3
 	maxAccount  = 50
@@ -36,13 +36,15 @@ func checkNewAccount(account, password string) error {
 	case !accountPattern.MatchString(account):
 		errs = append(errs, apperr.Invalid("account", "pattern", "account may use only letters, digits, _ . and -"))
 	}
+	// the maximum counts the raw input, the minimum the form that is hashed (NFKC can shorten it); an input over the
+	// maximum is too_long whatever NFKC leaves
 	switch n := utf8.RuneCountInString(password); {
 	case n == 0:
 		errs = append(errs, apperr.Invalid("password", "required", "password is required"))
-	case n < minPassword:
-		errs = append(errs, apperr.Invalid("password", "too_short", fmt.Sprintf("password must be at least %d characters", minPassword)))
 	case n > maxPassword:
 		errs = append(errs, apperr.Invalid("password", "too_long", fmt.Sprintf("password must be at most %d characters", maxPassword)))
+	case utf8.RuneCountInString(normalizePassword(password)) < minPassword:
+		errs = append(errs, apperr.Invalid("password", "too_short", fmt.Sprintf("password must be at least %d characters", minPassword)))
 	}
 	return errors.Join(errs...)
 }

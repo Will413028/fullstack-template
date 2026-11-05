@@ -15,7 +15,7 @@ import (
 
 // normalizePassword applies NFKC before a password is checked against the list or hashed, so the same password
 // typed with full-width or half-width characters is the same password (NIST SP 800-63B-4 asks for normalization).
-// The contract's length limits count the raw input.
+// checkNewAccount counts the minimum length after it and the maximum on the raw input.
 func normalizePassword(p string) string { return norm.NFKC.String(p) }
 
 // PasswordHasher hashes passwords and checks them against stored hashes.

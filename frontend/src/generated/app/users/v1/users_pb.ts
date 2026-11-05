@@ -74,7 +74,7 @@ export type CreateUserRequest = Message<"app.users.v1.CreateUserRequest"> & {
   account: string;
 
   /**
-   * 15 to 128 characters (code points), not on the list of common or breached passwords (PASSWORD_TOO_COMMON).
+   * 15 to 128 characters (code points): at least 15 after NFKC normalization, at most 128 as sent. Not on the list of common or breached passwords (PASSWORD_TOO_COMMON).
    *
    * @generated from field: string password = 2;
    */
