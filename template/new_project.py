@@ -77,9 +77,17 @@ class GenerateError(Exception):
     pass
 
 
+def _git_env() -> dict[str, str]:
+    """The environment without the variables that point git at a repository (`git rev-parse --local-env-vars`): a git
+    hook exports GIT_DIR, and inheriting it would run every command below against the hook's repository."""
+    names = subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True, check=True)
+    local = set(names.stdout.split())
+    return {key: value for key, value in os.environ.items() if key not in local}
+
+
 def run_git(cwd: pathlib.Path, *args: str, stdin: bytes | None = None) -> bytes:
     """git's stdout; a non-zero exit is an error, never an empty result."""
-    result = subprocess.run(["git", *args], cwd=cwd, input=stdin, capture_output=True, check=False)
+    result = subprocess.run(["git", *args], cwd=cwd, input=stdin, capture_output=True, check=False, env=_git_env())
     if result.returncode:
         raise GenerateError(f"git {' '.join(args)} failed in {cwd}: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
