@@ -297,11 +297,13 @@ func TestPageAfter(t *testing.T) {
 
 func TestParseID(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
-	if got, err := ParseID("item_id", id.String()); err != nil || got != id {
+	if got, err := ParseID("item", id.String()); err != nil || got != id {
 		t.Errorf("ParseID = %v, %v", got, err)
 	}
-	if _, err := ParseID("item_id", "7"); !isInvalid(err, "item_id") {
-		t.Errorf("ParseID(7) = %v", err)
+	// an id that is not a UUID names no resource, so it is the same not_found as one that does not exist
+	_, err := ParseID("item", "7")
+	if e, ok := apperr.As(err); !ok || e.Kind != apperr.NotFound || e.Detail != "item not found" {
+		t.Errorf("ParseID(7) = %v, want item not found", err)
 	}
 }
 

@@ -279,7 +279,7 @@ func TestGetItem(t *testing.T) {
 	_, err := a.getItem(token, uuid.Must(uuid.NewV7()).String())
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.getItem(token, "42")
-	assertFieldViolation(t, err, "id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 }
 
 // Regression (the old backend let anyone read any item): another user's item is not_found, exactly like one that
@@ -307,7 +307,7 @@ func TestUpdateItem(t *testing.T) {
 	_, err := a.updateItem(token, &itemsv1.Item{Id: uuid.Must(uuid.NewV7()).String(), Title: "x"}, "title")
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.updateItem(token, &itemsv1.Item{Id: "42", Title: "x"}, "title")
-	assertFieldViolation(t, err, "item.id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 }
 
 // update_mask (AIP-134): only the listed fields change, a listed description that is unset clears it, no mask

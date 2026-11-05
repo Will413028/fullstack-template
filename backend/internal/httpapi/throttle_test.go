@@ -204,6 +204,6 @@ func TestAdminUnlocksSignIn(t *testing.T) {
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	assertConnectError(t, a.resetSignInLock(admin, missing), connect.CodeNotFound, "")
 	_, err = a.signInLock(admin, "42")
-	assertFieldViolation(t, err, "user_id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 	assertFieldViolation(t, a.resetSignInLock(admin, "42"), "user_id", "INVALID")
 }

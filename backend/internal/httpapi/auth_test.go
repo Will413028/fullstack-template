@@ -603,7 +603,7 @@ func TestAdminDisablesUserRevokesSessions(t *testing.T) {
 	_, err := a.disable(admin, uuid.Must(uuid.NewV7()).String(), true)
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.disable(admin, "42", true)
-	assertFieldViolation(t, err, "user.id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.updateUser(admin, &usersv1.User{Id: u.GetId()}, "is_disabled")
 	assertFieldViolation(t, err, "update_mask", "INVALID")
 }

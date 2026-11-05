@@ -75,12 +75,13 @@ func PageRequest(size int32, token string, def, maxSize int) (int, *uuid.UUID, e
 	return n, after, nil
 }
 
-// ParseID parses a UUID from the request field at path (for example item_id), an invalid_argument on that field
-// otherwise.
-func ParseID(path, s string) (uuid.UUID, error) {
+// ParseID parses the id of a resource (item, user, session). An id that is not a UUID names no resource, so it is
+// the same not_found as an id that does not exist or belongs to someone else (RFC 9110; the "<resource> not found"
+// the service returns), not an invalid_argument that would tell the two apart.
+func ParseID(resource, s string) (uuid.UUID, error) {
 	id, err := uuid.Parse(s)
 	if err != nil {
-		return uuid.Nil, apperr.Invalid(path, "invalid", path+" is not a UUID")
+		return uuid.Nil, apperr.New(apperr.NotFound, "", resource+" not found")
 	}
 	return id, nil
 }

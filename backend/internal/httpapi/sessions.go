@@ -115,7 +115,7 @@ func (h sessionAppHandler) ListSessions(ctx context.Context, req *connect.Reques
 }
 
 func (h sessionAppHandler) GetSession(ctx context.Context, req *connect.Request[sessionsv1.GetSessionRequest]) (*connect.Response[sessionsv1.GetSessionResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("session", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (h sessionAppHandler) GetCurrentSession(ctx context.Context, _ *connect.Req
 
 // DeleteSession revokes one of the caller's sessions; revoking the one the request carries also clears the cookie.
 func (h sessionAppHandler) DeleteSession(ctx context.Context, req *connect.Request[sessionsv1.DeleteSessionRequest]) (*connect.Response[sessionsv1.DeleteSessionResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("session", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}

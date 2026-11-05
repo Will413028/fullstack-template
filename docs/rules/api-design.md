@@ -46,7 +46,7 @@
 ## 四、資源與欄位
 
 - 欄位名稱是 snake_case；JSON 由 proto3 的對應轉成 lowerCamel（`owner_id` → `ownerId`）。
-- ID 是 `string id`，值是 UUID（DB 的 UUIDv7），client 當成不透明的字串。不用 AIP-122 的資源名稱（`items/{id}`）。handler 以 `rpc.ParseID(path, s)` 解析，不是 UUID 回 `invalid_argument`，欄位是請求的路徑（`id`、`item.id`）。
+- ID 是 `string id`，值是 UUID（DB 的 UUIDv7），client 當成不透明的字串。不用 AIP-122 的資源名稱（`items/{id}`）。handler 以 `rpc.ParseID(resource, s)` 解析；不是 UUID 的 id 不指向任何資源，回與「不存在／別人的」相同的 `not_found`（`item not found` 等，RFC 9110；Rails、Django、Stripe 也回 404），不回 `invalid_argument`，以免從錯誤分辨出兩者。
 - 時間是 `google.protobuf.Timestamp`，名稱以 `_time` 結尾（AIP-142）：`create_time`、`update_time`；DB 欄位仍是 `created_at`、`updated_at`（`docs/rules/database-design.md`），轉換在 handler（`items.go` 的 `toItem`）。**NEVER** 用 Unix timestamp 的整數。
 - 數字：可能超過 2^53 的值用 `int64`（JSON 是字串）；筆數這類有界的值用 `int32`（JSON 是數字），例如 `SignInLock.failures`。
 - 布林不加 `is_` 前綴（AIP-140）：`disabled`、`locked`。

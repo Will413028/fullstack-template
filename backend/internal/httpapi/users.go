@@ -122,7 +122,7 @@ func (h userAppHandler) DeleteCurrentUser(ctx context.Context, _ *connect.Reques
 
 // GetUser serves the caller only; admins read other users through UserAdminService.GetUser.
 func (h userAppHandler) GetUser(ctx context.Context, req *connect.Request[usersv1.GetUserRequest]) (*connect.Response[usersv1.GetUserResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("user", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (h userAdminHandler) ListUsers(ctx context.Context, req *connect.Request[ad
 }
 
 func (h userAdminHandler) GetUser(ctx context.Context, req *connect.Request[adminusersv1.GetUserRequest]) (*connect.Response[adminusersv1.GetUserResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("user", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -176,9 +176,9 @@ func (h userAdminHandler) UpdateUser(ctx context.Context, req *connect.Request[a
 	if in == nil {
 		in = &usersv1.User{}
 	}
-	id, err := rpc.ParseID("id", in.GetId())
+	id, err := rpc.ParseID("user", in.GetId())
 	if err != nil {
-		return nil, rpc.Under("user", err)
+		return nil, err
 	}
 	paths, err := rpc.UpdatePaths(req.Msg.GetUpdateMask(), in, userWritable...)
 	if err != nil {
@@ -198,7 +198,7 @@ func (h userAdminHandler) UpdateUser(ctx context.Context, req *connect.Request[a
 
 // DeleteUser deletes an account; the service requires the admin's recent sign-in.
 func (h userAdminHandler) DeleteUser(ctx context.Context, req *connect.Request[adminusersv1.DeleteUserRequest]) (*connect.Response[adminusersv1.DeleteUserResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("user", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (h userAdminHandler) DeleteUser(ctx context.Context, req *connect.Request[a
 }
 
 func (h userAdminHandler) GetSignInLock(ctx context.Context, req *connect.Request[adminusersv1.GetSignInLockRequest]) (*connect.Response[adminusersv1.GetSignInLockResponse], error) {
-	id, err := rpc.ParseID("user_id", req.Msg.GetUserId())
+	id, err := rpc.ParseID("user", req.Msg.GetUserId())
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (h userAdminHandler) GetSignInLock(ctx context.Context, req *connect.Reques
 }
 
 func (h userAdminHandler) ResetSignInLock(ctx context.Context, req *connect.Request[adminusersv1.ResetSignInLockRequest]) (*connect.Response[adminusersv1.ResetSignInLockResponse], error) {
-	id, err := rpc.ParseID("user_id", req.Msg.GetUserId())
+	id, err := rpc.ParseID("user", req.Msg.GetUserId())
 	if err != nil {
 		return nil, err
 	}

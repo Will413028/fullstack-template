@@ -84,9 +84,9 @@ func TestGetUser(t *testing.T) {
 	_, err = a.adminGetUser(admin, uuid.Must(uuid.NewV7()).String())
 	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.getUser(aliceToken, "42")
-	assertFieldViolation(t, err, "id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 	_, err = a.adminGetUser(admin, "42")
-	assertFieldViolation(t, err, "id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 }
 
 // Another user's account is reported exactly like one that does not exist
@@ -331,7 +331,7 @@ func TestDeleteSession(t *testing.T) {
 	assertMe(t, a, first, false)
 	_, live := a.mustSignUp("bob")
 	_, err = a.deleteSession(live, "42")
-	assertFieldViolation(t, err, "id", "INVALID")
+	assertConnectError(t, err, connect.CodeNotFound, "")
 }
 
 // Another user's session cannot be read or revoked, and is reported like a missing one

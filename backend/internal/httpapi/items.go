@@ -57,7 +57,7 @@ func (h itemsHandler) CreateItem(ctx context.Context, req *connect.Request[items
 }
 
 func (h itemsHandler) GetItem(ctx context.Context, req *connect.Request[itemsv1.GetItemRequest]) (*connect.Response[itemsv1.GetItemResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("item", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -89,9 +89,9 @@ func (h itemsHandler) UpdateItem(ctx context.Context, req *connect.Request[items
 	if in == nil {
 		in = &itemsv1.Item{}
 	}
-	id, err := rpc.ParseID("id", in.GetId())
+	id, err := rpc.ParseID("item", in.GetId())
 	if err != nil {
-		return nil, rpc.Under("item", err)
+		return nil, err
 	}
 	paths, err := rpc.UpdatePaths(req.Msg.GetUpdateMask(), in, itemWritable...)
 	if err != nil {
@@ -113,7 +113,7 @@ func (h itemsHandler) UpdateItem(ctx context.Context, req *connect.Request[items
 }
 
 func (h itemsHandler) DeleteItem(ctx context.Context, req *connect.Request[itemsv1.DeleteItemRequest]) (*connect.Response[itemsv1.DeleteItemResponse], error) {
-	id, err := rpc.ParseID("id", req.Msg.GetId())
+	id, err := rpc.ParseID("item", req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
