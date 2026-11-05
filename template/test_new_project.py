@@ -98,7 +98,12 @@ class GenerateTest(unittest.TestCase):
         outer.mkdir()
         git(outer, "init", "-q", "-b", "dev")
         git(outer, "commit", "-q", "--allow-empty", "-m", "outer")
-        hook_env = {"GIT_DIR": str(outer / ".git"), "GIT_INDEX_FILE": str(outer / ".git/index")}
+        hook_env = {
+            "GIT_DIR": str(outer / ".git"),
+            "GIT_INDEX_FILE": str(outer / ".git/index"),
+            "GIT_WORK_TREE": str(outer),
+            "GIT_COMMON_DIR": str(outer / ".git"),
+        }
         src = make_template(self.root, BASE_FILES)
         with mock.patch.dict(os.environ, hook_env):
             new_project.generate(src, self.root / "out", "my-app", "acme/my-app")

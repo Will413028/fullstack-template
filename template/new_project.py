@@ -19,6 +19,7 @@ The new project has no link to the template: later template fixes do not reach i
 from __future__ import annotations  # the version check in generate() must run on an old Python, not a SyntaxError
 
 import argparse
+import functools
 import io
 import os
 import pathlib
@@ -77,11 +78,20 @@ class GenerateError(Exception):
     pass
 
 
+@functools.cache
+def _local_git_vars() -> frozenset[str]:
+    """The variables that point git at a repository (`git rev-parse --local-env-vars`), asked once per run."""
+    try:
+        names = subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise GenerateError(f"git rev-parse --local-env-vars failed: {error}") from error
+    return frozenset(names.stdout.split())
+
+
 def _git_env() -> dict[str, str]:
-    """The environment without the variables that point git at a repository (`git rev-parse --local-env-vars`): a git
-    hook exports GIT_DIR, and inheriting it would run every command below against the hook's repository."""
-    names = subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True, check=True)
-    local = set(names.stdout.split())
+    """The environment without the variables that point git at a repository: a git hook exports GIT_DIR, and
+    inheriting it would run every git command below (and those make and go run) against the hook's repository."""
+    local = _local_git_vars()
     return {key: value for key, value in os.environ.items() if key not in local}
 
 
@@ -217,7 +227,7 @@ def materialize(top: pathlib.Path, out: pathlib.Path, name: str, repo: str) -> s
 
 
 def run_tool(cwd: pathlib.Path, *args: str) -> None:
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False)
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=False, env=_git_env())
     if result.returncode:
         output = (result.stdout + result.stderr).strip()
         raise GenerateError(f"{' '.join(args)} failed in {cwd}:\n{output}")
