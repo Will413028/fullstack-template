@@ -9,7 +9,7 @@ import (
 	"github.com/Will413028/template-go-nextjs/backend/internal/platform/apperr"
 )
 
-// Limits on account names and passwords (decision D2 in docs/adr/2026-11-03-api-contract-protobuf-connect.md: limits
+// Limits on account names and passwords (docs/adr/2026-11-03-api-contract-protobuf-connect.md D2: limits
 // live in the module, so sign-up over HTTP, seed-admin and recover-admin apply the same ones). Lengths count code
 // points. users.account's CHECK in schema.sql holds the same account length.
 const (

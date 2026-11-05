@@ -67,8 +67,8 @@ func (a *authAPI) listSessions(token string, size int32) [][]*sessionsv1.Session
 }
 
 // A user reads her own account through UserAppService.GetUser, an admin any account through UserAdminService.GetUser.
-// Intended change (plan step 3＋4): UserAppService.GetUser is self-only, so an admin asking it for another user gets
-// not_found like anyone else; the REST getUser let an admin read anyone.
+// Intended change (the move to Connect): UserAppService.GetUser is self-only, so an admin asking it for another user
+// gets not_found like anyone else; the REST getUser let an admin read anyone.
 func TestGetUser(t *testing.T) {
 	a := newAuthAPI(t)
 	alice, aliceToken := a.mustSignUp("alice")

@@ -70,7 +70,7 @@ layer), not by adding an exception.
 ## Key Conventions
 
 1. **Feature modules** — domain logic lives in `features/<name>/` with api, hooks, components; types are the generated messages in `src/generated/`, never hand-written
-2. **The contract is the single source** — the Protobuf in `../api` defines the shapes; the backend services own lengths and formats (decision D2). Run `pnpm gen:api` after changing it (CI fails on a stale `src/generated`). Forms check presence only and show the API's field errors
+2. **The contract is the single source** — the Protobuf in `../api` defines the shapes; the backend services own lengths and formats (`docs/adr/2026-11-03-api-contract-protobuf-connect.md` D2). Run `pnpm gen:api` after changing it (CI fails on a stale `src/generated`). Forms check presence only and show the API's field errors
 3. **Errors are Connect errors** — show messages by Connect code, `ErrorInfo.reason` and each `BadRequest` violation's reason from `messages/*.json` (`errors.codes`, `errors.reasons`, `errors.fields`, via `lib/api/connect-errors.ts`); never show or parse the message. A new reason in the contract needs a message in every locale, or `pnpm lint` fails
 4. **Biome, not ESLint** — all linting and formatting via Biome, a11y rules enabled
 5. **i18n keys** — all user-facing text in `messages/{locale}.json`, accessed via `useTranslations()`

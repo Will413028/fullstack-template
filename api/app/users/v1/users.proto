@@ -8,8 +8,8 @@ import "google/protobuf/timestamp.proto";
 // an HttpOnly cookie that the response sets, never in a message. Admins manage accounts through
 // app.admin.users.v1.UserAdminService.
 //
-// Limits are checked by the auth service (decision D2): an invalid field is invalid_argument with a BadRequest that
-// lists every invalid field by its request path (account, password).
+// Limits are checked by the auth service (ADR api-contract-protobuf-connect D2): an invalid field is invalid_argument
+// with a BadRequest that lists every invalid field by its request path (account, password).
 
 // Role is what an account may do.
 enum Role {

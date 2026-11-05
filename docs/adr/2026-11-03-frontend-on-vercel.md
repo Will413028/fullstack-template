@@ -75,5 +75,5 @@ tags: [template-go-nextjs, decision, deploy, vercel, caddy, security]
 
 ## Related
 
-- 修訂：[API 與認證基準](2026-10-18-api-and-auth-baseline.md) D1（Caddy 只服務 API；dev 不走 Caddy）、D8（`lb_try_duration` 只涵蓋 API）。
+- 修訂：[API 與認證基準](2026-10-18-api-and-auth-baseline.md) D1（Caddy 只服務 API；dev 不走 Caddy）、[API 與認證基準](2026-10-18-api-and-auth-baseline.md) D8（`lb_try_duration` 只涵蓋 API）。
 - 來源：2026-11-03 repo 擁有者決定「保留 Caddy 給 API，只用 Vercel」；設計經一個沒參與實作的 subagent 審查。

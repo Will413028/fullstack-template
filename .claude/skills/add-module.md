@@ -19,7 +19,7 @@ Read `.claude/skills/add-crud.md` and follow it from start to finish with an emp
 (`<pkg>`, `<table>`, `<Entity>`, `<Entities>`, `<entity_snake>`), file layout, generate and verify steps all apply.
 With no fields, these parts change:
 
-- **Arguments**: `<name>` is the module name; derive the placeholders from it as add-crud step 1 does (for
+- **Arguments**: `<name>` is the module name; derive the placeholders from it as `.claude/skills/add-crud.md` step 1 does (for
   `widgets`: `<pkg>` `widgets`, `<table>` `widgets`, `<Entity>` `Widget`, `<entity_snake>` `widget`).
 - **`schema.sql`**: the table has `id`, `owner_id`, `created_at`, `updated_at` and the
   `<table>_owner_id_id_idx` index; nothing else.
@@ -32,12 +32,12 @@ With no fields, these parts change:
 - **`<pkg>.go`**: no limits, no `Patch` type and no `Update` method; `Create(ctx)` takes no field parameters.
 - **Contract**: `<Entity>` has `id`, `owner_id`, `create_time`, `update_time`. `<Entity>AppService` has
   `Create<Entity>`, `Get<Entity>`, `List<Entities>` and `Delete<Entity>`, with the same requests and responses as
-  add-crud step 4; there is no `Update<Entity>`. `Create<Entity>Request` keeps `<Entity> <entity_snake> = 1;` even
+  `.claude/skills/add-crud.md` step 4; there is no `Update<Entity>`. `Create<Entity>Request` keeps `<Entity> <entity_snake> = 1;` even
   though the server reads nothing from it yet, so fields added later need no new request field.
 - **Generate**: `make -C backend gen sqlc`, then `make generate-migration MSG=add_<table>` from the repository root.
 - **Handler**: no `<entity>Writable` and no `Update<Entity>`. `Create<Entity>` calls `h.<pkg>.Create(ctx)` and names
   its request parameter `_`. `to<Entity>` sets only `Id`, `OwnerId`, `CreateTime`, `UpdateTime`. Wire `Deps`,
-  `connectServices`, `cmd/app/main.go` and `newAuthAPI` exactly as add-crud step 6 says.
+  `connectServices`, `cmd/app/main.go` and `newAuthAPI` exactly as `.claude/skills/add-crud.md` step 6 says.
 - **Tests** (`backend/internal/httpapi/<pkg>_test.go`, following `items_test.go`): create returns the resource with
   the caller as `owner_id` and Get returns the same one; every method without a session is `unauthenticated` before
   decoding; list returns only the caller's rows newest first and pages with `page_size: 2` over 3 rows; get of an
@@ -45,7 +45,7 @@ With no fields, these parts change:
   another user's delete is `not_found` and leaves the row. Skip the add-crud cases about fields and Update. Update
   the backend test count in `scripts/quality-locks.json`.
 
-Finish with add-crud steps 8 and 9 (`pnpm -C frontend gen:api`, `make -C backend fmt`, `make -C backend check`,
+Finish with `.claude/skills/add-crud.md` steps 8 and 9 (`pnpm -C frontend gen:api`, `make -C backend fmt`, `make -C backend check`,
 `pnpm -C frontend gen:api:check`, `pnpm -C frontend lint`, `pnpm -C frontend test`) and report each result.
 
 ## Tell the user what comes next

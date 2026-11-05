@@ -33,7 +33,7 @@ when this file and `items` disagree, stop and tell the user instead of guessing.
   (users is the only table another module may reference), and every query has `owner_id = @owner_id`. Another user's
   row is `not_found`, exactly like a missing one.
 - Lengths, formats and enum values are checked once, in the module's service, with
-  `apperr.Invalid(field, reason, detail)` (decision D2 of `docs/adr/2026-11-03-api-contract-protobuf-connect.md`).
+  `apperr.Invalid(field, reason, detail)` (`docs/adr/2026-11-03-api-contract-protobuf-connect.md` D2).
   `reason` is the lowercase name of a value declared in `api/app/common/v1/errors.proto`'s `FieldViolationReason`
   (`required`, `too_short`, `too_long`, `pattern`, `out_of_range`, `invalid`); an undeclared reason reaches the client
   as `INVALID` and is logged. Do not write limits in the proto, the handler or frontend zod schemas.
@@ -46,7 +46,7 @@ If the user asks for something outside these rules (a resource not owned by a us
 reference to another module's table, a `decimal`/money or `date` field, a list sorted by something other than
 creation time), stop and ask how they want it designed; this skill does not generate it.
 
-## 1. Parse the arguments
+## Step 1. Parse the arguments
 
 - `<entity>`: the resource name, singular or plural, in snake_case (`note`, `notes`, `todo_list`). Derive the names
   below; if the plural is irregular or ambiguous, ask.
@@ -66,7 +66,7 @@ creation time), stop and ask how they want it designed; this skill does not gene
   `created_at`, `updated_at`, `create_time` and `update_time` are reserved (every resource gets them). Example:
   `"title:string(200) required, body:text optional, done:bool, priority:int?, status:enum(open|closed)"`.
 
-## 2. Field type mapping
+## Step 2. Field type mapping
 
 | User type | proto field | PostgreSQL column + CHECK | Go: sqlc store and service | Handler conversion | In items/auth |
 |---|---|---|---|---|---|
@@ -88,7 +88,7 @@ creation time), stop and ask how they want it designed; this skill does not gene
   it is `UNSPECIFIED` and `invalid` for a value outside the map.
 - sqlc names follow Go initialisms (`ID`, `OwnerID`); protoc-gen-go does not (`Id`, `OwnerId`).
 
-## 3. Module: `backend/internal/modules/<pkg>/`
+## Step 3. Module: `backend/internal/modules/<pkg>/`
 
 ### `schema.sql`
 
@@ -201,7 +201,7 @@ Copy the structure of `backend/internal/modules/items/items.go` and rename. The 
 - `owner(ctx)` reads `authctx.From(ctx)` and returns an error (not an `apperr`) when no user is present: an
   AppService needs a session before the handler runs, so a missing user is a wiring bug.
 
-## 4. Contract: `api/app/<pkg>/v1/<pkg>.proto`
+## Step 4. Contract: `api/app/<pkg>/v1/<pkg>.proto`
 
 Copy `api/app/items/v1/items.proto` and rename: `package app.<pkg>.v1;`, no `go_package` (managed mode in
 `backend/buf.gen.yaml` adds it). Then change the fields:
@@ -225,7 +225,7 @@ Copy `api/app/items/v1/items.proto` and rename: `package app.<pkg>.v1;`, no `go_
 Adding a package is not a breaking change; `make -C backend api-breaking` confirms (it skips when the base has no
 proto).
 
-## 5. Generate
+## Step 5. Generate
 
 ```bash
 make -C backend gen sqlc
@@ -242,7 +242,7 @@ make generate-migration MSG=add_<table>
   generated migration; a migration already merged into `main` is never deleted or changed (fix forward with a new
   one).
 
-## 6. Handler and wiring: `backend/internal/httpapi/`
+## Step 6. Handler and wiring: `backend/internal/httpapi/`
 
 Create `backend/internal/httpapi/<pkg>.go` by copying `items.go` and renaming:
 
@@ -278,7 +278,7 @@ Wire the service:
 No authorization table to edit: the `AppService` suffix makes `connectEntry` refuse anonymous callers before
 decoding, and owner scoping is in the queries.
 
-## 7. Integration tests: `backend/internal/httpapi/<pkg>_test.go`
+## Step 7. Integration tests: `backend/internal/httpapi/<pkg>_test.go`
 
 Follow `items_test.go`. The tests use the shared harness (`newAuthAPI`, `a.mustSignUp`, `connectClient`, `baseURL`,
 `assertConnectError`, `assertFieldViolation`, `newConnectAPI`, `connectPost`, `decodeWireError`), which runs the real
@@ -313,7 +313,7 @@ Paging parameters, malformed tokens and cross-site rejection are shared code, al
 `connect_test.go`; do not repeat them. `scripts/quality-locks.json` locks the number of backend tests: update its
 count in the same commit (`scripts/check_locks.py`).
 
-## 8. Frontend
+## Step 8. Frontend
 
 ```bash
 pnpm -C frontend gen:api
@@ -333,7 +333,7 @@ type and the message schemas. Building UI is not part of this skill unless the u
 New reasons are not expected; if you add one to `errors.proto`, add its translation under `errors.fields` or
 `errors.reasons` in every `frontend/messages/*.json` (`messages.test.ts` fails otherwise).
 
-## 9. Verify
+## Step 9. Verify
 
 ```bash
 make -C backend fmt

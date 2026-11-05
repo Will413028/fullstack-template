@@ -15,9 +15,9 @@ import (
 // The environment variable each account field comes from, for error messages.
 var adminInputVars = map[string]string{"account": "ADMIN_ACCOUNT", "password": "ADMIN_PASSWORD"}
 
-// seedAdmin creates the admin account unless it exists; it is the only way to create one. The auth service checks
-// the input with the rules UserPublicService.CreateUser applies (decision D2). An existing account is left exactly as
-// it is: seed-admin never promotes or changes a user.
+// seedAdmin creates the admin account unless it exists; it is the only way to create one. The auth service checks the
+// input with the rules UserPublicService.CreateUser applies (ADR api-contract-protobuf-connect D2). An existing account
+// is left exactly as it is: seed-admin never promotes or changes a user.
 func seedAdmin(ctx context.Context, svc *auth.Service, account, password string, out io.Writer) error {
 	created, err := svc.EnsureAdmin(ctx, account, password)
 	if err != nil {

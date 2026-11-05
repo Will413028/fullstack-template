@@ -64,8 +64,8 @@ var errNotFound = apperr.New(apperr.NotFound, "", "item not found")
 // maxTitle is the longest title in characters (code points); schema.sql's CHECK holds the same limit.
 const maxTitle = 200
 
-// checkTitle enforces the title's limits (decision D2: limits live in the module, not in the contract). The field is
-// reported as title; the HTTP layer maps it to the request's path (item.title).
+// checkTitle enforces the title's limits (ADR api-contract-protobuf-connect D2: limits live in the module, not in the
+// contract). The field is reported as title; the HTTP layer maps it to the request's path (item.title).
 func checkTitle(title string) error {
 	switch n := utf8.RuneCountInString(title); {
 	case n == 0:

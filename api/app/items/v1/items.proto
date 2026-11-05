@@ -8,8 +8,8 @@ import "google/protobuf/timestamp.proto";
 // The example CRUD module (backend/internal/modules/items). Every method acts on the caller's own items: another
 // user's item is not_found, exactly like one that does not exist, so ids reveal nothing about other users' data.
 //
-// Limits are checked by the items service (decision D2): title is 1 to 200 characters counted in code points; an
-// invalid field is invalid_argument with a BadRequest whose field is the request path (item.title).
+// Limits are checked by the items service (ADR api-contract-protobuf-connect D2): title is 1 to 200 characters counted
+// in code points; an invalid field is invalid_argument with a BadRequest whose field is the request path (item.title).
 
 // Item is an item owned by a user.
 message Item {

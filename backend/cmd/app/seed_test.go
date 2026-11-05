@@ -64,8 +64,8 @@ func TestSeedAdminCreatesAdmin(t *testing.T) {
 	}
 }
 
-// The input goes through the auth service's checks, the ones UserPublicService.CreateUser runs (decision D2); there is
-// no built-in default password.
+// The input goes through the auth service's checks, the ones UserPublicService.CreateUser runs (ADR
+// api-contract-protobuf-connect D2); there is no built-in default password.
 func TestSeedAdminRejectsShortPassword(t *testing.T) {
 	svc, pool := newSeedService(t)
 	err := seedAdmin(t.Context(), svc, "root", "fourteen chars", &bytes.Buffer{})

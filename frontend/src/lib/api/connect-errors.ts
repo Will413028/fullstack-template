@@ -10,9 +10,9 @@ import {
 
 // A Connect error is a code plus google.rpc details: ErrorInfo.reason is an app.common.v1.ErrorReason value when the
 // client needs to tell failures apart, BadRequest lists invalid fields with a FieldViolationReason value each. The
-// message is for developers: what the user reads comes from the code and the reasons (decision D3), translated in
-// messages/*.json under errors.codes, errors.reasons and errors.fields. A reason this client does not know falls back
-// to the code.
+// message is for developers: what the user reads comes from the code and the reasons (ADR api-contract-protobuf-connect
+// D3), translated in messages/*.json under errors.codes, errors.reasons and errors.fields. A reason this client does
+// not know falls back to the code.
 
 // errorReason is the ErrorInfo reason of err, undefined without one.
 export function errorReason(err: unknown): string | undefined {

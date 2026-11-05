@@ -219,8 +219,9 @@ func TestCreateUserConcurrentSameAccount(t *testing.T) {
 	}
 }
 
-// The account and password limits of a sign-up (decision D2: the auth service checks them, the same for seed-admin):
-// account 3 to 50 of [A-Za-z0-9_.-], password 15 to 128 code points. Every invalid field is reported in one response.
+// The account and password limits of a sign-up (ADR api-contract-protobuf-connect D2: the auth service checks them, the
+// same for seed-admin): account 3 to 50 of [A-Za-z0-9_.-], password 15 to 128 code points. Every invalid field is
+// reported in one response.
 func TestCreateUserLimits(t *testing.T) {
 	a := newAuthAPI(t)
 	for _, tc := range []struct {
@@ -248,8 +249,8 @@ func TestCreateUserLimits(t *testing.T) {
 	if _, err := a.signUp("bob", "fifteen chars!!"); err != nil {
 		t.Errorf("15-character password: %v", err)
 	}
-	// Intended change (plan step 2): a field the request does not have is dropped (connect-go's DiscardUnknown), no
-	// longer 422 additional_property; it cannot choose the role either.
+	// Intended change (the move to Connect): a field the request does not have is dropped (connect-go's DiscardUnknown),
+	// no longer 422 additional_property; it cannot choose the role either.
 	rec := connectPost(t, a.h, usersv1connect.UserPublicServiceCreateUserProcedure,
 		`{"account":"eve","password":"`+goodPassword+`","role":"ROLE_ADMIN","isAdmin":true}`, nil)
 	var created usersv1.CreateUserResponse
@@ -764,8 +765,8 @@ func (a *authAPI) limitedCall(procedure string) func(account, password string, o
 	}
 }
 
-// Sign-up and sign-in share one per-address allowance (AUTH_RATE_LIMIT_PER_MIN), taken at the Connect entry before
-// the request is decoded. Intended change (plan step 3＋4): a malformed or invalid request uses a token too, and over
+// Sign-up and sign-in share one per-address allowance (AUTH_RATE_LIMIT_PER_MIN), taken at the Connect entry before the
+// request is decoded. Intended change (the move to Connect): a malformed or invalid request uses a token too, and over
 // the limit it is resource_exhausted like any other. Procedures outside the limit, and other addresses, are not
 // affected. The procedures are listed here, not read from connectLimited, so dropping one from it fails this test.
 func TestRateLimitAuthOperations(t *testing.T) {
